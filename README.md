@@ -81,12 +81,12 @@ Gailery решает это:
 
 ### 1. Системные требования
 
-- **ОС**: Ubuntu 22.04+ / Debian 12+
+- **ОС**: Debian 12+ / Ubuntu 24.04+ (проверено на Ubuntu 24.04)
 - **GPU**: NVIDIA с CUDA support, минимум 6GB VRAM (проверено на P104-100 8GB, Pascal SM 6.1)
-- **CUDA**: 12.x (Toolkit установлен на хосте/контейнере)
+- **Драйвер NVIDIA**: 560+ (CUDA 12.6 на хосте, toolkit в контейнере не нужен)
 - **Python**: 3.12
-- **RAM**: 8GB+
-- **Диск**: ~10GB под модели + место под миниатюры и БД (пропорционально количеству фото)
+- **RAM**: 8GB минимум, 16GB рекомендовано
+- **Диск**: ~15GB под модели + кэш + место под миниатюры и БД (на 96K фото: data 6GB, thumbs 2GB)
 
 ### 2. Клонирование
 
@@ -121,8 +121,8 @@ pip install --upgrade pip wheel setuptools
 pip install -r requirements.txt
 ```
 
-> **Важно для onnxruntime-gpu**: Pascal (SM 6.1) требует cuDNN 8.x. cuDNN 9.x не работает.
-> Пакет `nvidia.cudnn` версии 8 ставится через pip (см. ниже).
+> **Важно для Pascal (SM 6.1)**: onnxruntime-gpu требует cuDNN 8.x. cuDNN 9.x не работает.
+> Пакет `nvidia.cudnn` версии 8 ставится через pip (см. ниже). Для SM 70+ (Turing/Ampere) этот шаг не нужен.
 
 ### 5. Сборка llama.cpp
 
@@ -192,7 +192,9 @@ wget https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l
 unzip buffalo_l.zip && rm buffalo_l.zip
 ```
 
-### 7. cuDNN 8 для onnxruntime-gpu (Pascal)
+### 7. cuDNN 8 для onnxruntime-gpu (только Pascal SM 6.1)
+
+На Turing (SM 75+) и новее этот шаг **не нужен** — cuDNN 9 работает.
 
 ```bash
 pip install nvidia.cudnn==8.9.7.29
@@ -402,9 +404,9 @@ gailery/
 
 ## Известные ограничения
 
-- **Pascal SM 6.1**: cuDNN 9.x не работает, нужен 8.x; torch.compile не работает (Triton требует SM 70+)
-- **GPU разделена**: VLM, InsightFace, PyTorch, llama-server — работают по очереди
-- **Семантический поиск**: паузит пайплайн, стартует llama-server для эмбеддингов
+- **Pascal SM 6.1**: cuDNN 9.x не работает, нужен 8.x; torch.compile не работает (Triton требует SM 70+). На Turing+ этих проблем нет
+- **GPU разделена**: VLM, InsightFace, PyTorch — работают по очереди, одновременно одна модель на GPU
+- **Семантический поиск**: при поиске стартует llama-server для эмбеддингов, пайплайн в это время не работает
 - **Read-only**: Gailery не модифицирует оригинальные фото — это фича, а не баг
 
 ---
