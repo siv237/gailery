@@ -44,100 +44,6 @@ Gailery решает это:
 
 ---
 
-## Пример развёртывания: Proxmox + LXC + GPU
-
-Ниже — реальный рабочий конфиг. Gailery крутится в LXC-контейнере на домашнем Proxmox-сервере, выполняя одновременно роль файловой шары и фотогалереи.
-
-### Железо
-
-| Компонент | Пример | Комментарий |
-|-----------|--------|-------------|
-| Сервер | Любой ПК | Достаточно i3/i5 + 8GB RAM |
-| GPU | NVIDIA P104-100 | Бывшая майнинговая, 8GB VRAM, ~$30 на вторичке. Pascal SM 6.1 — старая, но для inference хватает |
-| Диски | HDD/SSD + NFS/SMB | Фото-архив может быть на отдельном диске или NAS |
-
-P104-100 — идеальная «домашняя AI-карта»: дешёвая, 8GB VRAM, пассивное охлаждение, тянет Qwen3.5-4B (VLM описание) + InsightFace (лица) + Qwen3-Embedding (эмбеддинги). GPU используется по очереди, одновременно только одна модель — 8GB хватает.
-
-### Архитектура
-
-```
-┌─────────────────────────────────────────────────┐
-│  Proxmox VE                                      │
-│                                                   │
-│  ┌─────────────────────────────────────────────┐ │
-│  │  LXC контейнер (CT)                         │ │
-│  │                                              │ │
-│  │  /mnt/photos ──► SMB mount (read-only)      │ │
-│  │       или bind mount с хоста                 │ │
-│  │                                              │ │
-│  │  Gailery:                                    │ │
-│  │   • FastAPI (порт 8000)                      │ │
-│  │   • SQLite + LanceDB (в контейнере)          │ │
-│  │   • Модели GGUF (в контейнере)               │ │
-│  │   • Миниатюры WebP (в контейнере)            │ │
-│  │   • GPU NVIDIA (проброс, shared mode)       │ │
-│  │                                              │ │
-│  │  Samba:                                      │ │
-│  │   • Файловая шара для домашних устройств    │ │
-  │  │   • /mnt/photos → домашний фото-архив            │ │
-│  └─────────────────────────────────────────────┘ │
-│                                                   │
-│  GPU: NVIDIA P104-100 → проброс в LXC             │
-│  HDD: /dev/sda1 → mount → /mnt/photos             │
-└─────────────────────────────────────────────────┘
-```
-
-### Proxmox: создание контейнера с GPU
-
-```bash
-# 1. Создаём привилегированный LXC (нужен для GPU и nvidia-smi)
-pct create 101 local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst \
-  --hostname gailery \
-  --cores 4 \
-  --memory 8192 \
-  --rootfs local-lvm:50 \
-  --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-  --features nesting=1 \
-  --unprivileged 0
-
-# 2. Пробрасываем GPU (shared mode — хост тоже может использовать)
-# В /etc/pve/lxc/101.conf добавляем:
-cat >> /etc/pve/lxc/101.conf << 'EOF'
-lxc.cgroup2.devices.allow: c 195:0 rw
-lxc.cgroup2.devices.allow: c 195:255 rw
-lxc.cgroup2.devices.allow: c 509:0 rw
-lxc.mount.entry: /dev/nvidia0 dev/nvidia0 none bind optional 0 0
-lxc.mount.entry: /dev/nvidiactl dev/nvidiactl none bind optional 0 0
-lxc.mount.entry: /dev/nvidia-uvm dev/nvidia-uvm none bind optional 0 0
-lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind optional 0 0
-EOF
-
-# 3. Пробрасываем папку с фото (bind mount, read-only)
-echo "mp0: /mnt/photos,mp=/mnt/photos,ro=1" >> /etc/pve/lxc/101.conf
-
-# Или: монтируем SMB-шару внутри контейнера (read-only)
-# apt install cifs-utils
-# mount -t cifs //NAS/photos /mnt/photos -o ro,username=guest,password=
-
-# 4. Запускаем
-pct start 101
-pct enter 101
-```
-
-### Доступ к фото-архиву
-
-Gailery нужна **только чтение** — она никогда не модифицирует оригинальные файлы. Варианты:
-
-| Способ | Описание |
-|--------|----------|
-| Bind mount | `mp0: /mnt/photos,mp=/mnt/photos,ro=1` в конфиге LXC — самый простой |
-| SMB/CIFS | `mount -t cifs //NAS/photos /mnt/photos -o ro` — если фото на другом сервере |
-| NFS | `mount -t nfs nas:/photos /mnt/photos -o ro` — для NAS типа Synology |
-
-Все описания, имена людей, эмбеддинги, миниатюры — **внутри контейнера**, в `data/` и `thumbnails/`. Фото-архив остаётся нетронутым.
-
----
-
 ## Возможности
 
 - **AI-описание фото** — VLM (Qwen3.5-4B) генерирует описания на русском языке через llama-server
@@ -500,3 +406,53 @@ gailery/
 - **GPU разделена**: VLM, InsightFace, PyTorch, llama-server — работают по очереди
 - **Семантический поиск**: паузит пайплайн, стартует llama-server для эмбеддингов
 - **Read-only**: Gailery не модифицирует оригинальные фото — это фича, а не баг
+
+---
+
+## Пример: Proxmox + LXC + GPU
+
+Рабочий конфиг автора проекта. Gailery не требует Proxmox — достаточно любой Linux-машины с NVIDIA GPU. Этот раздел для тех, кто хочет запустить в LXC.
+
+### Железо
+
+| Компонент | Значение |
+|-----------|----------|
+| Сервер | Xeon E5-2680 v4, 16C/32T |
+| RAM | 16 GB |
+| GPU | NVIDIA P104-100, 8GB VRAM, Pascal SM 6.1, PCIe x4 |
+| Диск | 126GB virtio на SSD (Proxmox) |
+| Фото | SMB mount read-only |
+
+P104-100 — дешёвая бывшая майнинговая карта (~$30), пассивное охлаждение, 8GB VRAM. Тянет Qwen3.5-4B (VLM) + InsightFace + Qwen3-Embedding. GPU по очереди, одновременно одна модель.
+
+### LXC-конфиг (непривилегированный)
+
+```
+# /etc/pve/lxc/CTID.conf
+
+tags: gpu
+unprivileged: 1
+
+# GPU устройства
+lxc.mount.entry: /dev/nvidia0 dev/nvidia0 none bind,optional,create=file
+lxc.mount.entry: /dev/nvidia1 dev/nvidia1 none bind,optional,create=file
+lxc.mount.entry: /dev/nvidiactl dev/nvidiactl none bind,optional,create=file
+lxc.mount.entry: /dev/nvidia-uvm dev/nvidia-uvm none bind,optional,create=file
+lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind,optional,create=file
+lxc.mount.entry: /dev/nvidia-modeset dev/nvidia-modeset none bind,optional,create=file
+
+# NVIDIA утилиты и библиотеки (подставить свою версию драйвера)
+lxc.mount.entry: /usr/bin/nvidia-smi usr/bin/nvidia-smi none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so usr/lib/x86_64-linux-gnu/libnvidia-ml.so none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libcuda.so usr/lib/x86_64-linux-gnu/libcuda.so none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libcudadebugger.so usr/lib/x86_64-linux-gnu/libcudadebugger.so none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libcuda.so.1 usr/lib/x86_64-linux-gnu/libcuda.so.1 none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libcudadebugger.so.1 usr/lib/x86_64-linux-gnu/libcudadebugger.so.1 none bind,optional,create=file
+lxc.mount.entry: /usr/lib/x86_64-linux-gnu/libcuda.so.560.35.03 usr/lib/x86_64-linux-gnu/libcuda.so.560.35.03 none bind,optional,create=file
+
+# Фото-архив (read-only)
+lxc.mount.entry: /mnt/share mnt/share none bind,ro,optional,create=dir
+```
+
+> **Важно**: `libcuda.so.XXX` — подставить версию вашего драйвера. Узнать: `ls /usr/lib/x86_64-linux-gnu/libcuda.so.*` на хосте.
