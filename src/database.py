@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 import lancedb
 import pyarrow as pa
 
-from config import LANCEDB_PATH, EMBEDDINGS_TABLE, DATA_DIR
+from config import LANCEDB_PATH, EMBEDDINGS_TABLE, DATA_DIR, PHOTO_SHARE_PATH
 
 SQLITE_PATH = DATA_DIR / "gallery.db"
 
