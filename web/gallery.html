@@ -1551,38 +1551,43 @@ function _cacheImg(idx) {
     }
 }
 
-function slideshowToggle(dir) {
-    _ssDir = dir;
-    clearInterval(_ssTimer);
-    document.getElementById('modalTopbar').classList.add('playing');
-    _ssTimer = setInterval(function() {
-        var newIdx = _mIdx + _ssDir;
-        if (newIdx < 0) {
-            slideshowStop();
-            return;
-        }
-        if (newIdx >= currentPhotos.length) {
-            if (_canLoadMore && !_isLoading) {
-                loadAfter(_lastDate, _lastPath);
-            } else {
-                slideshowStop();
-                return;
-            }
-        }
-        if (newIdx < currentPhotos.length) {
-            openViewer(newIdx);
-            _cacheImg(newIdx + _ssDir);
-            _cacheImg(newIdx + _ssDir * 2);
-        }
-    }, 5000);
-}
+ function slideshowToggle(dir) {
+     _ssDir = dir;
+     clearInterval(_ssTimer);
+     document.getElementById('modalTopbar').classList.add('playing');
+     _clearFaceBoxes();
+     _ssTimer = setInterval(function() {
+         var newIdx = _mIdx + _ssDir;
+         if (newIdx < 0) {
+             slideshowStop();
+             return;
+         }
+         if (newIdx >= currentPhotos.length) {
+             if (_canLoadMore && !_isLoading) {
+                 loadAfter(_lastDate, _lastPath);
+             } else {
+                 slideshowStop();
+                 return;
+             }
+         }
+         if (newIdx < currentPhotos.length) {
+             openViewer(newIdx);
+             _clearFaceBoxes();
+             _cacheImg(newIdx + _ssDir);
+             _cacheImg(newIdx + _ssDir * 2);
+         }
+     }, 5000);
+ }
 
-function slideshowStop() {
-    _ssDir = 0;
-    clearInterval(_ssTimer);
-    _ssTimer = null;
-    document.getElementById('modalTopbar').classList.remove('playing');
-}
+ function slideshowStop() {
+     _ssDir = 0;
+     clearInterval(_ssTimer);
+     _ssTimer = null;
+     document.getElementById('modalTopbar').classList.remove('playing');
+     var p = currentPhotos[_mIdx];
+     var img = document.getElementById('photoModalImg');
+     if (p && img) _drawFaceBoxes(p, img);
+ }
 
 function openViewer(idx) {
     if (idx < 0 || idx >= currentPhotos.length) return;
@@ -1695,9 +1700,51 @@ function _drawFaceBoxes(p, img) {
     }
 }
 
-function _clearFaceBoxes() {
-    document.getElementById('faceOverlays').innerHTML = '';
-}
+ function _clearFaceBoxes() {
+     document.getElementById('faceOverlays').innerHTML = '';
+ }
+
+ function _drawFaceBoxesCover(p, img) {
+     var ov = document.getElementById('faceOverlays');
+     ov.innerHTML = '';
+     var faces = p.faces || [];
+     if (!faces.length) return;
+     var dispW = img.clientWidth;
+     var dispH = img.clientHeight;
+     if (!dispW || !dispH) return;
+     var natW = img.naturalWidth || p.img_width || 1;
+     var natH = img.naturalHeight || p.img_height || 1;
+     var scale = Math.max(dispW / natW, dispH / natH);
+     var renderedW = natW * scale;
+     var renderedH = natH * scale;
+     var offX = (dispW - renderedW) / 2;
+     var offY = (dispH - renderedH) / 2;
+     var pos = img.style.objectPosition || '50% 50%';
+     var posParts = pos.split(/\s+/);
+     var pxPct = parseFloat(posParts[0]) / 100;
+     var pyPct = parseFloat(posParts[1]) / 100;
+     if (renderedW > dispW) offX = -(renderedW - dispW) * pxPct;
+     if (renderedH > dispH) offY = -(renderedH - dispH) * pyPct;
+     var html = '';
+     for (var i = 0; i < faces.length; i++) {
+         var f = faces[i];
+         if (f.bbox_x1 == null) continue;
+         var x1 = offX + f.bbox_x1 * scale;
+         var y1 = offY + f.bbox_y1 * scale;
+         var x2 = offX + f.bbox_x2 * scale;
+         var y2 = offY + f.bbox_y2 * scale;
+         if (x2 < 0 || y2 < 0 || x1 > dispW || y1 > dispH) continue;
+         x1 = Math.max(0, x1); y1 = Math.max(0, y1);
+         x2 = Math.min(dispW, x2); y2 = Math.min(dispH, y2);
+         var name = f.display_name || f.name || '';
+         html += '<div class="face-box" style="left:' + x1 + 'px;top:' + y1 + 'px;width:' + (x2 - x1) + 'px;height:' + (y2 - y1) + 'px"';
+         if (f.persona_id) html += ' onclick="event.stopPropagation();openFaceModal(\'' + esc(f.persona_id) + '\',\'' + esc(f.face_id) + '\')"';
+         html += '>';
+         if (name) html += '<div class="face-box-label">' + esc(name) + '</div>';
+         html += '</div>';
+     }
+     ov.innerHTML = html;
+ }
 
 function addPhotoGps(photoId) {
     window.open('/map?mode=pick&photo_id=' + encodeURIComponent(photoId), '_blank');
@@ -1848,56 +1895,58 @@ function formatDate(ds) {
     return p.replace(/^(\d{4})[:\-](\d{2})[:\-](\d{2})/, function(m, y, mo, d) { return d + '.' + mo + '.' + y; });
 }
 
-function smartFit() {
-    var img = document.getElementById('photoModalImg');
-    var wrap = document.getElementById('modalImgWrap');
-    var icon = document.getElementById('fitIcon');
-    var p = currentPhotos[_mIdx];
-    if (!img || !p) return;
+ function smartFit() {
+     var img = document.getElementById('photoModalImg');
+     var wrap = document.getElementById('modalImgWrap');
+     var icon = document.getElementById('fitIcon');
+     var p = currentPhotos[_mIdx];
+     if (!img || !p) return;
 
-    if (img.classList.contains('cover')) {
-        img.classList.remove('cover');
-        wrap.classList.remove('cover-wrap');
-        img.style.objectPosition = '';
-        wrap.style.transform = '';
-        wrap.style.transformOrigin = 'center center';
-        _mZoom = 1; _mPx = 0; _mPy = 0;
-        _updateFitIcon(p, false);
-        return;
-    }
+     if (img.classList.contains('cover')) {
+         img.classList.remove('cover');
+         wrap.classList.remove('cover-wrap');
+         img.style.objectPosition = '';
+         wrap.style.transform = '';
+         wrap.style.transformOrigin = 'center center';
+         _mZoom = 1; _mPx = 0; _mPy = 0;
+         _updateFitIcon(p, false);
+         _drawFaceBoxes(p, img);
+         return;
+     }
 
-    img.classList.add('cover');
-    wrap.classList.add('cover-wrap');
+     img.classList.add('cover');
+     wrap.classList.add('cover-wrap');
 
-    var natW = img.naturalWidth || p.img_width || 1;
-    var natH = img.naturalHeight || p.img_height || 1;
-    var faceCenterX = natW / 2;
-    var faceCenterY = natH / 2;
+     var natW = img.naturalWidth || p.img_width || 1;
+     var natH = img.naturalHeight || p.img_height || 1;
+     var faceCenterX = natW / 2;
+     var faceCenterY = natH / 2;
 
-    var faces = p.faces || [];
-    if (faces.length > 0) {
-        var fx1 = Infinity, fy1 = Infinity, fx2 = 0, fy2 = 0;
-        for (var i = 0; i < faces.length; i++) {
-            var f = faces[i];
-            if (f.bbox_x1 == null) continue;
-            fx1 = Math.min(fx1, f.bbox_x1);
-            fy1 = Math.min(fy1, f.bbox_y1);
-            fx2 = Math.max(fx2, f.bbox_x2);
-            fy2 = Math.max(fy2, f.bbox_y2);
-        }
-        if (fx1 < Infinity) {
-            faceCenterX = (fx1 + fx2) / 2;
-            faceCenterY = (fy1 + fy2) / 2;
-        }
-    }
+     var faces = p.faces || [];
+     if (faces.length > 0) {
+         var fx1 = Infinity, fy1 = Infinity, fx2 = 0, fy2 = 0;
+         for (var i = 0; i < faces.length; i++) {
+             var f = faces[i];
+             if (f.bbox_x1 == null) continue;
+             fx1 = Math.min(fx1, f.bbox_x1);
+             fy1 = Math.min(fy1, f.bbox_y1);
+             fx2 = Math.max(fx2, f.bbox_x2);
+             fy2 = Math.max(fy2, f.bbox_y2);
+         }
+         if (fx1 < Infinity) {
+             faceCenterX = (fx1 + fx2) / 2;
+             faceCenterY = (fy1 + fy2) / 2;
+         }
+     }
 
-    var pctX = (faceCenterX / natW * 100).toFixed(1);
-    var pctY = (faceCenterY / natH * 100).toFixed(1);
-    img.style.objectPosition = pctX + '% ' + pctY + '%';
-    wrap.style.transform = '';
-    _mZoom = 1; _mPx = 0; _mPy = 0;
-    _updateFitIcon(p, true);
-}
+     var pctX = (faceCenterX / natW * 100).toFixed(1);
+     var pctY = (faceCenterY / natH * 100).toFixed(1);
+     img.style.objectPosition = pctX + '% ' + pctY + '%';
+     wrap.style.transform = '';
+     _mZoom = 1; _mPx = 0; _mPy = 0;
+     _updateFitIcon(p, true);
+     _drawFaceBoxesCover(p, img);
+ }
 
 function _updateFitIcon(p, isCover) {
     var icon = document.getElementById('fitIcon');
