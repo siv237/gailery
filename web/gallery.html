@@ -496,7 +496,7 @@
 
 <script>
 var API = '/api';
-var pageSize = 40;
+var pageSize = 60;
 var totalResults = 0;
 var activeYear = '';
 var activePerson = '';
@@ -506,40 +506,6 @@ var MONTH_NAMES = ['Январь','Февраль','Март','Апрель','М
 var currentPhotos = [];
 var _isLoading = false;
 var _canLoadMore = true;
-var _prefetchQueue = [];
-var _prefetching = false;
-var _lazyObs = null;
-function initLazyObserver() {
-    if (_lazyObs) return;
-    _lazyObs = new IntersectionObserver(function(entries) {
-        for (var i = 0; i < entries.length; i++) {
-            if (entries[i].isIntersecting) {
-                var img = entries[i].target;
-                var ds = img.getAttribute('data-src');
-                var dss = img.getAttribute('data-srcset');
-                if (ds) {
-                    img.setAttribute('src', ds);
-                    img.removeAttribute('data-src');
-                }
-                if (dss) {
-                    img.setAttribute('srcset', dss);
-                    img.removeAttribute('data-srcset');
-                }
-                _lazyObs.unobserve(img);
-            }
-        }
-    }, { rootMargin: '200px' });
-}
-
-function observeLazyThumbs() {
-    initLazyObserver();
-    var imgs = document.querySelectorAll('.lazy-thumb[data-src]');
-    for (var i = 0; i < imgs.length; i++) {
-        _lazyObs.observe(imgs[i]);
-    }
-}
-var _pendingLoads = 0;
-var _MAX_PENDING = 4;
 var _canLoadPrev = false;
 var _firstDate = null;
 var _lastDate = null;
@@ -547,6 +513,28 @@ var _firstPath = null;
 var _lastPath = null;
 var _noDateMode = false;
 var _needleMode = false;
+var _prefetchQueue = [];
+var _prefetching = false;
+var _PREFETCH_AHEAD = 5;
+var _phCount = 0;
+var _faceLazyObs = null;
+
+function _observeThumbs() {
+    if (!_faceLazyObs) {
+        _faceLazyObs = new IntersectionObserver(function(entries) {
+            for (var i = 0; i < entries.length; i++) {
+                if (entries[i].isIntersecting) {
+                    var img = entries[i].target;
+                    var ds = img.getAttribute('data-src');
+                    if (ds) { img.setAttribute('src', ds); img.removeAttribute('data-src'); }
+                    _faceLazyObs.unobserve(img);
+                }
+            }
+        }, { rootMargin: '0px' });
+    }
+    var faces = document.querySelectorAll('.lazy-face[data-src]');
+    for (var i = 0; i < faces.length; i++) _faceLazyObs.observe(faces[i]);
+}
 var fmAcNames = [];
 var fmCurrentPid = null;
 var fmOriginalName = '';
@@ -603,9 +591,9 @@ function doSearch() {
     _canLoadMore = true;
     _canLoadPrev = true;
     _isLoading = false;
-    _pendingLoads = 0;
-    _phCount = 0;
     _prefetchQueue = [];
+    _prefetching = false;
+    _phCount = 0;
     _firstDate = null;
     _lastDate = null;
     _firstPath = null;
@@ -671,8 +659,8 @@ function getSearchParams() {
 }
 
 function loadAfter(afterDate, afterPath, useDateFrom) {
-    if (!_canLoadMore || _pendingLoads >= _MAX_PENDING) return;
-    _pendingLoads++;
+    if (_isLoading || !_canLoadMore) return;
+    _isLoading = true;
     var params = getSearchParams();
     if (afterDate) {
         if (useDateFrom) {
@@ -682,62 +670,30 @@ function loadAfter(afterDate, afterPath, useDateFrom) {
             if (afterPath) params += '&path_after=' + encodeURIComponent(afterPath);
         }
     }
-    if (currentPhotos.length === 0) {
-        document.getElementById('grid').innerHTML = '<div class="loading">Загрузка...</div>';
-    }
+    if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="loading">Загрузка...</div>';
 
     var taken = _prefetchQueue.shift();
-    if (taken && taken.key === _pfKey(params, afterDate, afterPath, useDateFrom)) {
-        applyBatch(taken.data);
-        _pendingLoads--;
-        fillPrefetchQueue();
+    if (taken && taken.key === params + '|' + (afterDate||'') + '|' + (afterPath||'') + '|' + (useDateFrom||'')) {
+        _applyBatch(taken.data);
+        _isLoading = false;
+        _fillPrefetch();
     } else {
         _prefetchQueue = [];
-        var phStartIdx = currentPhotos.length + _phCount;
-        appendPlaceholders(pageSize, phStartIdx);
+        appendPlaceholders(pageSize);
         fetch(API + '/photos/search?' + params).then(function(r) { return r.json(); }).then(function(data) {
-            removePlaceholders(phStartIdx);
-            applyBatch(data);
-            _pendingLoads--;
-            fillPrefetchQueue();
+            removePlaceholders();
+            _applyBatch(data);
+            _isLoading = false;
+            _fillPrefetch();
         }).catch(function(e) {
-            removePlaceholders(phStartIdx);
+            removePlaceholders();
             if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="empty">Ошибка: ' + esc(e.message) + '</div>';
-            _pendingLoads--;
+            _isLoading = false;
         });
     }
 }
 
-var _phCount = 0;
-
-function appendPlaceholders(count, startIdx) {
-    var grid = document.getElementById('grid');
-    var html = '';
-    for (var i = 0; i < count; i++) {
-        html += '<div class="card placeholder-card" data-ph-idx="' + (startIdx + i) + '"><div class="ph-thumb"></div><div class="overlay"><div class="ph-line"></div></div></div>';
-    }
-    grid.insertAdjacentHTML('beforeend', html);
-    _phCount += count;
-}
-
-function removePlaceholders(startIdx) {
-    var grid = document.getElementById('grid');
-    var phs = grid.querySelectorAll('.placeholder-card');
-    for (var i = phs.length - 1; i >= 0; i--) {
-        phs[i].remove();
-    }
-    _phCount = 0;
-}
-
-function _pfKey(params, afterDate, afterPath, useDateFrom) {
-    return params + '|' + (afterDate || '') + '|' + (afterPath || '') + '|' + (useDateFrom || '');
-}
-
-function _pfNextKey() {
-    return getSearchParams() + '|' + (_lastDate || '') + '|' + (_lastPath || '') + '|';
-}
-
-function applyBatch(data) {
+function _applyBatch(data) {
     totalResults = data.total;
     if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '';
     if (data.photos.length === 0 && currentPhotos.length === 0) {
@@ -773,15 +729,33 @@ function applyBatch(data) {
             setTimeout(scrollToPhoto, 300);
         }
     }
+    if (data.photos.length < totalResults) {
+        _canLoadPrev = true;
+    }
 }
 
-function fillPrefetchQueue() {
+function appendPlaceholders(count) {
+    var grid = document.getElementById('grid');
+    var html = '';
+    for (var i = 0; i < count; i++) {
+        html += '<div class="card placeholder-card"><div class="ph-thumb"></div><div class="overlay"><div class="ph-line"></div></div></div>';
+    }
+    grid.insertAdjacentHTML('beforeend', html);
+    _phCount += count;
+}
+
+function removePlaceholders() {
+    var phs = document.querySelectorAll('.placeholder-card');
+    for (var i = phs.length - 1; i >= 0; i--) phs[i].remove();
+    _phCount = 0;
+}
+
+function _fillPrefetch() {
     if (!_canLoadMore || _prefetching) return;
     var needed = _PREFETCH_AHEAD - _prefetchQueue.length;
     if (needed <= 0) return;
     _prefetching = true;
     var params0 = getSearchParams();
-
     var chainDate = _lastDate;
     var chainPath = _lastPath;
     if (_prefetchQueue.length > 0) {
@@ -791,15 +765,12 @@ function fillPrefetchQueue() {
             chainPath = last.data.photos[last.data.photos.length - 1].path || null;
         }
     }
-
     var requests = [];
     var curD = chainDate, curP = chainPath;
     for (var i = 0; i < needed; i++) {
         requests.push({ date: curD, path: curP });
         curD = null; curP = null;
     }
-
-    var done = 0;
     function doNext(idx) {
         if (idx >= requests.length) { _prefetching = false; return; }
         var req = requests[idx];
@@ -819,12 +790,8 @@ function fillPrefetchQueue() {
                     } else break;
                 }
             }
-            done++;
             doNext(idx + 1);
-        }).catch(function() {
-            done++;
-            doNext(idx + 1);
-        });
+        }).catch(function() { doNext(idx + 1); });
     }
     doNext(0);
 }
@@ -911,35 +878,24 @@ function _monthDividerHtml(dateStr) {
 
 function appendGrid(photos, startIdx) {
     var grid = document.getElementById('grid');
+    var html = '';
     var lastMonth = null;
     var lastCard = grid.querySelector('.card:last-child');
     if (lastCard) lastMonth = lastCard.getAttribute('data-date') ? _monthKey(lastCard.getAttribute('data-date')) : null;
-    var CHUNK = 10;
-    var i = 0;
-    function renderChunk() {
-        var html = '';
-        var end = Math.min(i + CHUNK, photos.length);
-        for (; i < end; i++) {
-            if (!isSemanticMode) {
-                var mk = _monthKey(photos[i].date || '');
-                if (mk && mk !== lastMonth) {
-                    html += _monthDividerHtml(photos[i].date);
-                    lastMonth = mk;
-                }
+    for (var i = 0; i < photos.length; i++) {
+        if (!isSemanticMode) {
+            var mk = _monthKey(photos[i].date || '');
+            if (mk && mk !== lastMonth) {
+                html += _monthDividerHtml(photos[i].date);
+                lastMonth = mk;
             }
-            html += buildCardHtml(photos[i], startIdx + i);
         }
-        if (html) grid.insertAdjacentHTML('beforeend', html);
-        reindexAll();
-        if (i < photos.length) {
-            requestAnimationFrame(renderChunk);
-        } else {
-            _canLoadPrev = true;
-            if (photos.length > 0) _phCount = 0;
-            observeLazyThumbs();
-        }
+        html += buildCardHtml(photos[i], startIdx + i);
     }
-    renderChunk();
+    grid.insertAdjacentHTML('beforeend', html);
+    _canLoadPrev = true;
+    reindexAll();
+    _observeThumbs();
 }
 
 function prependGrid(photos, startIdx) {
@@ -956,7 +912,7 @@ function prependGrid(photos, startIdx) {
     }
     grid.insertAdjacentHTML('afterbegin', html);
     reindexAll();
-    observeLazyThumbs();
+    _observeThumbs();
 }
 
 function reindexAll() {
@@ -988,7 +944,7 @@ function buildCardHtml(p, idx) {
             var fid = (per.face_ids && per.face_ids.length > 0) ? per.face_ids[0] : '';
             var hasName = per.display_name ? true : false;
             var cls = hasName ? 'face-thumb named' : 'face-thumb';
-            if (fid) facesHtml += '<img class="' + cls + '" src="' + API + '/photos/face/' + fid + '?margin=0.5" title="' + esc(per.display_name || per.name) + '" onclick="event.stopPropagation();openFaceModal(\'' + esc(per.persona_id) + '\',\'' + fid + '\')">';
+            if (fid) facesHtml += '<img class="' + cls + ' lazy-face" data-src="' + API + '/photos/face/' + fid + '?margin=0.5" title="' + esc(per.display_name || per.name) + '" onclick="event.stopPropagation();openFaceModal(\'' + esc(per.persona_id) + '\',\'' + fid + '\')">';
         }
         facesHtml += '</div>';
     }
@@ -1010,7 +966,7 @@ function buildCardHtml(p, idx) {
     var q = document.getElementById('searchInput').value.trim();
     if (q) html += '<button class="goto-btn" onclick="event.stopPropagation();goToTimelineFromCard(' + idx + ')" title="Найти в хронологии">&#x21E1;</button>';
     if (thumbBase) {
-        html += '<img data-src="' + thumbBase + '&size=sm" data-srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" class="lazy-thumb" decoding="async" onerror="this.style.display=\'none\'">';
+        html += '<img src="' + thumbBase + '&size=sm" srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">';
     }
     html += gpsIcon;
     html += badge;
@@ -2414,11 +2370,11 @@ window.addEventListener('scroll', function() {
     }
     _lastScrollY = scrollY;
 
-    if (_canLoadMore && scrollY + winH >= docH - 2000) {
-        loadAfter(_lastDate, _lastPath);
-    }
-    if (!_isLoading && _canLoadPrev && scrollY < 800) {
-        loadBefore(_firstDate, _firstPath);
+    if (!_isLoading) {
+        if (_canLoadMore && scrollY + winH >= docH - 2000) loadAfter(_lastDate, _lastPath);
+        if (_canLoadPrev && scrollY < 800) {
+            loadBefore(_firstDate, _firstPath);
+        }
     }
 
     updateTimelinePosition();

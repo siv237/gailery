@@ -170,8 +170,8 @@ async def get_thumbnail(path: str, size: str = "sm", fit: bool = False):
 
 @router.get("/face/{face_id}")
 async def get_face_crop(face_id: str, margin: float = 0.5):
+    import asyncio
     from database import DatabaseManager
-    import io
 
     db = DatabaseManager()
     face = db.get_face(face_id)
@@ -182,10 +182,12 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    try:
+    bbox = (int(face["bbox_x1"]), int(face["bbox_y1"]), int(face["bbox_x2"]), int(face["bbox_y2"]))
+
+    def _crop():
         import pyvips
         img = pyvips.Image.new_from_file(str(photo_path), access="random")
-        x1, y1, x2, y2 = int(face["bbox_x1"]), int(face["bbox_y1"]), int(face["bbox_x2"]), int(face["bbox_y2"])
+        x1, y1, x2, y2 = bbox
         fw = x2 - x1
         fh = y2 - y1
         mx = int(fw * margin)
@@ -198,7 +200,11 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
         max_dim = 200
         if max(crop.width, crop.height) > max_dim:
             crop = crop.thumbnail_image(max_dim, crop="none")
-        buf = crop.write_to_buffer(".webp", Q=85)
+        return crop.write_to_buffer(".webp", Q=85)
+
+    try:
+        loop = asyncio.get_event_loop()
+        buf = await loop.run_in_executor(None, _crop)
         return Response(content=buf, media_type="image/webp",
                         headers={"Cache-Control": "public, max-age=31536000"})
     except Exception as e:
@@ -220,36 +226,37 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    try:
-        import pyvips
+    bbox = (float(face["bbox_x1"]), float(face["bbox_y1"]), float(face["bbox_x2"]), float(face["bbox_y2"]))
+
+    def _context():
+        import pyvips, io
+        from PIL import Image as PILImage, ImageDraw
         img = pyvips.Image.new_from_file(str(photo_path), access="random")
         iw, ih = img.width, img.height
-
-        x1, y1, x2, y2 = float(face["bbox_x1"]), float(face["bbox_y1"]), float(face["bbox_x2"]), float(face["bbox_y2"])
+        x1, y1, x2, y2 = bbox
         fw, fh = x2 - x1, y2 - y1
-
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
         vw, vh = fw * zoom, fh * zoom
-
         vx1 = max(0, int(cx - vw / 2))
         vy1 = max(0, int(cy - vh / 2))
         vx2 = min(iw, int(cx + vw / 2))
         vy2 = min(ih, int(cy + vh / 2))
-
         crop = img.crop(vx1, vy1, vx2 - vx1, vy2 - vy1)
-
         rx1, ry1 = int(x1 - vx1), int(y1 - vy1)
         rx2, ry2 = int(x2 - vx1), int(y2 - vy1)
-
-        from PIL import Image as PILImage, ImageDraw
         crop_buf = crop.write_to_buffer(".png")
         pil_crop = PILImage.open(io.BytesIO(crop_buf))
         draw = ImageDraw.Draw(pil_crop)
         draw.rectangle([rx1, ry1, rx2, ry2], outline="red", width=3)
-
         buf = io.BytesIO()
         pil_crop.save(buf, format='JPEG', quality=90)
-        return Response(content=buf.getvalue(), media_type="image/jpeg",
+        return buf.getvalue()
+
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        content = await loop.run_in_executor(None, _context)
+        return Response(content=content, media_type="image/jpeg",
                         headers={"Cache-Control": "public, max-age=31536000"})
     except Exception as e:
         logger.error(f"Failed to get face context {face_id}: {e}")
