@@ -36,13 +36,24 @@ logger = logging.getLogger(__name__)
 from mqtt_client import (
     WorkerMQTT, WORKER_NAMES, GPU_WORKERS,
     worker_status_topic, worker_pid_topic,
+    _topic,
 )
 
 CHECK_INTERVAL = 10
 RESTART_COOLDOWN = 60
+NO_RESTART_FLAG = FLAG_DIR / "no_restart"
 
 _pipeline_restarts = []
 _crash_log = []
+
+
+def is_no_restart():
+    if not NO_RESTART_FLAG.exists():
+        return False
+    for fname in ["pipeline", "describe", "faces", "exif", "embed", "ingest", "enrich"]:
+        if (FLAG_DIR / fname).exists():
+            return False
+    return True
 
 
 def log_incident(msg):
@@ -62,6 +73,8 @@ def check_stale_flags():
     for fname in os.listdir(flag_dir):
         fpath = os.path.join(flag_dir, fname)
         if not os.path.isfile(fpath):
+            continue
+        if fname == "no_restart":
             continue
         worker_name = fname
         pid_path = os.path.join("/proc")
@@ -91,6 +104,9 @@ def check_stale_flags():
 
 
 def restart_pipeline():
+    if is_no_restart():
+        logger.info("Флаг no_restart — перезапуск заблокирован (ручная остановка)")
+        return
     now = time.time()
     recent = [t for t in _pipeline_restarts if now - t < 300]
     if len(recent) >= 3:
@@ -112,9 +128,19 @@ class WatchdogMQTT(WorkerMQTT):
         super().__init__("watchdog")
         self._worker_statuses = {}
         self._worker_pids = {}
+        self._last_mode = None
         for name in WORKER_NAMES:
             self._worker_statuses[name] = "idle"
             self._worker_pids[name] = None
+
+    def publish_mode(self):
+        mode = "sleeping" if is_no_restart() else "active"
+        if mode != self._last_mode:
+            self._last_mode = mode
+            label = "дремлет" if mode == "sleeping" else "активен"
+            logger.info(f"Режим: {label}")
+            log_incident(f"MODE: пёс {label}")
+        self.publish(_topic("watchdog", "mode"), mode, retain=True)
 
     def connect(self):
         result = super().connect()
@@ -132,7 +158,10 @@ class WatchdogMQTT(WorkerMQTT):
                 logger.warning(f"LWT DEAD: {name} был {old}, теперь dead!")
                 log_incident(f"LWT DEAD: {name} упал нештатно (был {old} → dead)")
                 if name == "pipeline":
-                    restart_pipeline()
+                    if is_no_restart():
+                        logger.info(f"no_restart: {name} не перезапускаю (ручная остановка)")
+                    else:
+                        restart_pipeline()
             if payload == "running" and old == "dead":
                 logger.info(f"RECOVERY: {name} снова running")
                 log_incident(f"RECOVERY: {name} восстановлен (dead → running)")
@@ -158,7 +187,10 @@ class WatchdogMQTT(WorkerMQTT):
                     log_incident(f"PID DEAD: {name} pid={pid} мёртв, статус не обновлён (стале)")
                     self._worker_statuses[name] = "dead"
                     if name == "pipeline":
-                        restart_pipeline()
+                        if is_no_restart():
+                            logger.info(f"no_restart: {name} не перезапускаю (ручная остановка)")
+                        else:
+                            restart_pipeline()
 
     def get_crash_log(self):
         return list(_crash_log)
@@ -173,6 +205,7 @@ def main():
 
     try:
         while True:
+            mq.publish_mode()
             mq.check_pids()
             check_stale_flags()
             time.sleep(CHECK_INTERVAL)

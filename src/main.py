@@ -403,12 +403,19 @@ async def watchdog_crashes():
         with open(str(LOG_FILE), "r") as f:
             lines = f.readlines()
     except Exception:
-        return {"crashes": []}
+        return {"crashes": [], "no_restart": False}
     crashes = []
     for line in reversed(lines[-500:]):
         if "[WATCHDOG]" in line and ("DEAD" in line or "STALE" in line or "RESTART" in line or "RECOVERY" in line):
             crashes.append(line.strip())
-    return {"crashes": crashes[:50]}
+    no_restart = (FLAG_DIR / "no_restart").exists()
+    if no_restart:
+        for fname in ["pipeline", "describe", "faces", "exif", "embed", "ingest", "enrich"]:
+            if (FLAG_DIR / fname).exists():
+                no_restart = False
+                break
+    mode = "sleeping" if no_restart else "active"
+    return {"crashes": crashes[:50], "no_restart": no_restart, "mode": mode}
 
 
 @app.post("/api/control/start")
@@ -453,6 +460,11 @@ async def control_start(body: dict):
         cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/pipeline.py --ingest {n} --describe {dl} --batch-size {bs} {root} >> {_lf} 2>&1 &"
 
     if cmd:
+        try:
+            (FLAG_DIR / "no_restart").unlink()
+        except FileNotFoundError:
+            pass
+        os.system("systemctl enable gailray-pipeline 2>/dev/null")
         os.system("pkill -9 -f 'llama-server' 2>/dev/null")
         from datetime import datetime
         with open(_lf, "a") as f:
@@ -469,7 +481,9 @@ async def control_stop():
     mq = _get_api_mqtt()
     if mq:
         mq.send_stop("all")
-    for pattern in ["llama-server", "vision_describe", "face_pipeline", "faces.py", "faces", "ingest.py", "ingest", "exif.py", "exif", "embed.py", "embed", "pipeline.py", "describe.py", "describe"]:
+    os.system("systemctl stop gailray-pipeline 2>/dev/null")
+    os.system("systemctl disable gailray-pipeline 2>/dev/null")
+    for pattern in ["llama-server", "vision_describe", "face_pipeline", "faces.py", "faces", "ingest.py", "ingest", "exif.py", "exif", "embed.py", "embed", "pipeline.py", "describe.py", "describe", "enrich_description.py", "enrich"]:
         try:
             os.system(f"pkill -f '{pattern}' 2>/dev/null")
         except Exception:
@@ -480,7 +494,10 @@ async def control_stop():
             os.remove(os.path.join(flag_dir, fname))
         except Exception:
             pass
+    no_restart_path = FLAG_DIR / "no_restart"
+    no_restart_path.parent.mkdir(parents=True, exist_ok=True)
     from datetime import datetime
+    no_restart_path.write_text(f"manual stop {datetime.now().isoformat()}")
     with open(str(LOG_FILE), "a") as f:
         f.write(f"[{datetime.now().isoformat()}] [CONTROL] STOP ALL\n")
     return {"ok": True}

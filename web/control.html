@@ -218,6 +218,7 @@
         .wcard-dot.alive { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
         .wcard-dot.dead { background: #f85149; }
         .wcard-dot.idle { background: #484f58; }
+        .wcard-dot.sleeping { background: #d29922; box-shadow: 0 0 6px #d29922; }
         .wcard-dot.done { background: #58a6ff; }
         .wcard-row { color: #8b949e; font-size: 11px; margin-top: 2px; }
         .wcard-row b { color: #c9d1d9; }
@@ -231,6 +232,7 @@
         .light-theme .wcard-dot.alive { background: #1f883d; box-shadow: 0 0 4px #1f883d; }
         .light-theme .wcard-dot.dead { background: #cf222e; }
         .light-theme .wcard-dot.idle { background: #afb8c1; }
+        .light-theme .wcard-dot.sleeping { background: #bf8700; box-shadow: 0 0 4px #bf8700; }
         .light-theme .wcard-dot.done { background: #0969da; }
         .light-theme .wcard-row { color: #57606a; }
         .light-theme .wcard-row b { color: #24292f; }
@@ -835,6 +837,7 @@ function stopAll(){
         });
         document.getElementById('chainInfo').textContent = 'Остановлено '+new Date().toLocaleTimeString();
         renderTasks(); renderCyclo();
+        loadCrashes();
     });
 }
 
@@ -1204,9 +1207,14 @@ function loadCrashes(){
             statusEl.parentNode.insertBefore(dot, statusEl);
         }
         var dotEl = document.getElementById('watchdogDot');
-        var wdRunning = crashes.length > 0 || true;
-        dotEl.className = 'wcard-dot ' + (wdRunning ? 'alive' : 'idle');
-        statusEl.innerHTML = '<span style="color:#8b949e">Сторож: </span><b style="color:' + (crashes.length > 0 ? '#f0883e' : '#3fb950') + '">' + (crashes.length > 0 ? crashes.length + ' инцидентов' : 'норма') + '</b>';
+        var mode = d.mode || 'active';
+        if(mode === 'sleeping'){
+            dotEl.className = 'wcard-dot sleeping';
+            statusEl.innerHTML = '<span style="color:#8b949e">&#128054; Сторожевой пёс: </span><b style="color:#d29922">дремлет</b>';
+        } else {
+            dotEl.className = 'wcard-dot alive';
+            statusEl.innerHTML = '<span style="color:#8b949e">&#128054; Сторожевой пёс: </span><b style="color:#3fb950">активен</b>';
+        }
         if(_crashLogVisible){
             var el = document.getElementById('crashLog');
             if(crashes.length === 0){
@@ -1214,6 +1222,15 @@ function loadCrashes(){
             } else {
                 el.innerHTML = crashes.map(function(c){
                     var t = esc(c);
+                    var m = t.match(/^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+                    if(m){
+                        var d2=new Date(m[1]+'Z');
+                        if(!isNaN(d2.getTime())){
+                            var pad=function(n){return n<10?'0'+n:n;};
+                            var local=d2.getFullYear()+'-'+pad(d2.getMonth()+1)+'-'+pad(d2.getDate())+' '+pad(d2.getHours())+':'+pad(d2.getMinutes())+':'+pad(d2.getSeconds());
+                            t=t.replace(m[1],local);
+                        }
+                    }
                     if(t.indexOf('LWT DEAD')>=0) return '<span style="color:#f85149">'+t+'</span>';
                     if(t.indexOf('RESTART')>=0) return '<span style="color:#d29922">'+t+'</span>';
                     if(t.indexOf('RECOVERY')>=0) return '<span style="color:#3fb950">'+t+'</span>';
