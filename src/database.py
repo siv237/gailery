@@ -339,7 +339,7 @@ class DatabaseManager:
                       issue_type=None, photo_type=None, has_gps=None,
                       no_date=None, has_description=None,
                       deleted=None, deleted_only=None,
-                      content_hash=None,
+                      content_hash=None, file_type=None,
                       sort="date_desc", limit=60, offset=0):
         ed = "COALESCE(manual_date, date)"
         sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1"
@@ -399,6 +399,16 @@ class DatabaseManager:
             sql += " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
         elif has_gps is False:
             sql += " AND (gps_lat IS NULL OR gps_lon IS NULL)"
+
+        _raw_exts = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
+        if file_type == 'raw':
+            ext_clauses = ' OR '.join(['path LIKE ?' for _ in _raw_exts])
+            sql += f" AND ({ext_clauses})"
+            params.extend([f'%{e}' for e in sorted(_raw_exts)])
+        elif file_type == 'non_raw':
+            ext_clauses = ' AND '.join(['path NOT LIKE ?' for _ in _raw_exts])
+            sql += f" AND ({ext_clauses})"
+            params.extend([f'%{e}' for e in sorted(_raw_exts)])
 
         if content_hash:
             sql += " AND cf.content_hash LIKE ?"

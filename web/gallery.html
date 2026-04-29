@@ -137,6 +137,7 @@
         .card:hover .goto-btn { opacity: .8; }
         .card .goto-btn:hover { opacity: 1; background: rgba(0,0,0,.8); }
         .gps-badge { position: absolute; bottom: 4px; right: 4px; background: rgba(88,166,255,.8); color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 2px; font-weight: 700; cursor: pointer; z-index: 2; }
+        .raw-badge { position: absolute; top: 4px; left: 4px; background: #f0883e; color: #fff; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; letter-spacing: 0.5px; z-index: 2; }
         .gps-badge:hover { background: rgba(88,166,255,1); }
 
         .detail-panel { display: none; position: fixed; top: 0; right: 0; width: 380px; height: 100%; background: #161b22; border-left: 1px solid #30363d; z-index: 1000; overflow-y: auto; overflow-x: hidden; padding: 20px; color: #c9d1d9; font-size: 13px; box-sizing: border-box; }
@@ -604,8 +605,13 @@
              <option value="meme">Мем</option>
              <option value="icon">Иконка</option>
              <option value="other">Другое</option>
-         </select>
-         <button onclick="doSearch()">Искать</button>
+          </select>
+          <select id="fileTypeSelect" onchange="doSearch()" style="min-width:90px" title="Фильтр по формату файла">
+              <option value="">RAW+JPEG</option>
+              <option value="non_raw">Только JPEG</option>
+              <option value="raw">Только RAW</option>
+          </select>
+          <button onclick="doSearch()">Искать</button>
          <button class="btn-secondary" onclick="openPersonFilter()">По персоне</button>
          <button class="btn-secondary" onclick="clearFilters()">Сброс</button>
           <button class="mob-filter-btn" onclick="openFilterSheet()" aria-label="Фильтры">&#9881;<span class="badge-dot"></span></button>
@@ -642,15 +648,20 @@
             <option value="created_desc">Последние добавленные</option>
             <option value="relevance">По релевантности</option>
         </select>
-        <select class="fs-select" id="photoTypeSelectMob" onchange="syncSelect(this,'photoTypeSelect')">
-            <option value="">Все типы</option>
-            <option value="photo">Фото</option>
-            <option value="screenshot">Скриншот</option>
-            <option value="document">Документ</option>
-            <option value="meme">Мем</option>
-            <option value="icon">Иконка</option>
-            <option value="other">Другое</option>
-        </select>
+         <select class="fs-select" id="photoTypeSelectMob" onchange="syncSelect(this,'photoTypeSelect')">
+             <option value="">Все типы</option>
+             <option value="photo">Фото</option>
+             <option value="screenshot">Скриншот</option>
+             <option value="document">Документ</option>
+             <option value="meme">Мем</option>
+             <option value="icon">Иконка</option>
+             <option value="other">Другое</option>
+         </select>
+         <select class="fs-select" id="fileTypeSelectMob" onchange="syncSelect(this,'fileTypeSelect')">
+             <option value="">RAW+JPEG</option>
+             <option value="non_raw">Только JPEG</option>
+             <option value="raw">Только RAW</option>
+         </select>
         <div class="toggle-row"><div><span class="toggle-label">Только с лицами</span><span class="fs-hint">Показать фото где найдены и распознаны лица</span></div><label class="toggle-switch"><input type="checkbox" id="chkFacesMob" onchange="syncFilter(this,'chkFaces')"><span class="toggle-track"></span></label></div>
         <div class="toggle-row"><div><span class="toggle-label">С описанием</span><span class="fs-hint">Фото обработанные ИИ-описанием</span></div><label class="toggle-switch"><input type="checkbox" id="chkHasDescMob" onchange="syncFilter(this,'chkHasDesc')"><span class="toggle-track"></span></label></div>
         <div class="toggle-row"><div><span class="toggle-label">С проблемами</span><span class="fs-hint">Размытые, тёмные, повреждённые</span></div><label class="toggle-switch"><input type="checkbox" id="chkIssuesMob" onchange="syncFilter(this,'chkIssues')"><span class="toggle-track"></span></label></div>
@@ -917,15 +928,17 @@ function getSearchParams() {
     var issuesOnly = document.getElementById('chkIssues').checked;
     var gpsOnly = document.getElementById('chkGps').checked;
     var deletedOnly = document.getElementById('chkDeleted').checked;
-    var photoType = document.getElementById('photoTypeSelect').value;
-    var params = 'limit=' + pageSize + '&sort=' + sort;
+     var photoType = document.getElementById('photoTypeSelect').value;
+     var fileType = document.getElementById('fileTypeSelect').value;
+     var params = 'limit=' + pageSize + '&sort=' + sort;
     if (q) params += '&q=' + encodeURIComponent(q);
     if (activePerson) params += '&person=' + encodeURIComponent(activePerson);
     if (facesOnly) params += '&has_faces=true';
     if (hasDesc) params += '&has_description=true';
     if (issuesOnly) params += '&has_issues=true';
     if (gpsOnly) params += '&has_gps=true';
-    if (photoType) params += '&photo_type=' + encodeURIComponent(photoType);
+     if (photoType) params += '&photo_type=' + encodeURIComponent(photoType);
+     if (fileType) params += '&file_type=' + encodeURIComponent(fileType);
     if (_noDateMode) params += '&no_date=true';
     if (deletedOnly) params += '&deleted_only=true';
     return params;
@@ -1233,15 +1246,17 @@ function buildCardHtml(p, idx) {
     var hasFaces = p.personas && p.personas.length > 0;
     var relBadge = '';
     var badge = '';
-    if (hasRel) {
-        var pct = Math.round((1 - p.score) * 100);
-        var clr = pct >= 60 ? '#3fb950' : pct >= 40 ? '#d29922' : '#f85149';
-        relBadge = '<div class="badge badge-rel" style="color:' + clr + '">' + pct + '%</div>';
-    }
-    if (hasFaces) {
-        var fcls = hasRel ? 'badge badge-faces' : 'badge badge-only';
-        badge = '<div class="' + fcls + '">' + p.personas.length + ' лиц</div>';
-    }
+     var badgeShift = p.is_raw ? ';top:22px' : '';
+     if (hasRel) {
+         var pct = Math.round((1 - p.score) * 100);
+         var clr = pct >= 60 ? '#3fb950' : pct >= 40 ? '#d29922' : '#f85149';
+         relBadge = '<div class="badge badge-rel" style="color:' + clr + badgeShift + '">' + pct + '%</div>';
+     }
+     if (hasFaces) {
+         var fcls = hasRel ? 'badge badge-faces' : 'badge badge-only';
+         var ftop = hasRel ? (p.is_raw ? ' style="top:40px"' : '') : (p.is_raw ? ' style="top:22px"' : '');
+         badge = '<div class="' + fcls + '"' + ftop + '>' + p.personas.length + ' лиц</div>';
+     }
      var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '" onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();openViewer(' + idx + ');toggleFullscreen()">';
     html += '<button class="expand-btn" onclick="event.stopPropagation();openViewer(' + idx + ')">&#x2922;</button>';
     var q = document.getElementById('searchInput').value.trim();
@@ -1251,8 +1266,9 @@ function buildCardHtml(p, idx) {
         if (p.edits) { var _re = p.edits.find(function(e){return e.action==='rotate'}); if (_re) _rot = ' style="transform:rotate('+((_re.params.angle % 360 + 360) % 360)+'deg)"'; }
         html += '<img' + _rot + ' src="' + thumbBase + '&size=sm" srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">';
     }
-    html += gpsIcon;
-    html += badge;
+     if (p.is_raw) html += '<div class="raw-badge">RAW</div>';
+     html += gpsIcon;
+     html += badge;
     html += relBadge;
     if (!p.deleted) html += '<div class="del-mark" onclick="event.stopPropagation();markDeleted(\'' + esc(p.photo_id || '') + '\')" title="Удалить">&#128465;</div>';
     html += '<div class="overlay">';
@@ -2486,7 +2502,8 @@ function clearFilters() {
     document.getElementById('chkIssues').checked = false;
     document.getElementById('chkGps').checked = false;
     document.getElementById('chkDeleted').checked = false;
-    document.getElementById('photoTypeSelect').value = '';
+     document.getElementById('photoTypeSelect').value = '';
+     document.getElementById('fileTypeSelect').value = '';
     activeYear = '';
     activePerson = '';
     doSearch();
@@ -2681,6 +2698,7 @@ function saveFilters() {
         gps: document.getElementById('chkGps').checked,
         deleted: document.getElementById('chkDeleted').checked,
         type: document.getElementById('photoTypeSelect').value,
+        fileType: document.getElementById('fileTypeSelect').value,
         needleDate: _needleDateISO || null,
         photoId: _firstVisiblePhotoId || null,
     };
@@ -2701,6 +2719,7 @@ function restoreFilters() {
         if (s.gps) document.getElementById('chkGps').checked = true;
         if (s.deleted) document.getElementById('chkDeleted').checked = true;
         if (s.type) document.getElementById('photoTypeSelect').value = s.type;
+        if (s.fileType) document.getElementById('fileTypeSelect').value = s.fileType;
         onModeChange();
         _restoreNeedleDate = s.needleDate || null;
         _restorePhotoId = s.photoId || null;
@@ -2991,12 +3010,15 @@ function syncSelect(mobEl, deskId) {
      var typeMob = document.getElementById('photoTypeSelectMob');
      var typeDesk = document.getElementById('photoTypeSelect');
      if (typeMob && typeDesk) typeMob.value = typeDesk.value;
+     var ftMob = document.getElementById('fileTypeSelectMob');
+     var ftDesk = document.getElementById('fileTypeSelect');
+     if (ftMob && ftDesk) ftMob.value = ftDesk.value;
      var modeMob = document.getElementById('searchModeMob');
      var modeDesk = document.getElementById('searchMode');
      if (modeMob && modeDesk) modeMob.value = modeDesk.value;
  }
 function updateFilterBadge() {
-    var any = document.getElementById('chkFaces').checked || document.getElementById('chkHasDesc').checked || document.getElementById('chkIssues').checked || document.getElementById('chkGps').checked || document.getElementById('chkDeleted').checked;
+    var any = document.getElementById('chkFaces').checked || document.getElementById('chkHasDesc').checked || document.getElementById('chkIssues').checked || document.getElementById('chkGps').checked || document.getElementById('chkDeleted').checked || document.getElementById('fileTypeSelect').value !== '';
     var btn = document.querySelector('.mob-filter-btn');
     if (btn) btn.classList.toggle('has-filters', any);
 }
@@ -3004,7 +3026,8 @@ function updateFilterBadge() {
      var ids = ['chkFacesMob','chkHasDescMob','chkIssuesMob','chkGpsMob','chkDeletedMob'];
      for (var i = 0; i < ids.length; i++) { var el = document.getElementById(ids[i]); if (el) el.checked = false; }
      var sortMob = document.getElementById('sortSelectMob'); if (sortMob) sortMob.value = 'date_desc';
-     var typeMob = document.getElementById('photoTypeSelectMob'); if (typeMob) typeMob.value = '';
+      var typeMob = document.getElementById('photoTypeSelectMob'); if (typeMob) typeMob.value = '';
+      var ftMob = document.getElementById('fileTypeSelectMob'); if (ftMob) ftMob.value = '';
      var modeMob = document.getElementById('searchModeMob'); if (modeMob) modeMob.value = 'exact';
      clearFilters();
  }
