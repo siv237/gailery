@@ -23,6 +23,15 @@ def _rel_path(abs_path):
 def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_thumbnail=False, include_score=False, score=None):
     rel = _rel_path(p.get("path", ""))
     faces = photo_faces.get(rel, [])
+    if not faces:
+        abs_path = p.get("path", "")
+        if abs_path:
+            for prefix in ["/mnt/share/Foto/", "/opt/gailray/photos/"]:
+                if abs_path.startswith(prefix):
+                    rel2 = abs_path[len(prefix):]
+                    faces = photo_faces.get(rel2, [])
+                    if faces:
+                        break
     personas_info = []
     seen_pids = set()
     faces_info = []
@@ -46,8 +55,10 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
                 "name": persona.get("name") or pers_id,
                 "display_name": persona.get("display_name"),
                 "face_count": sum(1 for ff in faces if ff.get("persona_id") == pers_id),
+                "total_face_count": persona.get("total_face_count", 0),
                 "face_ids": [ff["face_id"] for ff in faces if ff.get("persona_id") == pers_id],
             })
+    is_raw = Path(p.get("path", "")).suffix.lower() in {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
     result = {
         "path": p.get("path", ""),
         "photo_id": rel,
@@ -75,7 +86,7 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
         "exif_checked": bool(p.get("exif_checked")),
         "embedded": bool(p.get("embedded")),
         "exif_raw": p.get("exif_raw"),
-        "is_raw": Path(p.get("path", "")).suffix.lower() in {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'},
+        "is_raw": is_raw,
         "is_canonical": p.get("is_canonical", True),
         "duplicate_paths": p.get("duplicate_paths", []),
         "content_hash": p.get("content_hash"),
@@ -117,7 +128,7 @@ async def get_photo(path: str):
             try:
                 import rawpy
                 raw = rawpy.imread(str(photo_path))
-                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                rgb = raw.postprocess(use_camera_wb=True)
                 raw.close()
                 img = Image.fromarray(rgb)
             except Exception:
@@ -240,13 +251,52 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
     if not face:
         raise HTTPException(status_code=404, detail="Face not found")
 
-    photo_path = PHOTO_SHARE_PATH / face["photo_id"]
+    photo_path = None
+    raw_path = db.sqlite.execute("SELECT path FROM photos p JOIN faces f ON f.photo_id = substr(p.path, length(?) + 1) OR f.photo_id = p.path WHERE f.face_id = ?", (str(PHOTO_SHARE_PATH), face_id)).fetchone()
+    if raw_path:
+        photo_path = Path(raw_path[0])
+    if not photo_path or not photo_path.exists():
+        photo_path = PHOTO_SHARE_PATH / face["photo_id"]
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
+
+    raw_exts = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
+    is_raw = photo_path.suffix.lower() in raw_exts
 
     bbox = (int(face["bbox_x1"]), int(face["bbox_y1"]), int(face["bbox_x2"]), int(face["bbox_y2"]))
 
     def _crop():
+        if is_raw:
+            from PIL import Image, ImageOps
+            import io
+            img = None
+            scale = 0.5
+            try:
+                import rawpy
+                raw = rawpy.imread(str(photo_path))
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                raw.close()
+                img = Image.fromarray(rgb)
+            except Exception:
+                scale = 1.0
+                pass
+            if img is None:
+                img = Image.open(str(photo_path))
+            img = ImageOps.autocontrast(img, cutoff=1, preserve_tone=True)
+            x1, y1, x2, y2 = [int(v * scale) for v in bbox]
+            fw, fh = x2 - x1, y2 - y1
+            mx, my = int(fw * margin), int(fh * margin)
+            ix1, iy1 = max(0, x1 - mx), max(0, y1 - my)
+            ix2 = min(img.width, x2 + mx)
+            iy2 = min(img.height, y2 + int(fh * margin * 1.5))
+            crop = img.crop((ix1, iy1, ix2, iy2))
+            max_dim = 200
+            if max(crop.size[0], crop.size[1]) > max_dim:
+                ratio = max_dim / max(crop.size[0], crop.size[1])
+                crop = crop.resize((int(crop.size[0]*ratio), int(crop.size[1]*ratio)), Image.LANCZOS)
+            buf = io.BytesIO()
+            crop.save(buf, format="WEBP", quality=85)
+            return buf.getvalue()
         import pyvips
         img = pyvips.Image.new_from_file(str(photo_path), access="random")
         x1, y1, x2, y2 = bbox
@@ -284,17 +334,47 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
     if not face:
         raise HTTPException(status_code=404, detail="Face not found")
 
-    photo_path = PHOTO_SHARE_PATH / face["photo_id"]
+    photo_path = None
+    raw_path = db.sqlite.execute("SELECT path FROM photos p JOIN faces f ON f.photo_id = substr(p.path, length(?) + 1) OR f.photo_id = p.path WHERE f.face_id = ?", (str(PHOTO_SHARE_PATH), face_id)).fetchone()
+    if raw_path:
+        photo_path = Path(raw_path[0])
+    if not photo_path or not photo_path.exists():
+        photo_path = PHOTO_SHARE_PATH / face["photo_id"]
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    bbox = (float(face["bbox_x1"]), float(face["bbox_y1"]), float(face["bbox_x2"]), float(face["bbox_y2"]))
+    raw_exts = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
+    is_raw = photo_path.suffix.lower() in raw_exts
+
+    bbox_raw = (float(face["bbox_x1"]), float(face["bbox_y1"]), float(face["bbox_x2"]), float(face["bbox_y2"]))
 
     def _context():
-        import pyvips, io
-        from PIL import Image as PILImage, ImageDraw
-        img = pyvips.Image.new_from_file(str(photo_path), access="random")
-        iw, ih = img.width, img.height
+        from PIL import Image as PILImage, ImageDraw, ImageOps
+        import io
+        if is_raw:
+            img = None
+            scale = 0.5
+            try:
+                import rawpy
+                raw = rawpy.imread(str(photo_path))
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                raw.close()
+                img = PILImage.fromarray(rgb)
+            except Exception:
+                scale = 1.0
+            except Exception:
+                pass
+            if img is None:
+                img = PILImage.open(str(photo_path))
+            img = ImageOps.autocontrast(img, cutoff=1, preserve_tone=True)
+            bbox = tuple(v * scale for v in bbox_raw)
+        else:
+            import pyvips
+            vimg = pyvips.Image.new_from_file(str(photo_path), access="random")
+            crop_buf = vimg.write_to_buffer(".png")
+            img = PILImage.open(io.BytesIO(crop_buf))
+            bbox = bbox_raw
+        iw, ih = img.size
         x1, y1, x2, y2 = bbox
         fw, fh = x2 - x1, y2 - y1
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -303,11 +383,9 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         vy1 = max(0, int(cy - vh / 2))
         vx2 = min(iw, int(cx + vw / 2))
         vy2 = min(ih, int(cy + vh / 2))
-        crop = img.crop(vx1, vy1, vx2 - vx1, vy2 - vy1)
+        pil_crop = img.crop((vx1, vy1, vx2, vy2))
         rx1, ry1 = int(x1 - vx1), int(y1 - vy1)
         rx2, ry2 = int(x2 - vx1), int(y2 - vy1)
-        crop_buf = crop.write_to_buffer(".png")
-        pil_crop = PILImage.open(io.BytesIO(crop_buf))
         draw = ImageDraw.Draw(pil_crop)
         draw.rectangle([rx1, ry1, rx2, ry2], outline="red", width=3)
         buf = io.BytesIO()
@@ -473,12 +551,20 @@ async def search_photos(
 
     all_faces = db.get_all_faces()
     all_personas = db.get_all_personas()
-    persona_map = {p["persona_id"]: p for p in all_personas}
+
+    persona_counts = {}
+    for f in all_faces:
+        pid = f.get("persona_id")
+        if pid:
+            persona_counts[pid] = persona_counts.get(pid, 0) + 1
+
+    persona_map = {p["persona_id"]: {**p, "total_face_count": persona_counts.get(p["persona_id"], 0)} for p in all_personas}
 
     photo_faces = {}
     for f in all_faces:
         photo_faces.setdefault(f.get("photo_id", ""), []).append(f)
 
+    foto_prefix = str(PHOTO_SHARE_PATH) + "/"
     result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
 
     from database import DatabaseManager as _DB
