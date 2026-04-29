@@ -113,6 +113,7 @@ async def get_photo(path: str):
         try:
             from PIL import Image, ImageOps
             from io import BytesIO
+            img = None
             try:
                 import rawpy
                 raw = rawpy.imread(str(photo_path))
@@ -120,6 +121,8 @@ async def get_photo(path: str):
                 raw.close()
                 img = Image.fromarray(rgb)
             except Exception:
+                pass
+            if img is None:
                 img = Image.open(str(photo_path))
                 try:
                     img = ImageOps.exif_transpose(img)
@@ -127,7 +130,7 @@ async def get_photo(path: str):
                     pass
             if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")
-            img = ImageOps.autocontrast(img, cutoff=1)
+            img = ImageOps.autocontrast(img, cutoff=1, preserve_tone=True)
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=90)
             return Response(
