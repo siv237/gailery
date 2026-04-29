@@ -37,6 +37,10 @@ def _pillow_generate_to_buffer(image_path, width, fmt="webp", quality=80, crop="
             pass
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
+        if _is_raw(image_path):
+            from PIL import ImageEnhance
+            from PIL import ImageOps as _Ops
+            img = _Ops.autocontrast(img, cutoff=1, preserve_tone=True)
         ow, oh = img.size
         if crop == "centre":
             scale = width / min(ow, oh)
@@ -71,6 +75,10 @@ def _pillow_generate_files(image_path, rel, output_dir, sizes, fmts):
             pass
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
+        if _is_raw(image_path):
+            from PIL import ImageEnhance
+            from PIL import ImageOps as _Ops
+            img = _Ops.autocontrast(img, cutoff=1, preserve_tone=True)
     except Exception as e:
         logger.error(f"Cannot open {image_path}: {e}")
         return None

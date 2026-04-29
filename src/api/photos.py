@@ -75,6 +75,7 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
         "exif_checked": bool(p.get("exif_checked")),
         "embedded": bool(p.get("embedded")),
         "exif_raw": p.get("exif_raw"),
+        "is_raw": Path(p.get("path", "")).suffix.lower() in {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'},
         "is_canonical": p.get("is_canonical", True),
         "duplicate_paths": p.get("duplicate_paths", []),
         "content_hash": p.get("content_hash"),
@@ -112,19 +113,27 @@ async def get_photo(path: str):
         try:
             from PIL import Image, ImageOps
             from io import BytesIO
-            img = Image.open(str(photo_path))
             try:
-                img = ImageOps.exif_transpose(img)
+                import rawpy
+                raw = rawpy.imread(str(photo_path))
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True)
+                raw.close()
+                img = Image.fromarray(rgb)
             except Exception:
-                pass
+                img = Image.open(str(photo_path))
+                try:
+                    img = ImageOps.exif_transpose(img)
+                except Exception:
+                    pass
             if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")
+            img = ImageOps.autocontrast(img, cutoff=1)
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=90)
             return Response(
                 content=buf.getvalue(),
                 media_type="image/jpeg",
-                headers={"Cache-Control": "public, max-age=31536000"}
+                headers={"Cache-Control": "no-cache"}
             )
         except Exception as e:
             logger.error(f"Failed to convert RAW {path}: {e}")
@@ -141,7 +150,7 @@ async def get_photo(path: str):
         return Response(
             content=content,
             media_type=content_type,
-            headers={"Cache-Control": "public, max-age=31536000"}
+            headers={"Cache-Control": "no-cache"}
         )
     except Exception as e:
         logger.error(f"Failed to read photo {path}: {e}")
@@ -188,7 +197,7 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
         return Response(
             content=buf,
             media_type="image/webp",
-            headers={"Cache-Control": "public, max-age=31536000"}
+            headers={"Cache-Control": "no-cache"}
         )
 
     for fmt in ["webp", "jpg"]:
@@ -211,7 +220,7 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
         return Response(
             content=content,
             media_type=media_map.get(fmt, "image/webp"),
-            headers={"Cache-Control": "public, max-age=31536000"}
+            headers={"Cache-Control": "no-cache"}
         )
     except Exception as e:
         logger.error(f"Failed to read thumbnail {path}: {e}")
@@ -256,7 +265,7 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
         loop = asyncio.get_event_loop()
         buf = await loop.run_in_executor(None, _crop)
         return Response(content=buf, media_type="image/webp",
-                        headers={"Cache-Control": "public, max-age=31536000"})
+                        headers={"Cache-Control": "no-cache"})
     except Exception as e:
         logger.error(f"Failed to crop face {face_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to crop face")
@@ -307,7 +316,7 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         loop = asyncio.get_event_loop()
         content = await loop.run_in_executor(None, _context)
         return Response(content=content, media_type="image/jpeg",
-                        headers={"Cache-Control": "public, max-age=31536000"})
+                        headers={"Cache-Control": "no-cache"})
     except Exception as e:
         logger.error(f"Failed to get face context {face_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get face context")

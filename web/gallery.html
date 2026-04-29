@@ -113,6 +113,7 @@
         .fit-icon.outer i.br { bottom: -2px; right: -2px; }
         .modal-topbar { position: absolute; bottom: 16px; left: 16px; z-index: 1001; background: rgba(0,0,0,.6); padding: 4px 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px; color: #c9d1d9; font-size: 13px; transition: opacity .5s; }
         .modal-cam { color: #8b949e; font-size: 11px; margin-left: 6px; }
+        .modal-raw { background: #f0883e; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 6px; letter-spacing: 0.5px; }
         .modal-topbar .sep { color: rgba(255,255,255,.2); margin: 0 2px; }
         .modal-gps { color: #58a6ff; font-size: 11px; font-weight: 600; background: rgba(88,166,255,.15); padding: 1px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
         .modal-gps:hover { background: rgba(88,166,255,.3); }
@@ -1462,6 +1463,7 @@ function selectYear(year) {
         html += '<button onclick="hideDateEdit()" class="dp-date-cancel">Отмена</button>';
         html += '</div></div>';
     }
+    if (p.is_raw) html += '<div class="dp-meta" style="color:#f0883e;font-weight:600">RAW</div>';
     if (p.camera_make || p.camera_model) html += '<div class="dp-meta">Камера: ' + esc((p.camera_make || '') + ' ' + (p.camera_model || '')) + '</div>';
     html += '<div class="dp-meta">Лица: ' + p.total_faces + '</div>';
     if (p.photo_type && p.photo_type !== 'photo') html += '<div class="dp-meta">Тип: ' + esc(p.photo_type) + '</div>';
@@ -1734,7 +1736,8 @@ function openViewer(idx) {
          }
      }
      var txt = formatDate(p.date);
-    if (p.camera_make || p.camera_model) txt += '<span class="modal-cam">' + esc((p.camera_make || '') + ' ' + (p.camera_model || '')) + '</span>';
+     if (p.is_raw) txt += '<span class="modal-raw">RAW</span>';
+     if (p.camera_make || p.camera_model) txt += '<span class="modal-cam">' + esc((p.camera_make || '') + ' ' + (p.camera_model || '')) + '</span>';
     document.getElementById('modalDate').innerHTML = txt;
     updateModalGps(p);
     var modal = document.getElementById('photoModal');
