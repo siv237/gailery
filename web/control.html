@@ -428,6 +428,7 @@
             <button class="tab-btn" onclick="switchTab('hash')">&#128279; Хеши</button>
             <button class="tab-btn" onclick="switchTab('log')">&#128220; Лог</button>
             <button class="tab-btn" onclick="switchTab('config')">&#128736; Конфигурация</button>
+            <button class="tab-btn" onclick="switchTab('family')">&#128106; Семья</button>
         </div>
 
         <div class="tab-panel active" id="tab-pipeline">
@@ -516,6 +517,19 @@
 
         <div class="tab-panel" id="tab-config">
             <div id="configContent"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-family">
+            <div class="backup-sec">
+                <h3>&#128106; Факты о семье и связях</h3>
+                <p style="color:#6e7681;font-size:12px;margin-bottom:12px">Имена, родственные связи, даты, события. Модель обогащения описаний будет использовать этот текст для подстановки контекста.</p>
+                <textarea id="familyFacts" style="width:100%;min-height:400px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:12px;font-family:monospace;font-size:13px;line-height:1.6;resize:vertical;outline:none" onfocus="this.style.borderColor='#58a6ff'" onblur="this.style.borderColor='#30363d'"></textarea>
+                <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <button class="btn btn-go" onclick="saveFamilyFacts()">&#128190; Сохранить</button>
+                    <button class="btn btn-go" onclick="fillTopPersonas()" style="background:#1f6feb">&#128101; Заполнить топ-10 персон</button>
+                    <span id="familySaveStatus" style="font-size:12px;color:#6e7681"></span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1382,7 +1396,7 @@ function loadCrashes(){
     }).catch(function(){});
 }
 
- loadStatus(); loadLog(); loadMaintStats(); loadRoots(); loadHashStats(); loadWorkers(); loadCrashes(); restoreTab(); loadConfig();
+ loadStatus(); loadLog(); loadMaintStats(); loadRoots(); loadHashStats(); loadWorkers(); loadCrashes(); restoreTab(); loadConfig(); loadFamilyFacts();
  document.getElementById('logFilter').addEventListener('input',function(){
      var v=this.value.trim();
      if(!v){ _logFilter=''; document.querySelectorAll('.fbtn').forEach(function(b){b.classList.remove('active');}); }
@@ -1544,6 +1558,39 @@ document.getElementById('mmOverlay').addEventListener('click', closeMobileNav);
         isPanelSwipe = false;
     }, { passive: true });
 })();
+
+function loadFamilyFacts(){
+    fetch(API+'/settings/family_facts').then(function(r){return r.json()}).then(function(d){
+        document.getElementById('familyFacts').value = d.value || '';
+    }).catch(function(){});
+}
+function saveFamilyFacts(){
+    var text = document.getElementById('familyFacts').value;
+    var el = document.getElementById('familySaveStatus');
+    fetch(API+'/settings/family_facts',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:text})}).then(function(r){
+        if(r.ok){
+            el.textContent='Сохранено'; el.style.color='#3fb950';
+        } else { el.textContent='Ошибка'; el.style.color='#f85149'; }
+    }).catch(function(){ el.textContent='Ошибка сети'; el.style.color='#f85149'; });
+    setTimeout(function(){ el.textContent=''; }, 3000);
+}
+function fillTopPersonas(){
+    var el = document.getElementById('familySaveStatus');
+    fetch(API+'/settings/family_facts/top_personas').then(function(r){return r.json()}).then(function(d){
+        var ta = document.getElementById('familyFacts');
+        var existing = ta.value.trim();
+        var add = d.text || '';
+        if(existing){
+            ta.value = existing + '\n\n' + add;
+        } else {
+            ta.value = add;
+        }
+        el.textContent='Добавлено'; el.style.color='#58a6ff';
+        setTimeout(function(){ el.textContent=''; }, 2000);
+    }).catch(function(){ el.textContent='Ошибка'; el.style.color='#f85149'; });
+}
+
+loadFamilyFacts();
 
 </script>
 </body>

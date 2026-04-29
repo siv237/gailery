@@ -216,6 +216,16 @@ class DatabaseManager:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos(COALESCE(manual_date, date))")
             self.sqlite.commit()
 
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            self.sqlite.commit()
+
     def _open_vector_tables(self):
         if "photo_embeddings" not in self.vectordb.list_tables().tables:
             schema = pa.schema([
@@ -1132,4 +1142,12 @@ class DatabaseManager:
             cur.execute("DELETE FROM photo_edits WHERE content_hash = ? AND action = ?", (content_hash, action))
         else:
             cur.execute("DELETE FROM photo_edits WHERE content_hash = ?", (content_hash,))
+        self.sqlite.commit()
+
+    def get_setting(self, key, default=None):
+        row = self.sqlite.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key, value):
+        self.sqlite.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
         self.sqlite.commit()

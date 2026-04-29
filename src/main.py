@@ -531,6 +531,48 @@ app.include_router(photos.router)
 app.include_router(persons.router)
 app.include_router(catalog.router)
 
+
+@app.get("/api/settings/{key}")
+async def get_setting(key: str):
+    from database import DatabaseManager
+    db = DatabaseManager()
+    value = db.get_setting(key)
+    return {"key": key, "value": value or ""}
+
+
+@app.put("/api/settings/{key}")
+async def set_setting(key: str, request: Request):
+    from database import DatabaseManager
+    body = await request.json()
+    value = body.get("value", "")
+    db = DatabaseManager()
+    db.set_setting(key, value)
+    return {"key": key, "value": value}
+
+
+@app.get("/api/settings/{key}/top_personas")
+async def top_personas_for_facts(key: str):
+    from database import DatabaseManager
+    db = DatabaseManager()
+    rows = db.sqlite.execute("""
+        SELECT per.display_name, per.comment, SUM(subcnt) as total_faces
+        FROM (
+            SELECT persona_id, COUNT(*) as subcnt FROM faces WHERE persona_id IS NOT NULL GROUP BY persona_id
+        ) f
+        JOIN personas per ON f.persona_id = per.persona_id
+        WHERE per.display_name IS NOT NULL AND per.display_name != ''
+        GROUP BY per.display_name
+        ORDER BY total_faces DESC
+        LIMIT 10
+    """).fetchall()
+    lines = []
+    for name, comment, total in rows:
+        line = name
+        if comment:
+            line += f" — {comment}"
+        lines.append(line)
+    return {"text": "\n".join(lines)}
+
 from pathlib import Path
 static_dir = Path(__file__).parent / "frontend"
 if static_dir.exists():
