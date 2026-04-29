@@ -1,4 +1,4 @@
-"""Thumbnail generation for photos using pyvips"""
+"""Thumbnail generation for photos using pyvips, Pillow fallback for RAW"""
 
 import pyvips
 import logging as _logging
@@ -19,6 +19,87 @@ SIZES = {
 }
 
 FORMATS = ["webp", "jpg"]
+
+RAW_EXTENSIONS = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
+
+
+def _is_raw(path):
+    return Path(path).suffix.lower() in RAW_EXTENSIONS
+
+
+def _pillow_generate_to_buffer(image_path, width, fmt="webp", quality=80, crop="centre"):
+    from PIL import Image, ImageOps
+    try:
+        img = Image.open(str(image_path))
+        try:
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        ow, oh = img.size
+        if crop == "centre":
+            scale = width / min(ow, oh)
+            nw, nh = int(ow * scale), int(oh * scale)
+            img = img.resize((nw, nh), Image.LANCZOS)
+            left = (nw - width) // 2
+            top = (nh - width) // 2
+            img = img.crop((left, top, left + width, top + width))
+        else:
+            scale = width / max(ow, oh)
+            nw, nh = int(ow * scale), int(oh * scale)
+            img = img.resize((nw, nh), Image.LANCZOS)
+        import io
+        buf = io.BytesIO()
+        if fmt == "jpg":
+            img.save(buf, format="JPEG", quality=quality)
+        else:
+            img.save(buf, format="WEBP", quality=quality)
+        return buf.getvalue()
+    except Exception as e:
+        logger.error(f"Pillow fallback failed for {image_path}: {e}")
+        return None
+
+
+def _pillow_generate_files(image_path, rel, output_dir, sizes, fmts):
+    from PIL import Image, ImageOps
+    try:
+        img = Image.open(str(image_path))
+        try:
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+    except Exception as e:
+        logger.error(f"Cannot open {image_path}: {e}")
+        return None
+
+    last_path = None
+    for sname, width in sizes.items():
+        ow, oh = img.size
+        scale = width / min(ow, oh)
+        nw, nh = int(ow * scale), int(oh * scale)
+        thumb = img.resize((nw, nh), Image.LANCZOS)
+        left = (nw - width) // 2
+        top = (nh - width) // 2
+        thumb = thumb.crop((left, top, left + width, top + width))
+        p = Path(rel)
+        for f in fmts:
+            out = output_dir / f"{sname}" / p.with_suffix(f".{f}")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            if out.exists():
+                last_path = out
+                continue
+            try:
+                if f == "jpg":
+                    thumb.save(str(out), format="JPEG", quality=80)
+                else:
+                    thumb.save(str(out), format="WEBP", quality=80)
+                last_path = out
+            except Exception as e:
+                logger.error(f"Pillow failed to save {out}: {e}")
+    return last_path
 
 
 class ThumbnailGenerator:
@@ -44,6 +125,10 @@ class ThumbnailGenerator:
 
         sizes_to_gen = {size_name: self.sizes[size_name]} if size_name else self.sizes
         fmts_to_gen = [fmt] if fmt else FORMATS
+
+        if _is_raw(image_path):
+            logger.info(f"RAW {image_path.name}, using Pillow")
+            return _pillow_generate_files(image_path, rel, self.output_dir, sizes_to_gen, fmts_to_gen)
 
         try:
             img = pyvips.Image.new_from_file(str(image_path), access="random")
@@ -79,6 +164,8 @@ class ThumbnailGenerator:
     def generate_to_buffer(self, image_path: Path, width: int, fmt: str = "webp", quality: int = 80) -> Optional[bytes]:
         if not image_path.exists():
             return None
+        if _is_raw(image_path):
+            return _pillow_generate_to_buffer(image_path, width, fmt, quality, crop="centre")
         try:
             img = pyvips.Image.new_from_file(str(image_path), access="random")
             thumb = img.thumbnail_image(width, crop="centre")
@@ -91,6 +178,8 @@ class ThumbnailGenerator:
     def generate_fit_buffer(self, image_path: Path, width: int = 400, quality: int = 80) -> Optional[bytes]:
         if not image_path.exists():
             return None
+        if _is_raw(image_path):
+            return _pillow_generate_to_buffer(image_path, width, "webp", quality, crop="none")
         try:
             img = pyvips.Image.new_from_file(str(image_path), access="random")
             thumb = img.thumbnail_image(width, crop="none")

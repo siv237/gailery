@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from urllib.parse import unquote, urlparse
 import logging
+import importlib
+import sys
 import os
 
 from database import DatabaseManager
@@ -403,7 +405,7 @@ async def watchdog_crashes():
         with open(str(LOG_FILE), "r") as f:
             lines = f.readlines()
     except Exception:
-        return {"crashes": [], "no_restart": False}
+        return {"crashes": [], "no_restart": False, "mode": "active"}
     crashes = []
     for line in reversed(lines[-500:]):
         if "[WATCHDOG]" in line and ("DEAD" in line or "STALE" in line or "RESTART" in line or "RECOVERY" in line):
@@ -690,6 +692,151 @@ async def maintenance_dedup_embeddings():
         return {"ok": True, "before": before, "after": after, "removed": removed}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _get_prompts():
+    prompts = []
+    _project_root = str(Path(__file__).parent.parent)
+    if _project_root not in sys.path:
+        sys.path.insert(0, _project_root)
+    for mod_name in ("vision_describe", "enrich_description"):
+        if mod_name in sys.modules:
+            try:
+                importlib.reload(sys.modules[mod_name])
+            except Exception:
+                pass
+    try:
+        vd = importlib.import_module("vision_describe")
+        prompts.append({"k": "VLM SYSTEM_PROMPT", "v": vd.SYSTEM_PROMPT.strip(), "d": "Системный промт описания фото"})
+    except Exception as e:
+        prompts.append({"k": "VLM SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт описания фото"})
+    try:
+        ed = importlib.import_module("enrich_description")
+        prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": ed.SYSTEM_PROMPT.strip(), "d": "Системный промт обогащения описания"})
+        tools = getattr(ed, "TOOLS", None)
+        if tools:
+            for t in tools:
+                fn = t.get("function", {})
+                name = fn.get("name", "?")
+                desc = fn.get("description", "")
+                params = fn.get("parameters", {}).get("properties", {})
+                param_str = ", ".join(f"{p}: {d.get('type','?')}" for p, d in params.items()) if params else "нет"
+                prompts.append({"k": f"Enrich tool: {name}", "v": f"{desc} | Параметры: {param_str}", "d": "Инструмент обогащения"})
+    except Exception as e:
+        prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт обогащения описания"})
+    return prompts
+
+
+@app.get("/api/config")
+async def get_config():
+    from config import (
+        PHOTO_SHARE_PATH, DATA_DIR, THUMBNAILS_DIR, LOGS_DIR, LLAMA_CPP_DIR,
+        VENV_PYTHON, MQTT_HOST, MQTT_PORT, MQTT_WS_PORT, GPU_LOCK_TIMEOUT,
+        THUMBNAIL_SIZE, THUMBNAIL_FORMAT, SUPPORTED_EXTENSIONS,
+        FACE_DETECTION_MODEL, FACE_CONFIDENCE_THRESHOLD,
+        EMBEDDING_MODEL, EMBEDDING_DIM, BATCH_SIZE, MAX_WORKERS,
+        LANCEDB_PATH, FLAG_DIR, LOG_FILE,
+    )
+    groups = [
+        {
+            "name": "Пути",
+            "icon": "\U0001f4c1",
+            "params": [
+                {"k": "Корни фото (catalog_roots)", "v": ", ".join(r["root_path"] for r in DatabaseManager().get_catalog_roots()), "d": "Динамические корни из каталога"},
+                {"k": "PHOTO_SHARE_PATH", "v": str(PHOTO_SHARE_PATH), "d": "Корневая папка фото"},
+                {"k": "DATA_DIR", "v": str(DATA_DIR), "d": "Директория данных (БД, LanceDB, флаги)"},
+                {"k": "THUMBNAILS_DIR", "v": str(THUMBNAILS_DIR), "d": "Директория превью"},
+                {"k": "LOGS_DIR", "v": str(LOGS_DIR), "d": "Директория логов"},
+                {"k": "LLAMA_CPP_DIR", "v": str(LLAMA_CPP_DIR), "d": "Путь к llama.cpp"},
+                {"k": "LANCEDB_PATH", "v": str(LANCEDB_PATH), "d": "Путь к LanceDB"},
+                {"k": "LOG_FILE", "v": str(LOG_FILE), "d": "Файл лога пайплайна"},
+                {"k": "FLAG_DIR", "v": str(FLAG_DIR), "d": "Директория флагов воркеров"},
+            ]
+        },
+        {
+            "name": "MQTT",
+            "icon": "\U0001f4e1",
+            "params": [
+                {"k": "MQTT_HOST", "v": MQTT_HOST, "d": "Адрес MQTT брокера"},
+                {"k": "MQTT_PORT", "v": str(MQTT_PORT), "d": "TCP порт MQTT"},
+                {"k": "MQTT_WS_PORT", "v": str(MQTT_WS_PORT), "d": "WebSocket порт MQTT"},
+                {"k": "GPU_LOCK_TIMEOUT", "v": str(GPU_LOCK_TIMEOUT), "d": "Таймаут захвата GPU (сек)"},
+            ]
+        },
+        {
+            "name": "Модели",
+            "icon": "\U0001f9e0",
+            "params": [
+                {"k": "FACE_DETECTION_MODEL", "v": FACE_DETECTION_MODEL, "d": "Модель детекции лиц"},
+                {"k": "FACE_CONFIDENCE_THRESHOLD", "v": str(FACE_CONFIDENCE_THRESHOLD), "d": "Порог уверенности детекции лиц"},
+                {"k": "EMBEDDING_MODEL (лица)", "v": "facenet", "d": "Модель эмбеддингов лиц"},
+                {"k": "EMBEDDING_DIM (лица)", "v": "128", "d": "Размерность эмбеддингов лиц"},
+                {"k": "EMBEDDING_MODEL (текст)", "v": EMBEDDING_MODEL, "d": "Модель текстовых эмбеддингов"},
+                {"k": "EMBEDDING_DIM (текст)", "v": str(EMBEDDING_DIM), "d": "Размерность текстовых эмбеддингов"},
+                {"k": "VLM модель", "v": "Qwen3.5-4B-Q4_K_M.gguf", "d": "VLM модель описания фото"},
+                {"k": "VLM порт", "v": "8101", "d": "Порт llama-server VLM"},
+                {"k": "VLM слоты", "v": "6", "d": "Параллельные слоты VLM"},
+                {"k": "VLM контекст", "v": "8192", "d": "Размер контекста VLM (токенов)"},
+                {"k": "VLM макс.токены", "v": "256", "d": "Макс. токенов генерации VLM"},
+                {"k": "VLM температура", "v": "0.1", "d": "Температура сэмплирования VLM"},
+                {"k": "VLM макс.размер фото", "v": "1280px", "d": "Макс. размер фото для VLM"},
+                {"k": "VLM JPEG quality", "v": "85", "d": "Качество JPEG при подготовке фото"},
+                {"k": "Enrich порт", "v": "8103", "d": "Порт llama-server обогащения"},
+                {"k": "Enrich макс.токены", "v": "2048", "d": "Макс. токены обогащения"},
+                {"k": "Enrich температура", "v": "0.4", "d": "Температура сэмплирования обогащения"},
+                {"k": "Embed порт", "v": "8102", "d": "Порт llama-server эмбеддингов"},
+            ]
+        },
+        {
+            "name": "Промты",
+            "icon": "\U0001f4dd",
+            "params": _get_prompts(),
+        },
+        {
+            "name": "Лица и кластеризация",
+            "icon": "\U0001f464",
+            "params": [
+                {"k": "InsightFace модель", "v": "buffalo_l", "d": "Модель анализа лиц"},
+                {"k": "Детекция размер", "v": "640x640", "d": "Размер входа детекции"},
+                {"k": "DBSCAN eps", "v": "0.4", "d": "Эпсилон кластеризации DBSCAN"},
+                {"k": "DBSCAN min_samples", "v": "2", "d": "Мин. размер кластера DBSCAN"},
+                {"k": "MATCH_THRESHOLD", "v": "0.4", "d": "Порог назначения лица персоне"},
+            ]
+        },
+        {
+            "name": "Обработка",
+            "icon": "\u2699\ufe0f",
+            "params": [
+                {"k": "THUMBNAIL_SIZE", "v": str(THUMBNAIL_SIZE), "d": "Макс. размер превью (px)"},
+                {"k": "THUMBNAIL_FORMAT", "v": THUMBNAIL_FORMAT, "d": "Формат превью"},
+                {"k": "BATCH_SIZE", "v": str(BATCH_SIZE), "d": "Размер батча по умолчанию"},
+                {"k": "MAX_WORKERS", "v": str(MAX_WORKERS), "d": "Макс. параллельных воркеров"},
+                {"k": "EMBED_BATCH_SIZE", "v": "64", "d": "Батч эмбеддингов"},
+                {"k": "LANCE_FLUSH_SIZE", "v": "2048", "d": "Размер буфера LanceDB"},
+                {"k": "EXIF_READ_THREADS", "v": "8", "d": "Потоки чтения EXIF"},
+                {"k": "SUPPORTED_EXTENSIONS", "v": ", ".join(sorted(SUPPORTED_EXTENSIONS)), "d": "Расширения фото"},
+            ]
+        },
+        {
+            "name": "Сторожевой пёс",
+            "icon": "\U0001f436",
+            "params": [
+                {"k": "CHECK_INTERVAL", "v": "10", "d": "Интервал проверки (сек)"},
+                {"k": "RESTART_COOLDOWN", "v": "60", "d": "Кулдаун рестарта (сек)"},
+                {"k": "Макс. рестартов/5мин", "v": "3", "d": "Лимит рестартов за 5 минут"},
+            ]
+        },
+        {
+            "name": "Веб-сервер",
+            "icon": "\U0001f310",
+            "params": [
+                {"k": "uvicorn порт", "v": "8000", "d": "Порт веб-сервера"},
+                {"k": "CORS origins", "v": "*", "d": "Разрешённые CORS origins"},
+                {"k": "STATUS_CACHE_TTL", "v": "5", "d": "Кэш статуса (сек)"},
+            ]
+        },
+    ]
+    return {"groups": groups}
 
 
 @app.get("/{path:path}")

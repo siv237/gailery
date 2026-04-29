@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import base64
+import io
 import json
 import os
 import re
@@ -58,10 +59,16 @@ SYSTEM_PROMPT = """Ты — автоматический анализатор ф
 
 Обрати внимание:
 - description: что происходит на фото, кто изображён, где, настроение. Пиши на русском.
-- photo_type: классификация изображения. photo = обычная фотография, screenshot = скриншот экрана, document = документ/квитанция/скан, meme = мем/карточка с текстом, icon = иконка/аватарка, other = всё остальное
+- photo_type: классификация изображения. photo = обычная фотография, screenshot = скриншот экрана, document = документ/квитанция/скан/чек/сертификат/объявление, meme = мем/карточка с текстом, icon = иконка/аватарка, other = всё остальное
 - has_faces: true если видны лица людей (даже частично), false если нет людей или лица не видны
 - has_issues: true если фото с проблемой — размыто, битое, пересвет, слишком тёмное
-- issue_type: укажи тип проблемы только если has_issues=true"""
+- issue_type: укажи тип проблемы только если has_issues=true
+
+Если photo_type=document или на фото виден документ/чек/квитанция/сертификат/объявление/расписание:
+- В description полностью перепиши весь распознанный текст с документа, сохраняя структуру (абзацы, таблицы, списки).
+- Укажи тип документа (чек, квитанция, сертификат, диплом, объявление, расписание и т.д.).
+- Если есть суммы, даты, номера, имена — все обязательно перепиши точно.
+- Если текст частично не виден или размыт — укажи что именно не удалось разобрать."""
 
 
 def log(msg):
@@ -177,17 +184,72 @@ def describe_one(img_b64, photo_path):
         return photo_path, None, elapsed, 0, str(e)
 
 
+VLM_MAX_SIZE = 1280
+VLM_JPEG_QUALITY = 85
+
+
+def prepare_image(path):
+    from PIL import Image
+    try:
+        img = Image.open(path)
+        img.verify()
+        img = Image.open(path)
+    except Exception:
+        return None, "corrupted"
+    try:
+        if hasattr(img, '_getexif'):
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    w, h = img.size
+    if w == 0 or h == 0:
+        return None, "corrupted"
+    max_dim = max(w, h)
+    if max_dim > VLM_MAX_SIZE:
+        scale = VLM_MAX_SIZE / max_dim
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=VLM_JPEG_QUALITY)
+    img_b64 = base64.b64encode(buf.getvalue()).decode()
+    return img_b64, None
+
+
 def describe_batch(image_paths):
     images_b64 = []
     valid_paths = []
+    invalid_paths = []
     for p in image_paths:
         try:
-            with open(p, "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode()
+            fsize = os.path.getsize(p)
+            if fsize < 1024:
+                log(f"  Skip {p}: too small ({fsize} bytes)")
+                invalid_paths.append(p)
+                continue
+            img_b64, err = prepare_image(p)
+            if err:
+                log(f"  Skip {p}: not an image ({err})")
+                invalid_paths.append(p)
+                continue
             images_b64.append(img_b64)
             valid_paths.append(p)
         except Exception as e:
             log(f"  Cannot read {p}: {e}")
+            invalid_paths.append(p)
+
+    results = []
+    for p in invalid_paths:
+        results.append((p, {
+            "description": "[не изображение: файл повреждён или не является фото]",
+            "photo_type": "other",
+            "has_faces": False,
+            "has_issues": True,
+            "issue_type": "corrupted",
+        }))
 
     if not valid_paths:
         return []
@@ -291,7 +353,7 @@ def get_undescribed_photos(db, photo_dir, limit=0):
         params.append(str(photo_dir) + "/%")
     sql = ("SELECT p.path FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path "
            "WHERE (p.description IS NULL OR p.description = '') AND p.deleted = 0 "
-           "AND cf.is_canonical = 1" + where_extra + " ORDER BY p.path")
+           "AND cf.is_canonical = 1" + where_extra + " ORDER BY RANDOM()")
     if limit > 0:
         sql += f" LIMIT {limit}"
     rows = cur.execute(sql, params).fetchall()

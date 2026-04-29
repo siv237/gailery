@@ -115,6 +115,12 @@
         .light-theme .log-sec h3 { color: #0969da; }
         .light-theme .log-sec h3 span { color: #57606a; }
         .light-theme #logC { background: #f6f8fa; color: #24292f; }
+        .light-theme .fbtn { background: #fff; color: #24292f; border-color: #d0d7de; }
+        .light-theme .fbtn:hover { background: #f3f4f6; }
+        .light-theme .fbtn.active { background: #0969da; color: #fff; border-color: #0969da; }
+        .light-theme .fbtn-err.active { background: #cf222e; border-color: #cf222e; }
+        .light-theme .fbtn-all.active { background: #1a7f37; border-color: #1a7f37; }
+        .light-theme .log-filter-input { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
 
         h1 { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 16px; color: #58a6ff; display: flex; align-items: center; justify-content: space-between; position: relative; }
         h1 .nav { font-size: 13px; padding-right: 50px; }
@@ -271,7 +277,40 @@
         .log-sec { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 14px; }
         .log-sec h3 { font-size: 13px; color: #58a6ff; margin-bottom: 6px; display: flex; justify-content: space-between; }
         .log-sec h3 span { color: #6e7681; font-weight: normal; font-size: 11px; }
-        #logC { font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 250px; overflow-y: auto; background: #0d1117; border-radius: 4px; padding: 8px; }
+        #logC { font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 70vh; overflow-y: auto; background: #0d1117; border-radius: 4px; padding: 8px; }
+        .fbtn { font-size:11px; padding:3px 8px; border-radius:4px; border:1px solid #21262d; background:#161b22; color:#8b949e; cursor:pointer; }
+        .fbtn:hover { background:#21262d; color:#c9d1d9; }
+        .fbtn.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+        .fbtn-err.active { background:#da3633; border-color:#da3633; }
+        .fbtn-all.active { background:#238636; border-color:#238636; }
+        .log-line-hidden { display:none; }
+        .log-filter-input { flex:1; min-width:120px; padding:4px 8px; border-radius:4px; border:1px solid #21262d; background:#0d1117; color:#c9d1d9; font-size:12px; }
+
+        .tab-bar { display: flex; gap: 0; border-bottom: 1px solid #30363d; margin-bottom: 20px; }
+        .tab-btn { padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: #6e7681; font-family: monospace; font-size: 13px; cursor: pointer; transition: color .15s, border-color .15s; }
+        .tab-btn:hover { color: #c9d1d9; }
+        .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .light-theme .tab-bar { border-bottom-color: #d0d7de; }
+        .light-theme .tab-btn { color: #57606a; }
+        .light-theme .tab-btn:hover { color: #24292f; }
+        .light-theme .tab-btn.active { color: #0969da; border-bottom-color: #0969da; }
+
+        .cfg-group { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+        .cfg-group-head { padding: 12px 16px; font-size: 14px; font-weight: bold; color: #58a6ff; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 8px; }
+        .cfg-row { display: grid; grid-template-columns: 220px 1fr 1fr; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #21262d; align-items: center; font-size: 12px; }
+        .cfg-row:last-child { border-bottom: none; }
+        .cfg-key { color: #d2a8ff; font-family: monospace; font-weight: bold; }
+        .cfg-val { color: #3fb950; font-family: monospace; word-break: break-all; }
+        .cfg-prompt pre { margin:0; white-space:pre-wrap; font-size:0.85em; color:#8b949e; max-height:300px; overflow-y:auto; }
+        .cfg-desc { color: #6e7681; }
+        .light-theme .cfg-group { background: #ffffff; border-color: #d0d7de; }
+        .light-theme .cfg-group-head { color: #0969da; border-bottom-color: #d0d7de; }
+        .light-theme .cfg-row { border-bottom-color: #f0f0f0; }
+        .light-theme .cfg-key { color: #8250df; }
+        .light-theme .cfg-val { color: #1f883d; }
+        .light-theme .cfg-desc { color: #57606a; }
         .l-DESCRIBE{color:#58a6ff} .l-FACES{color:#d29922} .l-EXIF{color:#a5d6ff} .l-EMBED{color:#bc8cff} .l-PIPELINE{color:#3fb950;font-weight:bold} .l-INGEST{color:#c9d1d9} .l-error,.l-FAILED{color:#f85149} .l-DONE,.l-START{color:#3fb950}
 .hamburger { display: none; background: none; border: none; color: #c9d1d9; font-size: 20px; cursor: pointer; padding: 8px 10px; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; order: 99; }
 .mm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999; }
@@ -332,7 +371,8 @@
     .task-body { padding: 0 10px 8px 10px; }
     .task-body input, .task-body select { width: 100%; font-size: 16px; }
     .log-sec { padding: 10px; }
-    #logC { max-height: 200px; font-size: 9px; }
+    #logC { max-height: 60vh; font-size: 9px; }
+    .tab-btn { padding: 8px 12px; font-size: 12px; }
     .mm-edge { display: block; }
 }
 @media (max-width: 480px) {
@@ -352,7 +392,6 @@
             <a href="/monitor">Монитор</a>
             <a href="/persons">Персоны</a>
             <a href="/control" class="active">Управление</a>
-            <a href="/log">Лог</a>
         </div>
         <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀</button>
     </h1>
@@ -367,9 +406,8 @@
             <a href="/map" class="mm-a"><span class="mm-ico">&#9673;</span><span class="mm-lbl">Карта</span></a>
             <a href="/monitor" class="mm-a"><span class="mm-ico">&#9679;</span><span class="mm-lbl">Монитор</span></a>
             <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
-            <a href="/control" class="mm-a active"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
-            <a href="/log" class="mm-a"><span class="mm-ico">&#8801;</span><span class="mm-lbl">Лог</span></a>
-        </div>
+             <a href="/control" class="mm-a active"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
+         </div>
         <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀</span><span id="mmThemeLbl">Дневная тема</span></button></div>
     </div>
      <div class="workers-panel" id="workersPanel">
@@ -384,75 +422,100 @@
         </div>
 
      <div class="main">
-        <div class="summary" id="summary"></div>
+        <div class="tab-bar" id="tabBar">
+            <button class="tab-btn active" onclick="switchTab('pipeline')">&#9881; Пайплайн</button>
+            <button class="tab-btn" onclick="switchTab('maint')">&#128295; Обслуживание</button>
+            <button class="tab-btn" onclick="switchTab('hash')">&#128279; Хеши</button>
+            <button class="tab-btn" onclick="switchTab('log')">&#128220; Лог</button>
+            <button class="tab-btn" onclick="switchTab('config')">&#128736; Конфигурация</button>
+        </div>
 
-        <div class="pipeline-banner idle" id="pipelineBanner">
-            <div class="pb-top">
-                <div>
-                    <div class="pb-title" id="pbTitle">Пайплайн остановлен</div>
-                    <div class="pb-pipeline-time" id="pbPipelineTime"></div>
+        <div class="tab-panel active" id="tab-pipeline">
+            <div class="summary" id="summary"></div>
+            <div class="pipeline-banner idle" id="pipelineBanner">
+                <div class="pb-top">
+                    <div>
+                        <div class="pb-title" id="pbTitle">Пайплайн остановлен</div>
+                        <div class="pb-pipeline-time" id="pbPipelineTime"></div>
+                    </div>
+                    <div class="pb-status s-idle" id="pbStatus">IDLE</div>
                 </div>
-                <div class="pb-status s-idle" id="pbStatus">IDLE</div>
+                <div class="cyclo" id="cyclo"></div>
+                <div class="pb-ctrl">
+                    <label>Лимит:</label>
+                    <input type="number" id="chainLimit" value="100" min="0">
+                    <label style="margin-left:8px">Источник:</label>
+                    <select id="chainRoot" class="ctrl-select" onchange="loadStatus()"></select>
+                    <button class="btn btn-go" id="btnStart" onclick="runChain()">Запустить цепочку</button>
+                    <button class="btn btn-stop" id="btnStop" onclick="stopAll()" disabled>Остановить всё</button>
+                    <span style="color:#6e7681;font-size:11px" id="chainInfo"></span>
+                </div>
             </div>
-            <div class="cyclo" id="cyclo"></div>
-            <div class="pb-ctrl">
-                <label>Лимит:</label>
-                <input type="number" id="chainLimit" value="100" min="0">
-                <label style="margin-left:8px">Источник:</label>
-                <select id="chainRoot" class="ctrl-select" onchange="loadStatus()"></select>
-                <button class="btn btn-go" id="btnStart" onclick="runChain()">Запустить цепочку</button>
-                <button class="btn btn-stop" id="btnStop" onclick="stopAll()" disabled>Остановить всё</button>
-                <span style="color:#6e7681;font-size:11px" id="chainInfo"></span>
+            <div class="tasks" id="tasks"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-maint">
+            <div class="backup-sec">
+                <h3>&#128190; Бекап базы данных</h3>
+                <div class="backup-row">
+                    <button class="btn btn-go" onclick="backupDownload()">&#11015; Скачать бекап</button>
+                    <label class="btn btn-go" style="cursor:pointer">&#11014; Загрузить бекап <input type="file" accept=".gz,.db" onchange="backupUpload(this)" style="display:none"></label>
+                    <span class="backup-info" id="backupInfo"></span>
+                </div>
+                <div class="backup-status" id="backupStatus"></div>
+            </div>
+            <div class="maint-sec">
+                <h3>&#128295; Обслуживание базы данных</h3>
+                <div class="maint-sizes" id="maintSizes"></div>
+                <div class="maint-row">
+                    <button class="btn btn-go" onclick="maintVacuum()">VACUUM SQLite</button>
+                    <span class="maint-info">Сжать SQLite, удалить мусор</span>
+                </div>
+                <div class="maint-row">
+                    <button class="btn btn-go" onclick="maintDedup()">Удалить дубли эмбеддингов</button>
+                    <span class="maint-info">LanceDB: убрать повторные записи</span>
+                </div>
+            </div>
+            <div class="backup-status" id="maintStatus"></div>
+        </div>
+
+        <div class="tab-panel" id="tab-hash">
+            <div class="maint-sec">
+                <h3>&#128279; Контроль хешей файлов</h3>
+                <div id="hashStats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
+                <div class="maint-row">
+                    <button class="btn btn-go" id="btnHashStart" onclick="hashBackfill()">Запустить расчёт хешей</button>
+                    <button class="btn btn-stop" id="btnHashStop" onclick="hashBackfillStop()" disabled>Остановить</button>
+                    <span class="maint-info">xxHash128 для всех файлов без хеша</span>
+                </div>
+                <div class="maint-row">
+                    <button class="btn btn-go" onclick="hashFindDuplicates()">Найти дубликаты файлов</button>
+                    <span class="maint-info">Бит-в-бит совпадения по content_hash</span>
+                </div>
+                <div class="backup-status" id="hashStatus"></div>
+                <div id="dupList" style="max-height:300px;overflow:auto;margin-top:8px;font-size:12px"></div>
             </div>
         </div>
 
-        <div class="backup-sec">
-            <h3>&#128190; Бекап базы данных</h3>
-            <div class="backup-row">
-                <button class="btn btn-go" onclick="backupDownload()">&#11015; Скачать бекап</button>
-                <label class="btn btn-go" style="cursor:pointer">&#11014; Загрузить бекап <input type="file" accept=".gz,.db" onchange="backupUpload(this)" style="display:none"></label>
-                <span class="backup-info" id="backupInfo"></span>
-            </div>
-            <div class="backup-status" id="backupStatus"></div>
-        </div>
-
-        <div class="maint-sec">
-            <h3>&#128295; Обслуживание базы данных</h3>
-            <div class="maint-sizes" id="maintSizes"></div>
-            <div class="maint-row">
-                <button class="btn btn-go" onclick="maintVacuum()">VACUUM SQLite</button>
-                <span class="maint-info">Сжать SQLite, удалить мусор</span>
-            </div>
-            <div class="maint-row">
-                <button class="btn btn-go" onclick="maintDedup()">Удалить дубли эмбеддингов</button>
-                <span class="maint-info">LanceDB: убрать повторные записи</span>
+        <div class="tab-panel" id="tab-log">
+            <div class="log-sec">
+                <h3>Лог <span id="logInfo"></span></h3>
+                <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+                    <input id="logFilter" type="text" placeholder="Фильтр..." class="log-filter-input">
+                    <button onclick="setLogFilter('DESCRIBE')" class="fbtn" data-f="DESCRIBE">VLM</button>
+                    <button onclick="setLogFilter('FACES')" class="fbtn" data-f="FACES">Лица</button>
+                    <button onclick="setLogFilter('EMBED')" class="fbtn" data-f="EMBED">Индекс</button>
+                    <button onclick="setLogFilter('ENRICH')" class="fbtn" data-f="ENRICH">Обогащ.</button>
+                    <button onclick="setLogFilter('PIPELINE')" class="fbtn" data-f="PIPELINE">Пайплайн</button>
+                    <button onclick="setLogFilter('ERROR,FAILED')" class="fbtn fbtn-err" data-f="ERROR,FAILED">Ошибки</button>
+                    <button onclick="setLogFilter('')" class="fbtn fbtn-all" data-f="">Все</button>
+                </div>
+                <div id="logC"></div>
             </div>
         </div>
 
-        <div class="maint-sec">
-            <h3>&#128279; Контроль хешей файлов</h3>
-            <div id="hashStats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"></div>
-            <div class="maint-row">
-                <button class="btn btn-go" id="btnHashStart" onclick="hashBackfill()">Запустить расчёт хешей</button>
-                <button class="btn btn-stop" id="btnHashStop" onclick="hashBackfillStop()" disabled>Остановить</button>
-                <span class="maint-info">xxHash128 для всех файлов без хеша</span>
-            </div>
-            <div class="maint-row">
-                <button class="btn btn-go" onclick="hashFindDuplicates()">Найти дубликаты файлов</button>
-                <span class="maint-info">Бит-в-бит совпадения по content_hash</span>
-            </div>
-            <div class="backup-status" id="hashStatus"></div>
-            <div id="dupList" style="max-height:300px;overflow:auto;margin-top:8px;font-size:12px"></div>
-        </div>
-
-        <div class="backup-status" id="maintStatus"></div>
-        </div>
-
-        <div class="tasks" id="tasks"></div>
-
-        <div class="log-sec">
-            <h3>Лог <span id="logInfo"></span></h3>
-            <div id="logC"></div>
+        <div class="tab-panel" id="tab-config">
+            <div id="configContent"></div>
         </div>
     </div>
 
@@ -485,6 +548,22 @@ var taskState = {};
 TASKS.forEach(function(t){ taskState[t.id] = {status:'idle', started:null, stopped:null, startPct:0, baseCount:0}; });
 
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+var _activeTab = localStorage.getItem('ctrl-tab') || 'pipeline';
+function switchTab(id){
+    _activeTab = id;
+    var btns = document.querySelectorAll('.tab-btn');
+    var panels = document.querySelectorAll('.tab-panel');
+    for(var i=0;i<btns.length;i++) btns[i].classList.toggle('active', btns[i].getAttribute('onclick').indexOf(id)>=0);
+    for(var i=0;i<panels.length;i++) panels[i].classList.toggle('active', panels[i].id === 'tab-'+id);
+    localStorage.setItem('ctrl-tab', id);
+}
+function restoreTab(){
+    var btns = document.querySelectorAll('.tab-btn');
+    for(var i=0;i<btns.length;i++) btns[i].classList.toggle('active', btns[i].getAttribute('onclick').indexOf(_activeTab)>=0);
+    var panels = document.querySelectorAll('.tab-panel');
+    for(var i=0;i<panels.length;i++) panels[i].classList.toggle('active', panels[i].id === 'tab-'+_activeTab);
+}
 
 function fmtTime(iso){ if(!iso) return '\u2014'; return iso.substring(11,19); }
 function fmtDur(ms){
@@ -857,12 +936,34 @@ function loadStatus(){
     }).catch(function(){});
 }
 
+var _logFilter = '';
+function setLogFilter(f){
+    _logFilter = f;
+    document.getElementById('logFilter').value = f.indexOf(',')>=0?'':f;
+    document.querySelectorAll('.fbtn').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-f')===f);});
+    applyLogFilter();
+}
+function applyLogFilter(){
+    var el = document.getElementById('logC');
+    if(!_logFilter){
+        el.querySelectorAll('.ll').forEach(function(s){s.style.display='';});
+        return;
+    }
+    var terms = _logFilter.toUpperCase().split(',');
+    el.querySelectorAll('.ll').forEach(function(s){
+        var txt = s.textContent.toUpperCase();
+        var show = terms.some(function(t){return t && txt.indexOf(t)>=0;});
+        s.style.display = show ? '' : 'none';
+    });
+    updateLogInfo(el);
+}
 function loadLog(){
-    fetch(API+'/../api/log?lines=60').then(function(r){return r.json()}).then(function(d){
+    fetch(API+'/../api/log?lines=2000').then(function(r){return r.json()}).then(function(d){
         var el = document.getElementById('logC');
         var wasBot = el.scrollTop+el.clientHeight >= el.scrollHeight-20;
-        var lines = d.lines.map(function(l){
-            var t = l.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        var h = '';
+        for(var i=0;i<d.lines.length;i++){
+            var t = d.lines[i].replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\r/g,'');
             var m = t.match(/^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
             if(m){
                 var d2=new Date(m[1]+'Z');
@@ -872,20 +973,32 @@ function loadLog(){
                     t=t.replace(m[1],local);
                 }
             }
-            if(t.indexOf('[DESCRIBE]')>=0) return '<span class="l-DESCRIBE">'+t+'</span>';
-            if(t.indexOf('[FACES]')>=0) return '<span class="l-FACES">'+t+'</span>';
-            if(t.indexOf('[EMBED]')>=0) return '<span class="l-EMBED">'+t+'</span>';
-            if(t.indexOf('[EXIF]')>=0) return '<span class="l-EXIF">'+t+'</span>';
-            if(t.indexOf('[PIPELINE]')>=0) return '<span class="l-PIPELINE">'+t+'</span>';
-            if(t.indexOf('[INGEST]')>=0) return '<span class="l-INGEST">'+t+'</span>';
-            if(t.indexOf('FAILED')>=0||t.indexOf('ERROR')>=0) return '<span class="l-error">'+t+'</span>';
-            if(t.indexOf('DONE')>=0||t.indexOf('START')>=0) return '<span class="l-DONE">'+t+'</span>';
-            return t;
-        });
-        el.innerHTML = lines.join('');
-        document.getElementById('logInfo').textContent = d.total+' строк';
+            var cls='ll';
+            if(t.indexOf('[DESCRIBE]')>=0) cls+=' l-DESCRIBE';
+            else if(t.indexOf('[FACES]')>=0) cls+=' l-FACES';
+            else if(t.indexOf('[EMBED]')>=0) cls+=' l-EMBED';
+            else if(t.indexOf('[EXIF]')>=0) cls+=' l-EXIF';
+            else if(t.indexOf('[PIPELINE]')>=0) cls+=' l-PIPELINE';
+            else if(t.indexOf('[INGEST]')>=0) cls+=' l-INGEST';
+            else if(t.indexOf('[ENRICH]')>=0) cls+=' l-ENRICH';
+            else if(t.indexOf('[WATCHDOG]')>=0) cls+=' l-WATCHDOG';
+            if(t.indexOf('FAILED')>=0||t.indexOf('ERROR')>=0) cls+=' l-error';
+            if(t.indexOf('DONE')>=0||t.indexOf('START')>=0) cls+=' l-DONE';
+            h += '<div class="'+cls+'">'+t+'</div>';
+        }
+        el.innerHTML = h;
+        el.setAttribute('data-total', d.total);
+        document.getElementById('logInfo').textContent = _logFilter ? '?/'+d.lines.length+'/'+d.total : d.lines.length+'/'+d.total;
         if(wasBot) el.scrollTop = el.scrollHeight;
+        applyLogFilter();
+        updateLogInfo(el);
     }).catch(function(){});
+}
+function updateLogInfo(el){
+    var total = el.getAttribute('data-total')||'0';
+    var shown = el.querySelectorAll('.ll').length;
+    var visible = _logFilter ? el.querySelectorAll('.ll:not([style*="display: none"])').length : shown;
+    document.getElementById('logInfo').textContent = _logFilter ? visible+'/'+shown+'/'+total : shown+'/'+total;
 }
 
 function backupDownload(){
@@ -1137,6 +1250,33 @@ function hashFindDuplicates(){
     });
 }
 
+function loadConfig(){
+    fetch(API+'/config').then(function(r){return r.json()}).then(function(d){
+        var groups = d.groups || [];
+        var h = '';
+        for(var i=0;i<groups.length;i++){
+            var g = groups[i];
+            h += '<div class="cfg-group">';
+            h += '<div class="cfg-group-head">'+g.icon+' '+esc(g.name)+'</div>';
+            for(var j=0;j<g.params.length;j++){
+                var p = g.params[j];
+                var isPrompt = p.k.indexOf('SYSTEM_PROMPT') !== -1 || p.k.indexOf('tool:') !== -1;
+                h += '<div class="cfg-row">';
+                h += '<div class="cfg-key">'+esc(p.k)+'</div>';
+                if(isPrompt){
+                    h += '<div class="cfg-val cfg-prompt"><pre>'+esc(p.v)+'</pre></div>';
+                } else {
+                    h += '<div class="cfg-val">'+esc(p.v)+'</div>';
+                }
+                h += '<div class="cfg-desc">'+esc(p.d)+'</div>';
+                h += '</div>';
+            }
+            h += '</div>';
+        }
+        document.getElementById('configContent').innerHTML = h;
+    }).catch(function(){});
+}
+
 var WORKER_NAMES = ['ingest','describe','faces','exif','embed','pipeline','thumbnails','scan_catalog','enrich'];
 var WORKER_LABELS = {ingest:'Наполнение',describe:'Описание',faces:'Лица',exif:'EXIF',embed:'Индексация',pipeline:'Пайплайн',thumbnails:'Превью',scan_catalog:'Каталог',enrich:'Обогащение'};
 
@@ -1242,7 +1382,13 @@ function loadCrashes(){
     }).catch(function(){});
 }
 
- loadStatus(); loadLog(); loadMaintStats(); loadRoots(); loadHashStats(); loadWorkers(); loadCrashes();
+ loadStatus(); loadLog(); loadMaintStats(); loadRoots(); loadHashStats(); loadWorkers(); loadCrashes(); restoreTab(); loadConfig();
+ document.getElementById('logFilter').addEventListener('input',function(){
+     var v=this.value.trim();
+     if(!v){ _logFilter=''; document.querySelectorAll('.fbtn').forEach(function(b){b.classList.remove('active');}); }
+     else { _logFilter=v; document.querySelectorAll('.fbtn').forEach(function(b){b.classList.remove('active');}); }
+     loadLog();
+ });
  setInterval(loadStatus, 3000);
  setInterval(loadLog, 5000);
  setInterval(loadWorkers, 5000);

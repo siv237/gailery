@@ -90,12 +90,45 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
 
 @router.get("/")
 async def get_photo(path: str):
-    photo_path = PHOTO_SHARE_PATH / path
+    photo_path = None
+    from database import DatabaseManager
+    db = DatabaseManager()
+    row = db.sqlite.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
+    if row:
+        photo_path = Path(row[0])
+    else:
+        row2 = db.sqlite.execute("SELECT cf.abs_path FROM catalog_files cf WHERE cf.content_hash = ?", (path,)).fetchone()
+        if row2:
+            photo_path = Path(row2[0])
+    if not photo_path:
+        photo_path = PHOTO_SHARE_PATH / path
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
     if not photo_path.is_file():
         raise HTTPException(status_code=404, detail="Not a file")
     ext = photo_path.suffix.lower()
+    raw_exts = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
+    if ext in raw_exts:
+        try:
+            from PIL import Image, ImageOps
+            from io import BytesIO
+            img = Image.open(str(photo_path))
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            return Response(
+                content=buf.getvalue(),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=31536000"}
+            )
+        except Exception as e:
+            logger.error(f"Failed to convert RAW {path}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to convert RAW photo")
     content_type = {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
@@ -117,10 +150,21 @@ async def get_photo(path: str):
 
 @router.get("/thumbnail")
 async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs_path: str = ""):
+    photo_path = None
     if abs_path:
         photo_path = Path(abs_path)
     else:
-        photo_path = PHOTO_SHARE_PATH / path
+        from database import DatabaseManager
+        db = DatabaseManager()
+        row = db.sqlite.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
+        if row:
+            photo_path = Path(row[0])
+        else:
+            row2 = db.sqlite.execute("SELECT cf.abs_path FROM catalog_files cf WHERE cf.content_hash = ?", (path,)).fetchone()
+            if row2:
+                photo_path = Path(row2[0])
+        if not photo_path:
+            photo_path = PHOTO_SHARE_PATH / path
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
