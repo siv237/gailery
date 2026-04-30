@@ -222,31 +222,82 @@ class WorkerMQTT(GailrayMQTT):
     def publish_gpu_held(self, held):
         self.publish(worker_gpu_held_topic(self.worker_name), held)
 
+    def _read_gpu_lock(self):
+        lock_topic = gpu_lock_topic()
+        try:
+            from paho.mqtt.properties import ConnectProperties
+        except Exception:
+            pass
+        result = {"_empty": True}
+
+        class _Temp:
+            payload = None
+        temp = _Temp()
+
+        def _on_msg(client, userdata, msg):
+            if msg.topic == lock_topic:
+                temp.payload = msg.payload.decode("utf-8") if msg.payload else ""
+
+        self.client.message_callback_add(lock_topic, _on_msg)
+        self.client.subscribe(lock_topic, qos=1)
+        time.sleep(0.3)
+        self.client.message_callback_remove(lock_topic)
+        if temp.payload and temp.payload.strip():
+            try:
+                result = json.loads(temp.payload)
+                result["_empty"] = False
+            except Exception:
+                pass
+        return result
+
     def acquire_gpu(self, timeout=120):
         if self.worker_name not in GPU_WORKERS:
             return True
         lock_topic = gpu_lock_topic()
         t0 = time.time()
         while time.time() - t0 < timeout:
-            result = self.client.publish(
-                lock_topic,
-                json.dumps({
-                    "holder": self.worker_name,
-                    "since": datetime.now(timezone.utc).isoformat(),
-                    "pid": os.getpid(),
-                }),
-                qos=1,
-                retain=True,
-            )
-            self.publish_gpu_held(True)
-            return True
+            if self.stopped():
+                return False
+            lock = self._read_gpu_lock()
+            holder = lock.get("holder", "")
+            if lock.get("_empty", True) or not holder:
+                self.client.publish(
+                    lock_topic,
+                    json.dumps({
+                        "holder": self.worker_name,
+                        "since": datetime.now(timezone.utc).isoformat(),
+                        "pid": os.getpid(),
+                    }),
+                    qos=1,
+                    retain=True,
+                )
+                time.sleep(0.2)
+                verify = self._read_gpu_lock()
+                if verify.get("holder") == self.worker_name:
+                    self.publish_gpu_held(True)
+                    logger.info(f"[MQTT] GPU acquired by {self.worker_name}")
+                    return True
+                logger.warning(f"[MQTT] GPU race: expected {self.worker_name}, got {verify.get('holder')}")
+            else:
+                holder_pid = lock.get("pid")
+                if holder_pid:
+                    try:
+                        os.kill(holder_pid, 0)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        logger.info(f"[MQTT] GPU holder '{holder}' pid={holder_pid} dead, clearing stale lock")
+                        self.clear_topic(lock_topic)
+                        continue
+            logger.info(f"[MQTT] GPU held by '{holder}', waiting... ({time.time()-t0:.0f}s/{timeout}s)")
+            time.sleep(2)
         logger.warning(f"[MQTT] GPU acquire timeout for {self.worker_name}")
         return False
 
     def release_gpu(self):
         if self.worker_name not in GPU_WORKERS:
             return
-        self.clear_topic(gpu_lock_topic())
+        lock = self._read_gpu_lock()
+        if lock.get("holder") == self.worker_name:
+            self.clear_topic(gpu_lock_topic())
         self.publish_gpu_held(False)
 
     def shutdown(self):
@@ -381,6 +432,31 @@ class ApiMQTT(GailrayMQTT):
             "since": datetime.now(timezone.utc).isoformat(),
             "pid": os.getpid(),
         }), retain=True)
+
+    def request_gpu_gentle(self, worker_name="api", timeout=120):
+        t0 = time.time()
+        logger.info(f"[MQTT] Gentle GPU request for {worker_name}, waiting up to {timeout}s")
+        self.send_pause(reason="gpu_yield")
+        while time.time() - t0 < timeout:
+            any_gpu = False
+            for name in GPU_WORKERS:
+                if self._worker_states.get(name, {}).get("gpu_held", False):
+                    any_gpu = True
+                    break
+            if not any_gpu:
+                break
+            time.sleep(1)
+        if any_gpu:
+            logger.warning(f"[MQTT] GPU still held after {time.time()-t0:.1f}s — giving up gently")
+            self.send_resume()
+            return False
+        self.publish(gpu_lock_topic(), json.dumps({
+            "holder": worker_name,
+            "since": datetime.now(timezone.utc).isoformat(),
+            "pid": os.getpid(),
+        }), retain=True)
+        logger.info(f"[MQTT] GPU acquired gently for {worker_name} in {time.time()-t0:.1f}s")
+        return True
 
     def release_gpu_from_api(self):
         self.clear_topic(gpu_lock_topic())

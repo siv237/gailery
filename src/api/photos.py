@@ -629,10 +629,15 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     embed_port = 8102
     embed_server = None
     mq = _get_mqtt_api()
+    gpu_acquired = False
     gpu_t0 = time.time()
     if mq:
-        mq.request_gpu_for_api(worker_name="semantic_search")
-        logger.info(f"[SEMSEARCH] GPU acquired in {time.time()-gpu_t0:.1f}s")
+        gpu_acquired = mq.request_gpu_gentle(worker_name="semantic_search", timeout=120)
+        if gpu_acquired:
+            logger.info(f"[SEMSEARCH] GPU acquired gently in {time.time()-gpu_t0:.1f}s")
+        else:
+            logger.warning("[SEMSEARCH] GPU busy, search unavailable now")
+            return {"total": 0, "photos": [], "query": q, "error": "GPU busy, try again later"}
     else:
         logger.warning("[SEMSEARCH] No MQTT, proceeding without GPU lock")
 
@@ -692,7 +697,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
             except Exception:
                 embed_server.kill()
                 logger.info("[SEMSEARCH] llama-server killed")
-        if mq:
+        if mq and gpu_acquired:
             mq.release_gpu_from_api()
             logger.info("[SEMSEARCH] GPU released via MQTT")
 

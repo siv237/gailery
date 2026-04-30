@@ -459,6 +459,8 @@ async def control_start(body: dict):
         dl = body.get("desc_limit", 60)
         bs = body.get("batch_size", 6)
         root = f"--root {body['root_id']}" if body.get("root_id") else ""
+        subprocess.run(["pkill", "-f", "pipeline.py"], capture_output=True, timeout=5)
+        subprocess.run(["systemctl", "stop", "gailray-pipeline"], capture_output=True, timeout=5)
         cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/pipeline.py --ingest {n} --describe {dl} --batch-size {bs} {root} >> {_lf} 2>&1 &"
 
     if cmd:

@@ -578,17 +578,20 @@ class DatabaseManager:
         return None
 
     def get_all_face_embeddings(self):
+        import numpy as np
         faces = self.sqlite.execute(
             "SELECT face_id, persona_id, photo_id FROM faces"
         ).fetchall()
-        vec_rows = self.face_vectors.search().select(["face_id", "embedding"]).limit(10000000).to_list()
-        vec_map = {v["face_id"]: v["embedding"] for v in vec_rows}
+        df = self.face_vectors.search().select(["face_id", "embedding"]).limit(10000000).to_pandas()
+        face_ids = df["face_id"].values
+        embeddings_all = np.stack(df["embedding"].values)
+        id_to_idx = {fid: i for i, fid in enumerate(face_ids)}
         result = []
         for f in faces:
             fid, pid, photo_id = f[0], f[1], f[2]
-            emb = vec_map.get(fid)
-            if emb:
-                result.append({"face_id": fid, "persona_id": pid, "photo_id": photo_id, "embedding": emb})
+            idx = id_to_idx.get(fid)
+            if idx is not None:
+                result.append({"face_id": fid, "persona_id": pid, "photo_id": photo_id, "embedding": embeddings_all[idx]})
         return result
 
     def get_all_faces(self):

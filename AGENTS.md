@@ -3,6 +3,52 @@
 ## Что это
 Фото-галерея, Python/FastAPI/SQLite+LanceDB, веб-фронтенд. GPU NVIDIA (проверено на P104-100, Pascal SM 6.1, 8GB VRAM).
 
+---
+
+## FUNDAMENTAL: GPU ARBITRATION — ВСЕГДА ЧИТАТЬ ПЕРЕД ЛЮБЫМИ ИЗМЕНЕНИЯМИ GPU-КОДА
+
+### Железо
+1 видеокарта P104-100, 8GB VRAM. Одновременно на GPU может быть ТОЛЬКО ОДИН процесс. Никаких исключений.
+
+### Два класса задач
+
+| Класс | Примеры | Характер | Приоритет |
+|---|---|---|---|
+| **Фоновые** | describe (VLM), faces (InsightFace), embed (PyTorch) | Длительные, запускаются pipeline.py последовательно через subprocess.run | Высокий — работают пока не закончат или пока не остановят вручную |
+| **Временные** | semantic_search (embedding server), enrich (text LLM) | Короткие, запускаются по запросу пользователя из API | Низкий — должны вклиниться, НЕ крашить фоновые, НЕ занимать GPU вторым процессом |
+
+### Правила — НАРУШЕНИЕ ЛЮБОГО = БАГ
+
+1. **NEVER два GPU-процесса одновременно.** Ни при каких обстоятельствах. Если на GPU уже кто-то — второй ЖДЁТ или ОТКАЗЫВАЕТ, но никогда не лезет поверх.
+
+2. **Фоновые задачи взаимно исключают друг друга через pipeline.** Pipeline запускает describe→faces→embed ПОСЛЕДОВАТЕЛЬНО (subprocess.run, блокирующий). Между шагами pipeline убивает orphan llama-server. Два фоновых воркера никогда не работают параллельно.
+
+3. **Временные задачи используют MQTT GPU lock.** Перед запуском llama-server/API-воркера:
+   - `request_gpu_gentle()` для поиска — ждёт до 120с, отказывает если GPU занят, НЕ убивает ничьи процессы
+   - `request_gpu_for_api()` для enrich — жёсткий захват (пользователь ждёт кнопку), pause + pkill если не отдали за 3с
+   - После завершения — `release_gpu_from_api()`, send_resume
+
+4. **Фоновые воркеры используют `acquire_gpu()` (WorkerMQTT).** Это реальный мьютекс: читает MQTT lock topic, проверяет holder, если занят — ждёт, если holder мёртв (PID не существует) — чистит stale lock. Только после успешного acquire — `gpu_held=True`. При завершении — `release_gpu()`.
+
+5. **Сироты llama-server — УБИВАТЬ.** Если describe крашнется — llama-server остаётся с ppid=1. Pipeline убивает orphan llama-server перед каждым GPU-шагом. Watchdog тоже детектит сирот.
+
+6. **Никогда не запускать второй pipeline.** Кнопка "chain" в UI убивает старый pipeline перед запуском нового. Watchdog убивает дубликаты.
+
+7. **GPU lock topic** — `gailray/gpu/lock` (retained MQTT): `{"holder":"faces","since":"...","pid":12345}`. Пустой = свободен. Все проверки идут через него.
+
+### Что уже сделано для арбитража
+- `acquire_gpu()` в WorkerMQTT — реальный мьютекс с verify после записи
+- `release_gpu()` — проверяет что мы holder перед очисткой
+- `request_gpu_gentle()` в ApiMQTT — мягкий захват, timeout=120s, отказ если занят
+- `request_gpu_for_api()` в ApiMQTT — жёсткий захват (enrich)
+- `kill_orphan_llama_servers()` в pipeline.py — перед каждым GPU-шагом
+- `check_duplicate_pipelines()` / `check_orphan_workers()` / `check_memory_pressure()` в watchdog.py
+- faces.py, embed.py, vision_describe.py используют `acquire_gpu()` перед работой
+- semantic_search использует `request_gpu_gentle()`
+- enrich использует `request_gpu_for_api()`
+
+---
+
 ## Текущая задача: enrich_description — обогащение описаний
 
 ### Проблема
@@ -79,7 +125,6 @@ DATE: 2023-06-20 13:39:07
 - P104-100 Pascal SM 6.1, cuDNN 9.x НЕ работает
 - onnxruntime-gpu 1.18.0 + cuDNN 8.x — работает (ldconfig настроен)
 - llama.cpp — работает через custom CUDA kernels (без cuDNN)
-- При запуске llama-server для enrich — GPU свободен (VLM не работает в этот момент)
 
 ### Формат промта для tool-calling
 Qwen3.5-4B поддерживает функции через chat template. Формат:

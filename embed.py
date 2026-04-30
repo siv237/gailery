@@ -247,7 +247,9 @@ def _main(db, args, mq=None):
     tokenizer, model, device = load_model()
 
     if mq:
-        mq.publish_gpu_held(True)
+        if not mq.acquire_gpu(timeout=60):
+            log("GPU занят, embed не может запуститься")
+            return 1
 
     batch_texts = []
     batch_meta = []
@@ -397,7 +399,7 @@ def _main(db, args, mq=None):
         log(f"Compact note: {e}")
 
     if mq:
-        mq.publish_gpu_held(False)
+        mq.release_gpu()
 
     return 0
 

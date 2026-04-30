@@ -86,10 +86,17 @@ def run_detection(photos):
     import numpy as np
     from PIL import Image
 
-    app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    cuda_opts = {
+        'device_id': 0,
+        'arena_extend_strategy': 'kSameAsRequested',
+        'cudnn_conv_algo_search': 'EXHAUSTIVE',
+        'do_copy_in_default_stream': False,
+        'cudnn_conv_use_max_workspace': '1',
+        'gpu_mem_limit': 6*1024*1024*1024,
+    }
+    app = FaceAnalysis(name='buffalo_l', providers=[('CUDAExecutionProvider', cuda_opts), 'CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(640, 640))
-    import onnxruntime as ort
-    log(f"InsightFace loaded on GPU (CUDAExecutionProvider active)")
+    log(f"InsightFace loaded on GPU (optimized CUDA provider)")
 
     db = DatabaseManager()
     total_saved = 0
@@ -238,7 +245,9 @@ def main():
 def _main(db, args, mq=None):
 
     if mq:
-        mq.publish_gpu_held(True)
+        if not mq.acquire_gpu(timeout=60):
+            log("GPU занят, faces не может запуститься")
+            return 1
 
     photos = get_undetected_photos(db, limit=args.limit)
     if not photos:
@@ -246,18 +255,47 @@ def _main(db, args, mq=None):
         if not args.no_cluster:
             run_clustering()
         if mq:
-            mq.publish_gpu_held(False)
+            mq.release_gpu()
         return 0
 
     log(f"Found {len(photos)} photos needing face detection")
     run_detection(photos)
 
     if not args.no_cluster:
-        run_clustering()
+        gpu_for_cluster = _try_gpu_for_clustering()
+        if gpu_for_cluster:
+            log("Clustering on GPU (holding GPU lock)")
+            run_clustering()
+            if mq:
+                mq.release_gpu()
+                log("GPU released after GPU clustering")
+        else:
+            if mq:
+                mq.release_gpu()
+                log("GPU released, clustering on CPU")
+            run_clustering()
+    else:
+        if mq:
+            mq.release_gpu()
 
-    if mq:
-        mq.publish_gpu_held(False)
     return 0
+
+
+def _try_gpu_for_clustering():
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+        t = torch.zeros(1, device='cuda:0')
+        del t
+        torch.cuda.empty_cache()
+        free_mem, total_mem = torch.cuda.mem_get_info()
+        if free_mem < 1 * 1024 * 1024 * 1024:
+            log(f"GPU free VRAM too low for clustering: {free_mem/1e9:.1f}GB")
+            return False
+        return True
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":

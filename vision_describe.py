@@ -517,7 +517,11 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("describe")
-        mq.publish_gpu_held(True)
+        if not mq.acquire_gpu(timeout=60):
+            log("GPU занят, describe не может запуститься")
+            if mq:
+                mq.shutdown()
+            return
     except Exception:
         mq = None
 
@@ -527,6 +531,7 @@ def main():
         process_directory(args.path, batch_size=args.batch_size, limit=args.limit)
 
     if mq:
+        mq.release_gpu()
         mq.shutdown()
 
 

@@ -137,6 +137,24 @@ def run_step(name, cmd):
         return 1
 
 
+def kill_orphan_llama_servers():
+    try:
+        result = subprocess.run(["pgrep", "-f", "llama-server"], capture_output=True, text=True)
+        for pid_str in result.stdout.strip().split():
+            if not pid_str:
+                continue
+            pid = int(pid_str)
+            try:
+                ppid = int(open(f"/proc/{pid}/stat").read().split()[3])
+                if ppid == 1:
+                    os.kill(pid, 9)
+                    log(f"Killed orphan llama-server pid={pid}")
+            except (ProcessLookupError, FileNotFoundError, ValueError, PermissionError):
+                pass
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gailery batch worker loop")
     parser.add_argument("--batch", type=int, default=60, help="Photos per iteration (ingest/describe)")
@@ -196,6 +214,7 @@ def main():
                     break
 
             if progress["describe"][2] < 100:
+                kill_orphan_llama_servers()
                 remaining = progress["describe"][1] - progress["describe"][0]
                 n = min(describe_n, remaining) if remaining > 0 else describe_n
                 run_step("DESCRIBE", [VENV_PYTHON, f"{SCRIPTS_DIR}/describe.py", "--limit", str(n), "--batch-size", str(args.batch_size)] + root_path_arg)
@@ -203,6 +222,7 @@ def main():
                     break
 
             if progress["faces"][2] < 100 or progress.get("faces_pending", 0) > 0:
+                kill_orphan_llama_servers()
                 run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py"])
                 if stopped():
                     break
@@ -213,6 +233,7 @@ def main():
                     break
 
             if progress["embed"][2] < 100:
+                kill_orphan_llama_servers()
                 run_step("EMBED", [VENV_PYTHON, f"{SCRIPTS_DIR}/embed.py"])
                 if stopped():
                     break
