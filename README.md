@@ -16,7 +16,7 @@
 
 Всё это работает на одной дешёвой GPU за $30 — без подписок, без облака, без отправки ваших фото куда-либо.
 
-**Фото-архив — неприкосновенен.** Gailery никогда не пишет в папку с фотографиями. Все описания, имена, эмбеддинги, миниатюры — в собственной базе. Оригинальные файлы только читаются.
+**Фото-архив — неприкосновенен.** Gailery никогда не пишет в папку с фотографиями. Все описания, имена, семантические индексы, миниатюры — в собственной базе. Оригинальные файлы только читаются.
 
 ---
 
@@ -60,7 +60,7 @@ Gailery подключается к вашей файлопомойке (SMB, NF
 
 - **AI-описание фото** — VLM (Qwen3.5-4B) генерирует описания на русском языке через llama-server
 - **Обогащение описаний** — LLM подставляет имена людей, контекст папок и дат (tool-calling с 3 инструментами)
-- **Детекция лиц** — InsightFace buffalo_l (GPU, onnxruntime CUDA): детекция + 512-dim эмбеддинги
+- **Детекция лиц** — InsightFace buffalo_l (GPU, onnxruntime CUDA): детекция + 512-dim векторные представления
 - **Кластеризация персон** — DBSCAN (cosine, eps=0.4) инкрементально: существующие персоны не пересчитываются
 - **Семантический поиск** — Qwen3-Embedding-0.6B (1024-dim), LanceDB cosine similarity
 - **Текстовый поиск** — SQL LIKE по описаниям
@@ -79,7 +79,7 @@ Gailery подключается к вашей файлопомойке (SMB, NF
 | БД | SQLite (метаданные) + LanceDB (векторы) |
 | VLM описание | Qwen3.5-4B GGUF Q4_K_M через llama-server (порт 8101) |
 | LLM обогащение | Qwen3.5-4B GGUF через llama-server (порт 8103, tool-calling) |
-| Эмбеддинги | Qwen3-Embedding-0.6B: PyTorch CUDA (пайплайн) + GGUF (поиск, порт 8102) |
+| Семантические индексы | Qwen3-Embedding-0.6B: PyTorch CUDA (пайплайн) + GGUF (поиск, порт 8102) |
 | Лица | InsightFace buffalo_l (onnxruntime-gpu 1.18, CUDA, SCRFD+ArcFace) |
 | Кластеризация | scikit-learn DBSCAN (cosine) |
 | EXIF | ExifRead + Pillow |
@@ -138,7 +138,7 @@ pip install -r requirements.txt
 
 ### 5. Сборка llama.cpp
 
-llama-server используется для VLM описаний, обогащения текстов и эмбеддингов поиска.
+llama-server используется для VLM описаний, обогащения текстов и семантической индексации поиска.
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp.git /opt/llama.cpp
@@ -173,10 +173,10 @@ wget https://huggingface.co/Qwen/Qwen3.5-4B-GGUF/resolve/main/mmproj-BF16.gguf \
      -O mmproj-BF16.gguf
 ```
 
-#### 6.2. Qwen3-Embedding-0.6B — семантический поиск и эмбеддинги
+#### 6.2. Qwen3-Embedding-0.6B — семантический поиск и векторные представления
 
 Используется в двух форматах:
-- **PyTorch** (HuggingFace) — батч-эмбеддинги в пайплайне
+- **PyTorch** (HuggingFace) — батч-векторизация в пайплайне
 - **GGUF** — on-demand поиск через llama-server
 
 ```bash
@@ -273,7 +273,7 @@ python describe.py --limit 100
 # 5. Детекция лиц
 python faces.py
 
-# 6. Эмбеддинги для поиска
+# 6. Семантическая индексация для поиска
 python embed.py
 
 # 7. Миниатюры
@@ -327,9 +327,9 @@ GPU используется по очереди: VLM → InsightFace → PyTorc
 |--------|--------|--------|------|-----------|
 | Qwen3.5-4B | GGUF Q4_K_M | 2.7 GB | 8101 | VLM описание (с mmproj, 675MB) |
 | Qwen3.5-4B | GGUF Q4_K_M | 2.7 GB | 8103 | LLM обогащение (text, tool-calling) |
-| Qwen3-Embedding-0.6B | GGUF F16 | 1.2 GB | 8102 | Эмбеддинги для поиска (on-demand) |
-| Qwen3-Embedding-0.6B | PyTorch fp16 | ~1.2 GB | — | Батч-эмбеддинги (пайплайн) |
-| InsightFace buffalo_l | ONNX | ~100 MB | — | Детекция + эмбеддинги лиц |
+| Qwen3-Embedding-0.6B | GGUF F16 | 1.2 GB | 8102 | Семантические индексы (on-demand) |
+| Qwen3-Embedding-0.6B | PyTorch fp16 | ~1.2 GB | — | Батч-векторизация (пайплайн) |
+| InsightFace buffalo_l | ONNX | ~100 MB | — | Детекция + векторные представления лиц |
 
 ---
 
@@ -406,7 +406,7 @@ gailery/
 ├── vision_describe.py           # VLM описания (llama-server:8101)
 ├── faces.py                     # InsightFace + кластеризация
 ├── exif.py                      # EXIF-метаданные
-├── embed.py                     # PyTorch эмбеддинги
+├── embed.py                     # PyTorch семантическая индексация
 ├── enrich_description.py        # LLM обогащение (llama-server:8103, tool-calling)
 ├── scan_catalog.py              # Скан каталога
 ├── generate_thumbnails.py       # Генерация миниатюр (pyvips)
@@ -418,7 +418,7 @@ gailery/
 
 - **Pascal SM 6.1**: cuDNN 9.x не работает, нужен 8.x; torch.compile не работает (Triton требует SM 70+). На Turing+ этих проблем нет
 - **GPU разделена**: VLM, InsightFace, PyTorch — работают по очереди, одновременно одна модель на GPU
-- **Семантический поиск**: при поиске стартует llama-server для эмбеддингов, пайплайн в это время не работает
+- **Семантический поиск**: при поиске стартует llama-server для векторизации, пайплайн в это время не работает
 - **Read-only**: Gailery не модифицирует оригинальные фото — это фича, а не баг
 
 ---

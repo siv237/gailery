@@ -69,51 +69,35 @@ def get_progress(root_id=None):
     db = DatabaseManager()
     cur = db.sqlite.cursor()
 
-    root_filter = ""
-    root_params = []
-    if root_id:
-        root = db.get_catalog_root(root_id)
-        if root:
-            root_path = root["root_path"]
-            root_filter = " AND (path LIKE ?)"
-            root_params = [root_path + "/%"]
+    root_where = " AND cf.root_id = ?" if root_id else ""
+    root_params = [root_id] if root_id else []
 
-    img_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif', '.webp', '.heic', '.heif', '.avif', '.cr2', '.nef', '.arw', '.dng', '.rw2', '.orf')
-    img_exts_all = img_exts + tuple(e.upper() for e in img_exts)
-    ext_placeholders = ','.join(['?'] * len(img_exts_all))
+    base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND p.deleted = 0{root_where}"
 
-    if root_id:
-        cat_total = cur.execute(
-            f"SELECT COUNT(*) FROM catalog_files WHERE ext IN ({ext_placeholders}) AND root_id = ? AND is_canonical = 1",
-            img_exts_all + (root_id,)).fetchone()[0]
-    else:
-        cat_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files WHERE ext IN ({ext_placeholders}) AND is_canonical = 1", img_exts_all).fetchone()[0]
+    cat_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]
 
-    ingested = cur.execute(f"SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE cf.is_canonical = 1 AND p.deleted = 0").fetchone()[0]
-    described = cur.execute(f"SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE p.description IS NOT NULL AND cf.is_canonical = 1").fetchone()[0]
-    exif_checked = cur.execute(f"SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE p.exif_checked = 1 AND cf.is_canonical = 1").fetchone()[0]
-    faces_flagged = cur.execute(f"SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE p.faces_present = 1 AND cf.is_canonical = 1").fetchone()[0]
-    faces_with_persona = cur.execute(
-        f"SELECT COUNT(DISTINCT f.photo_id) FROM faces f JOIN photos p ON f.photo_id = p.path OR f.photo_id = substr(p.path, length(?) + 2) WHERE f.persona_id IS NOT NULL{root_filter.replace('path', 'p.path')}",
-        [str(db._get_photo_share_path()) + "/"] + root_params).fetchone()[0] if root_filter else cur.execute("SELECT COUNT(DISTINCT photo_id) FROM faces WHERE persona_id IS NOT NULL").fetchone()[0]
-    faces_done = cur.execute(f"SELECT COUNT(DISTINCT photo_id) FROM faces").fetchone()[0]
+    ingested = cur.execute(f"SELECT COUNT(*) {base}", root_params).fetchone()[0]
+    described = cur.execute(f"SELECT COUNT(*) {base} AND p.description IS NOT NULL", root_params).fetchone()[0]
+    exif_checked = cur.execute(f"SELECT COUNT(*) {base} AND p.exif_checked = 1", root_params).fetchone()[0]
+    faces_flagged = cur.execute(f"SELECT COUNT(*) {base} AND p.faces_present = 1", root_params).fetchone()[0]
+    faces_done = cur.execute(
+        f"SELECT COUNT(*) {base} AND p.faces_present = 1"
+        f" AND EXISTS (SELECT 1 FROM faces f WHERE f.content_hash = cf.content_hash)",
+        root_params).fetchone()[0]
     faces_pending = faces_flagged - faces_done
-    if root_id:
-        embedded = cur.execute("SELECT COUNT(*) FROM catalog_files WHERE embedded = 1 AND ingested = 1 AND root_id = ? AND is_canonical = 1", (root_id,)).fetchone()[0]
-    else:
-        embedded = cur.execute("SELECT COUNT(*) FROM catalog_files WHERE embedded = 1 AND ingested = 1 AND is_canonical = 1").fetchone()[0]
+    embedded = cur.execute(f"SELECT COUNT(*) {base} AND p.embedded = 1", root_params).fetchone()[0]
 
     p_ingest = ingested / max(cat_total, 1) * 100
     p_describe = described / max(ingested, 1) * 100
     p_exif = exif_checked / max(ingested, 1) * 100
-    p_faces = faces_with_persona / max(faces_flagged, 1) * 100 if faces_flagged > 0 else 100
+    p_faces = faces_done / max(faces_flagged, 1) * 100 if faces_flagged > 0 else 100
     p_embed = embedded / max(ingested, 1) * 100
 
     return {
         "ingest": (ingested, cat_total, p_ingest),
         "describe": (described, ingested, p_describe),
         "exif": (exif_checked, ingested, p_exif),
-        "faces": (faces_with_persona, faces_flagged, p_faces),
+        "faces": (faces_done, faces_flagged, p_faces),
         "faces_pending": faces_pending,
         "embed": (embedded, ingested, p_embed),
     }
@@ -207,9 +191,13 @@ def main():
                 break
 
             if progress["ingest"][2] < 100:
-                remaining = progress["ingest"][1] - progress["ingest"][0]
-                n = min(ingest_n, remaining) if remaining > 0 else ingest_n
-                run_step("INGEST", [VENV_PYTHON, f"{SCRIPTS_DIR}/ingest.py", "--random", str(n)] + root_args)
+                scan_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"]
+                if args.root:
+                    from database import DatabaseManager as _DB2
+                    _r2 = _DB2().get_catalog_root(args.root)
+                    if not _r2:
+                        scan_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"]
+                run_step("SCAN+INGEST", scan_args)
                 if stopped():
                     break
 

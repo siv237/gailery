@@ -69,6 +69,13 @@ def scan_root(db, root_id):
         log(f"Root not found: {root_id}")
         return
     root_path = root["root_path"]
+    scanned_at_str = root.get("scanned_at")
+    scanned_at_ts = 0
+    if scanned_at_str:
+        try:
+            scanned_at_ts = datetime.fromisoformat(scanned_at_str).timestamp()
+        except Exception:
+            pass
 
     if not Path(root_path).exists():
         log(f"Root path does not exist: {root_path}")
@@ -76,95 +83,218 @@ def scan_root(db, root_id):
 
     log(f"Scanning: {root_path}")
 
-    existing_files = db.get_catalog_files(root_id=root_id)
+    cur = db.sqlite.cursor()
+    existing_rows = cur.execute(
+        "SELECT rel_path, abs_path, file_id, content_hash, modified, size, deleted FROM catalog_files WHERE root_id = ?",
+        (root_id,)
+    ).fetchall()
     existing_map = {}
-    for f in existing_files:
-        existing_map[f["rel_path"]] = f
+    for r in existing_rows:
+        existing_map[r[0]] = {
+            "rel_path": r[0], "abs_path": r[1], "file_id": r[2],
+            "content_hash": r[3], "modified": r[4], "size": r[5], "deleted": r[6],
+        }
 
     existing_rel = set(existing_map.keys())
 
     new_files = []
     kept_rel = set()
     changed_count = 0
+    restored_count = 0
+    stale_count = 0
+    scan_complete = False
 
     t0 = time.time()
     scanned = 0
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        for fn in filenames:
-            ext = Path(fn).suffix.lower()
-            if ext not in SUPPORTED_EXTS:
-                continue
-            abs_path = os.path.join(dirpath, fn)
-            rel_path = os.path.relpath(abs_path, root_path)
-            kept_rel.add(rel_path)
-            scanned += 1
+    skipped_dirs = 0
 
+    try:
+        for dirpath, dirnames, filenames in os.walk(root_path):
             try:
-                stat = os.stat(abs_path)
-                file_size = stat.st_size
-                mtime = stat.st_mtime
+                dir_stat = os.stat(dirpath)
+                dir_mtime = dir_stat.st_mtime
             except OSError:
+                dirnames.clear()
                 continue
 
-            mtime_str = str(mtime)
+            if scanned_at_ts and dir_mtime < scanned_at_ts and dirpath != root_path:
+                all_in_dir_are_old = True
+                for fn in filenames:
+                    ext = Path(fn).suffix.lower()
+                    if ext not in SUPPORTED_EXTS:
+                        continue
+                    rel_path = os.path.relpath(os.path.join(dirpath, fn), root_path)
+                    kept_rel.add(rel_path)
+                    if rel_path not in existing_rel:
+                        all_in_dir_are_old = False
+                if all_in_dir_are_old:
+                    skipped_dirs += 1
+                    continue
 
-            if rel_path in existing_map:
-                old = existing_map[rel_path]
-                if str(old.get("modified", "")) != mtime_str or old.get("size", 0) != file_size:
+            for fn in filenames:
+                ext = Path(fn).suffix.lower()
+                if ext not in SUPPORTED_EXTS:
+                    continue
+                abs_path = os.path.join(dirpath, fn)
+                rel_path = os.path.relpath(abs_path, root_path)
+                kept_rel.add(rel_path)
+                scanned += 1
+
+                try:
+                    stat = os.stat(abs_path)
+                    file_size = stat.st_size
+                    mtime = stat.st_mtime
+                except OSError:
+                    continue
+
+                mtime_str = str(mtime)
+
+                if rel_path in existing_map:
+                    old = existing_map[rel_path]
+                    if old.get("deleted"):
+                        content_hash = compute_file_hash(abs_path) if file_size > 0 else None
+                        if content_hash and content_hash == old.get("content_hash"):
+                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
+                            restored_count += 1
+                        else:
+                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=content_hash)
+                            _mark_stale(db, old["file_id"], old.get("content_hash"), content_hash, abs_path)
+                            stale_count += 1
+                    elif str(old.get("modified", "")) != mtime_str or old.get("size", 0) != file_size:
+                        content_hash = compute_file_hash(abs_path) if file_size > 0 else None
+                        old_hash = old.get("content_hash")
+                        db.update_catalog_file(old["file_id"], abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=content_hash)
+                        if content_hash and old_hash and content_hash != old_hash:
+                            _mark_stale(db, old["file_id"], old_hash, content_hash, abs_path)
+                            stale_count += 1
+                        else:
+                            changed_count += 1
+                    elif not old.get("content_hash") and file_size > 0:
+                        content_hash = compute_file_hash(abs_path)
+                        db.update_catalog_file(old["file_id"], content_hash=content_hash)
+                else:
                     content_hash = compute_file_hash(abs_path) if file_size > 0 else None
-                    db.update_catalog_file(old["file_id"], abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=content_hash)
-                    changed_count += 1
-                elif not old.get("content_hash") and file_size > 0:
-                    content_hash = compute_file_hash(abs_path)
-                    db.update_catalog_file(old["file_id"], content_hash=content_hash)
-            else:
-                content_hash = compute_file_hash(abs_path) if file_size > 0 else None
-                new_files.append({
-                    "file_id": str(uuid.uuid4()),
-                    "root_id": root_id,
-                    "rel_path": rel_path,
-                    "abs_path": abs_path,
-                    "parent_dir": str(Path(rel_path).parent),
-                    "ext": ext,
-                    "size": file_size,
-                    "modified": mtime_str,
-                    "content_hash": content_hash,
-                    "ingested": False,
-                    "described": False,
-                    "exif_done": False,
-                    "faces_done": False,
-                })
+                    new_files.append({
+                        "file_id": str(uuid.uuid4()),
+                        "root_id": root_id,
+                        "rel_path": rel_path,
+                        "abs_path": abs_path,
+                        "parent_dir": str(Path(rel_path).parent),
+                        "ext": ext,
+                        "size": file_size,
+                        "modified": mtime_str,
+                        "content_hash": content_hash,
+                        "ingested": False,
+                        "described": False,
+                        "exif_done": False,
+                        "faces_done": False,
+                    })
 
-            if len(new_files) >= 1000:
-                db.add_catalog_files_batch(new_files)
-                new_files = []
+                if len(new_files) >= 1000:
+                    db.add_catalog_files_batch(new_files)
+                    new_files = []
+
+        scan_complete = True
+    except Exception as e:
+        log(f"Scan ABORTED: {e}")
+        scan_complete = False
 
     if new_files:
         db.add_catalog_files_batch(new_files)
 
-    deleted_rel = existing_rel - kept_rel
-    if deleted_rel:
-        log(f"Deleting {len(deleted_rel)} files removed from disk...")
-        for rel in deleted_rel:
-            old = existing_map[rel]
-            db.delete_catalog_file(old["file_id"])
+    if scan_complete:
+        deleted_rel = existing_rel - kept_rel
+        deleted_count = 0
+        if deleted_rel:
+            for rel in deleted_rel:
+                old = existing_map[rel]
+                if not old.get("deleted"):
+                    db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_missing')
+                    pid_row = db.sqlite.execute("SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (old["abs_path"],)).fetchone()
+                    if pid_row:
+                        db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid_row[0],))
+                        db.sqlite.commit()
+                    deleted_count += 1
+            log(f"Marked {deleted_count} files as deleted (auto_missing)")
+    else:
+        log(f"Scan incomplete, skipping soft-delete step")
 
-    total_files = db.get_catalog_files(root_id=root_id)
-    file_count = len(total_files)
-    total_size = sum(f.get("size", 0) for f in total_files)
+    if scan_complete:
+        db.update_catalog_root(root_id, scanned_at=datetime.now().isoformat())
 
-    db.update_catalog_root(root_id, scanned_at=datetime.now().isoformat(), file_count=file_count, total_size=total_size)
+    if scan_complete:
+        groups, copies = db.mark_canonical_duplicates()
+        db.invalidate_canonical_cache()
+        if copies > 0:
+            log(f"Marked {copies} duplicate files (is_canonical=0) across {groups} groups")
 
-    new_count = len(kept_rel - existing_rel)
-    deleted_count = len(deleted_rel)
+        _ingest_new_canonical(db, root_id)
+
+        _cleanup_noncanonical_photos(db)
+
     elapsed = time.time() - t0
+    new_count = len(kept_rel - existing_rel)
+    del_str = f"{deleted_count} deleted" if scan_complete else "NO delete (scan incomplete)"
+    log(f"Scan done in {elapsed:.1f}s: {scanned} scanned, {skipped_dirs} dirs skipped, {new_count} new, {changed_count} changed, {del_str}, {restored_count} restored, {stale_count} stale")
 
-    log(f"Scan done in {elapsed:.1f}s: {scanned} scanned, {new_count} new, {changed_count} changed, {deleted_count} deleted, {file_count} total")
 
-    groups, copies = db.mark_canonical_duplicates()
-    db.invalidate_canonical_cache()
-    if copies > 0:
-        log(f"Marked {copies} duplicate files (is_canonical=0) across {groups} groups")
+def _mark_stale(db, file_id, old_hash, new_hash, abs_path):
+    db.sqlite.execute("UPDATE photos SET description = NULL, faces_present = 0, exif_checked = 0, embedded = 0 WHERE path = ? AND deleted = 0", (abs_path,))
+    if old_hash:
+        db.sqlite.execute("DELETE FROM faces WHERE content_hash = ?", (old_hash,))
+    db.sqlite.execute("UPDATE catalog_files SET embedded = 0, described = 0, exif_done = 0, faces_done = 0 WHERE file_id = ?", (file_id,))
+    db.sqlite.commit()
+    log(f"  Stale: {abs_path} hash changed {old_hash[:12] if old_hash else '?'}..→{new_hash[:12] if new_hash else '?'}.., flags reset")
+
+
+def _ingest_new_canonical(db, root_id):
+    cur = db.sqlite.cursor()
+    rows = cur.execute(
+        "SELECT cf.abs_path, cf.root_id FROM catalog_files cf "
+        "WHERE cf.is_canonical = 1 AND cf.ingested = 0 AND cf.deleted = 0 AND cf.root_id = ?",
+        (root_id,)
+    ).fetchall()
+    if not rows:
+        return
+
+    import uuid as _uuid
+    batch = []
+    file_ids = []
+    for abs_path, rid in rows:
+        batch.append({
+            "photo_id": str(_uuid.uuid4()),
+            "path": abs_path,
+            "thumbnail_path": "",
+            "date": None,
+            "gps_lat": None,
+            "gps_lon": None,
+            "camera_make": None,
+            "camera_model": None,
+            "created_at": datetime.now().isoformat(),
+            "description": None,
+            "faces_present": False,
+            "date_conflict": 0,
+            "root_id": rid,
+        })
+        fid_row = cur.execute("SELECT file_id FROM catalog_files WHERE abs_path = ? AND is_canonical = 1 AND deleted = 0", (abs_path,)).fetchone()
+        if fid_row:
+            file_ids.append(fid_row[0])
+
+    db.add_photos_batch(batch)
+    for fid in file_ids:
+        db.update_catalog_file(fid, ingested=1)
+
+    log(f"Ingested {len(batch)} new canonical files into photos")
+
+
+def _cleanup_noncanonical_photos(db):
+    db.sqlite.execute(
+        "UPDATE photos SET deleted = 1 "
+        "WHERE deleted = 0 AND path IN ("
+        "SELECT p.path FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path "
+        "WHERE cf.is_canonical = 0)"
+    )
+    db.sqlite.commit()
 
 
 def show_stats(db):

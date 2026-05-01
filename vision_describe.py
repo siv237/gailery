@@ -32,12 +32,12 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
     os.execv(VENV_PYTHON, [VENV_PYTHON, __file__] + sys.argv[1:])
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from config import LLAMA_CPP_DIR, PHOTO_SHARE_PATH
+from config import LLAMA_CPP_DIR, MODELS_DIR, PHOTO_SHARE_PATH
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
 LLAMA_SERVER_BIN = str(LLAMA_CPP_DIR / "build" / "bin" / "llama-server")
-MODEL_PATH = str(PROJECT_ROOT / "gguf" / "Qwen3.5-4B-Q4_K_M.gguf")
-MMPROJ_PATH = str(PROJECT_ROOT / "gguf" / "mmproj-BF16.gguf")
+MODEL_PATH = str(MODELS_DIR / "gguf" / "Qwen3.5-4B-Q4_K_M.gguf")
+MMPROJ_PATH = str(MODELS_DIR / "gguf" / "mmproj-BF16.gguf")
 LLAMA_PORT = 8101
 NP_SLOTS = 6
 CTX_SIZE = 8192

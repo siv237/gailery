@@ -7,9 +7,23 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 PHOTO_SHARE_PATH = Path(os.environ.get("PHOTO_SHARE_PATH", str(PROJECT_ROOT / "photos")))
 DATA_DIR = Path(os.environ.get("GALLERY_DATA_DIR", str(PROJECT_ROOT / "data")))
+MODELS_DIR = Path(os.environ.get("GALLERY_MODELS_DIR", str(PROJECT_ROOT / "models")))
+
+def _apply_models_dir_override():
+    global MODELS_DIR
+    try:
+        from database import DatabaseManager
+        db = DatabaseManager()
+        override = db.get_setting("models_dir")
+        if override and Path(override).is_dir():
+            MODELS_DIR = Path(override)
+    except Exception:
+        pass
+
+_apply_models_dir_override()
 THUMBNAILS_DIR = Path(os.environ.get("GALLERY_THUMBNAILS_DIR", str(PROJECT_ROOT / "thumbnails")))
 LOGS_DIR = Path(os.environ.get("GALLERY_LOGS_DIR", str(PROJECT_ROOT / "logs")))
-LLAMA_CPP_DIR = Path(os.environ.get("LLAMA_CPP_DIR", "/usr/local"))
+LLAMA_CPP_DIR = Path(os.environ.get("LLAMA_CPP_DIR", "/opt/llama.cpp"))
 VENV_PYTHON = os.environ.get("GALLERY_VENV_PYTHON", str(PROJECT_ROOT / "venv" / "bin" / "python3"))
 LOG_FILE = LOGS_DIR / "pipeline.log"
 FLAG_DIR = DATA_DIR / "pipeline_flags"

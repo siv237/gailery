@@ -24,7 +24,7 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
 os.environ['OMP_NUM_THREADS'] = '4'
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from config import PHOTO_SHARE_PATH
+from config import MODELS_DIR, PHOTO_SHARE_PATH
 LOG_FILE = str(Path(__file__).parent / "logs" / "pipeline.log")
 FLAG_FILE = str(Path(__file__).parent / "data" / "pipeline_flags" / "faces")
 
@@ -50,34 +50,32 @@ def clear_flag():
 
 
 def get_undetected_photos(db, limit=0):
-    all_photos = db.get_all_photos()
-    face_photo_ids = set()
-    try:
-        all_faces = db.get_all_faces()
-        for f in all_faces:
-            pid = f.get("photo_id", "")
-            if pid:
-                face_photo_ids.add(pid)
-    except Exception:
-        pass
-
-    undetected = []
-    for p in all_photos:
-        if not p.get("faces_present"):
-            continue
-        path = p.get("path", "")
-        if not path or not Path(path).exists():
-            continue
-        photo_id = str(Path(path).relative_to(PHOTO_SHARE_PATH)) if path.startswith(str(PHOTO_SHARE_PATH) + "/") else path
-        if photo_id in face_photo_ids:
-            continue
-        if not db.is_path_canonical(path):
-            continue
-        undetected.append(p)
-
+    cur = db.sqlite.cursor()
+    sql = """
+        SELECT p.photo_id, p.path, p.description, cf.content_hash
+        FROM photos p
+        JOIN catalog_files cf ON cf.abs_path = p.path
+        WHERE p.faces_present = 1 AND p.deleted = 0
+          AND cf.is_canonical = 1 AND cf.deleted = 0
+          AND NOT EXISTS (
+              SELECT 1 FROM faces f WHERE f.content_hash = cf.content_hash
+          )
+        ORDER BY p.path
+    """
     if limit and limit > 0:
-        undetected = undetected[:limit]
-    return undetected
+        sql += f" LIMIT {limit}"
+    rows = cur.execute(sql).fetchall()
+    result = []
+    for r in rows:
+        if not Path(r[1]).exists():
+            continue
+        result.append({
+            "photo_id": r[0],
+            "path": r[1],
+            "description": r[2],
+            "content_hash": r[3],
+        })
+    return result
 
 
 def run_detection(photos):
@@ -94,7 +92,8 @@ def run_detection(photos):
         'cudnn_conv_use_max_workspace': '1',
         'gpu_mem_limit': 6*1024*1024*1024,
     }
-    app = FaceAnalysis(name='buffalo_l', providers=[('CUDAExecutionProvider', cuda_opts), 'CPUExecutionProvider'])
+    insightface_root = str(MODELS_DIR / "insightface")
+    app = FaceAnalysis(name='buffalo_l', root=insightface_root, providers=[('CUDAExecutionProvider', cuda_opts), 'CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(640, 640))
     log(f"InsightFace loaded on GPU (optimized CUDA provider)")
 
@@ -105,6 +104,7 @@ def run_detection(photos):
 
     for p in photos:
         path = p.get("path", "")
+        content_hash = p.get("content_hash", "")
         if not Path(path).exists():
             continue
 
@@ -148,6 +148,7 @@ def run_detection(photos):
                 bbox=bbox,
                 confidence=float(face.det_score) if face.det_score is not None else 0.0,
                 persona_id=None,
+                content_hash=content_hash,
             )
             if inserted:
                 vectors_batch.append({"face_id": face_id, "embedding": embedding.tolist()})

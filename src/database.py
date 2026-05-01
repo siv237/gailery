@@ -83,6 +83,7 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS faces (
                 face_id TEXT PRIMARY KEY,
                 photo_id TEXT NOT NULL,
+                content_hash TEXT,
                 persona_id TEXT,
                 bbox_x1 REAL, bbox_y1 REAL,
                 bbox_x2 REAL, bbox_y2 REAL,
@@ -139,6 +140,12 @@ class DatabaseManager:
         if 'is_canonical' not in cf_columns:
             cur.execute("ALTER TABLE catalog_files ADD COLUMN is_canonical INTEGER DEFAULT 1")
             self.sqlite.commit()
+        if 'deleted' not in cf_columns:
+            cur.execute("ALTER TABLE catalog_files ADD COLUMN deleted INTEGER DEFAULT 0")
+            self.sqlite.commit()
+        if 'deleted_type' not in cf_columns:
+            cur.execute("ALTER TABLE catalog_files ADD COLUMN deleted_type TEXT")
+            self.sqlite.commit()
 
         cur.execute("PRAGMA table_info(photos)")
         columns = [row[1] for row in cur.fetchall()]
@@ -181,6 +188,36 @@ class DatabaseManager:
             cur.execute("ALTER TABLE photos ADD COLUMN root_id TEXT")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_root_id ON photos(root_id)")
             self.sqlite.commit()
+
+        faces_columns = [row[1] for row in cur.execute("PRAGMA table_info(faces)").fetchall()]
+        if 'content_hash' not in faces_columns:
+            cur.execute("ALTER TABLE faces ADD COLUMN content_hash TEXT")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_faces_content_hash ON faces(content_hash)")
+            self.sqlite.commit()
+            cur.execute("""
+                UPDATE faces SET content_hash = (
+                    SELECT cf.content_hash FROM catalog_files cf
+                    WHERE cf.rel_path = faces.photo_id OR cf.abs_path = faces.photo_id
+                    LIMIT 1
+                )
+                WHERE content_hash IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM catalog_files cf
+                    WHERE cf.rel_path = faces.photo_id OR cf.abs_path = faces.photo_id
+                )
+            """)
+            self.sqlite.commit()
+
+        cur.execute("""
+            UPDATE photos SET deleted = 1
+            WHERE deleted = 0
+            AND path IN (
+                SELECT p.path FROM photos p
+                JOIN catalog_files cf ON cf.abs_path = p.path
+                WHERE cf.is_canonical = 0
+            )
+        """)
+        self.sqlite.commit()
 
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='changes'")
         if not cur.fetchone():
@@ -352,7 +389,7 @@ class DatabaseManager:
                       content_hash=None, file_type=None,
                       sort="date_desc", limit=60, offset=0):
         ed = "COALESCE(manual_date, date)"
-        sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1"
+        sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1 AND cf.deleted = 0"
         params = []
 
         root_filter, root_params = self._enabled_root_filter()
@@ -360,9 +397,9 @@ class DatabaseManager:
         params.extend(root_params)
 
         if deleted_only is True:
-            sql += " AND deleted = 1"
+            sql += " AND photos.deleted = 1"
         elif deleted is not True:
-            sql += " AND deleted = 0"
+            sql += " AND photos.deleted = 0"
 
         if no_date is True:
             sql += f" AND ({ed} IS NULL OR length({ed}) < 4 OR substr({ed},1,4) = '0000')"
@@ -425,18 +462,17 @@ class DatabaseManager:
             params.append(f"%{content_hash}%")
 
         if person:
-            matching_paths = self.sqlite.execute(
-                "SELECT DISTINCT p.path FROM photos p "
-                "JOIN faces f ON f.photo_id = p.path OR f.photo_id = substr(p.path, length('" + str(PHOTO_SHARE_PATH) + "/') + 1) "
+            matching_hashes = self.sqlite.execute(
+                "SELECT DISTINCT f.content_hash FROM faces f "
                 "JOIN personas pe ON f.persona_id = pe.persona_id "
-                "WHERE pe.display_name LIKE ? OR pe.name LIKE ?",
+                "WHERE (pe.display_name LIKE ? OR pe.name LIKE ?) AND f.content_hash IS NOT NULL",
                 (f"%{person}%", f"%{person}%")
             ).fetchall()
-            paths = [r[0] for r in matching_paths]
-            if paths:
-                placeholders = ",".join("?" * len(paths))
-                sql += f" AND path IN ({placeholders})"
-                params.extend(paths)
+            hashes = [r[0] for r in matching_hashes]
+            if hashes:
+                placeholders = ",".join("?" * len(hashes))
+                sql += f" AND cf.content_hash IN ({placeholders})"
+                params.extend(hashes)
             else:
                 sql += " AND 1=0"
 
@@ -461,8 +497,8 @@ class DatabaseManager:
     def get_all_photos(self):
         root_filter, root_params = self._enabled_root_filter()
         rows = self.sqlite.execute(
-            f"SELECT photos.* FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
-            f"WHERE cf.is_canonical = 1 AND {root_filter}",
+            f"SELECT photos.*, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
+            f"WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND photos.deleted = 0 AND {root_filter}",
             root_params
         ).fetchall()
         return _rows_to_dicts(rows)
@@ -474,7 +510,7 @@ class DatabaseManager:
             f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, COUNT(*) as cnt "
             f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
             f"WHERE {ed} IS NOT NULL AND length({ed}) >= 4 "
-            f"AND substr({ed},1,4) != '0000' AND deleted = 0 AND cf.is_canonical = 1 AND {root_filter} "
+            f"AND substr({ed},1,4) != '0000' AND photos.deleted = 0 AND cf.is_canonical = 1 AND cf.deleted = 0 AND {root_filter} "
             f"GROUP BY year, month ORDER BY year, month",
             root_params
         ).fetchall()
@@ -494,7 +530,7 @@ class DatabaseManager:
 
     # ─── Faces ──────────────────────────────────────────
 
-    def add_face(self, photo_id, embedding, bbox, confidence, persona_id=None, face_id=None):
+    def add_face(self, photo_id, embedding, bbox, confidence, persona_id=None, face_id=None, content_hash=None):
         if not face_id:
             face_id = str(uuid.uuid4())
 
@@ -504,10 +540,18 @@ class DatabaseManager:
         if existing:
             return face_id
 
+        if not content_hash:
+            ch_row = self.sqlite.execute(
+                "SELECT content_hash FROM catalog_files WHERE (rel_path = ? OR abs_path = ?) AND content_hash IS NOT NULL LIMIT 1",
+                (photo_id, photo_id)
+            ).fetchone()
+            if ch_row:
+                content_hash = ch_row[0]
+
         self.sqlite.execute(
-            "INSERT OR IGNORE INTO faces (face_id,photo_id,persona_id,bbox_x1,bbox_y1,"
-            "bbox_x2,bbox_y2,confidence,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (face_id, photo_id, persona_id,
+            "INSERT OR IGNORE INTO faces (face_id,photo_id,content_hash,persona_id,bbox_x1,bbox_y1,"
+            "bbox_x2,bbox_y2,confidence,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (face_id, photo_id, content_hash, persona_id,
              bbox[0], bbox[1], bbox[2], bbox[3], confidence,
              datetime.now().isoformat())
         )
@@ -520,7 +564,7 @@ class DatabaseManager:
 
         return face_id
 
-    def add_face_sqlite_only(self, photo_id, bbox, confidence, persona_id=None, face_id=None):
+    def add_face_sqlite_only(self, photo_id, bbox, confidence, persona_id=None, face_id=None, content_hash=None):
         if not face_id:
             face_id = str(uuid.uuid4())
 
@@ -530,10 +574,18 @@ class DatabaseManager:
         if existing:
             return face_id, False
 
+        if not content_hash:
+            ch_row = self.sqlite.execute(
+                "SELECT content_hash FROM catalog_files WHERE (rel_path = ? OR abs_path = ?) AND content_hash IS NOT NULL LIMIT 1",
+                (photo_id, photo_id)
+            ).fetchone()
+            if ch_row:
+                content_hash = ch_row[0]
+
         self.sqlite.execute(
-            "INSERT OR IGNORE INTO faces (face_id,photo_id,persona_id,bbox_x1,bbox_y1,"
-            "bbox_x2,bbox_y2,confidence,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (face_id, photo_id, persona_id,
+            "INSERT OR IGNORE INTO faces (face_id,photo_id,content_hash,persona_id,bbox_x1,bbox_y1,"
+            "bbox_x2,bbox_y2,confidence,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (face_id, photo_id, content_hash, persona_id,
              bbox[0], bbox[1], bbox[2], bbox[3], confidence,
              datetime.now().isoformat())
         )
@@ -923,57 +975,64 @@ class DatabaseManager:
             self.delete_photo_embedding(pid)
 
     def invalidate_embeddings_for_persona(self, persona_id):
-        faces = self.get_faces_for_persona(persona_id)
-        photo_rels = set(f.get("photo_id", "") for f in faces)
-        if not photo_rels:
-            return
-        PREFIX = str(PHOTO_SHARE_PATH) + "/"
-        rows = self.sqlite.execute(
-            "SELECT photo_id, path FROM photos WHERE path LIKE ?",
-            (PREFIX + "%",)
+        hashes = self.sqlite.execute(
+            "SELECT DISTINCT f.content_hash FROM faces f WHERE f.persona_id = ? AND f.content_hash IS NOT NULL",
+            (persona_id,)
         ).fetchall()
-        for r in rows:
-            rel = r[1][len(PREFIX):] if r[1].startswith(PREFIX) else r[1]
-            if rel in photo_rels:
-                self.delete_photo_embedding(r[0])
+        if not hashes:
+            return
+        for (ch,) in hashes:
+            paths = self.sqlite.execute(
+                "SELECT cf.abs_path FROM catalog_files cf WHERE cf.content_hash = ? AND cf.is_canonical = 1",
+                (ch,)
+            ).fetchall()
+            for (absp,) in paths:
+                pid = self.sqlite.execute("SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (absp,)).fetchone()
+                if pid:
+                    self.delete_photo_embedding(pid[0])
 
     # ─── Status helpers ─────────────────────────────────
 
     def get_status(self):
         enabled_roots = [r for r in self.get_catalog_roots() if r.get("enabled", 1)]
         enabled_ids = [r["root_id"] for r in enabled_roots]
-        rid_placeholders = ",".join("?" * len(enabled_ids)) if enabled_ids else ""
+        rid_ph = ",".join("?" * len(enabled_ids)) if enabled_ids else ""
 
         if enabled_ids:
             catalog_total = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM catalog_files WHERE root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
             photos_total = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM photos WHERE deleted = 0 AND root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM photos WHERE deleted = 0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
             described = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM photos WHERE description IS NOT NULL AND description != '' AND deleted = 0 AND root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM photos WHERE description IS NOT NULL AND description != '' AND deleted = 0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
             faces_flagged = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM photos WHERE faces_present = 1 AND deleted = 0 AND root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM photos WHERE faces_present = 1 AND deleted = 0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
             exif_done = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM photos WHERE exif_checked = 1 AND deleted = 0 AND root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM photos WHERE exif_checked = 1 AND deleted = 0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
             embedded = self.sqlite.execute(
-                f"SELECT COUNT(*) FROM photos WHERE embedded = 1 AND deleted = 0 AND root_id IN ({rid_placeholders})",
+                f"SELECT COUNT(*) FROM photos WHERE embedded = 1 AND deleted = 0 AND root_id IN ({rid_ph})",
+                enabled_ids
+            ).fetchone()[0]
+            faces_processed = self.sqlite.execute(
+                f"SELECT COUNT(*) FROM photos p "
+                f"WHERE p.faces_present = 1 AND p.deleted = 0 AND p.root_id IN ({rid_ph})"
+                f" AND p.path IN (SELECT cf.abs_path FROM catalog_files cf JOIN faces f ON f.content_hash = cf.content_hash WHERE cf.is_canonical = 1 AND cf.deleted = 0)",
                 enabled_ids
             ).fetchone()[0]
         else:
-            catalog_total = photos_total = described = faces_flagged = exif_done = embedded = 0
+            catalog_total = photos_total = described = faces_flagged = faces_processed = exif_done = embedded = 0
 
         photos_deleted = self.count_photos(where="deleted = 1")
-        faces_processed = faces_flagged
         personas_total = self.sqlite.execute("SELECT COUNT(*) FROM personas").fetchone()[0]
         faces_total = self.count_faces()
         with_persona = self.count_faces("persona_id IS NOT NULL")
@@ -982,10 +1041,10 @@ class DatabaseManager:
         per_root = []
         for r in enabled_roots:
             rid = r["root_id"]
+            r_cat = self.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE root_id = ? AND is_canonical = 1 AND deleted = 0", (rid,)).fetchone()[0]
             r_photos = self.sqlite.execute("SELECT COUNT(*) FROM photos WHERE root_id = ? AND deleted = 0", (rid,)).fetchone()[0]
             r_described = self.sqlite.execute("SELECT COUNT(*) FROM photos WHERE root_id = ? AND description IS NOT NULL AND description != '' AND deleted = 0", (rid,)).fetchone()[0]
             r_exif = self.sqlite.execute("SELECT COUNT(*) FROM photos WHERE root_id = ? AND exif_checked = 1 AND deleted = 0", (rid,)).fetchone()[0]
-            r_cat = self.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE root_id = ?", (rid,)).fetchone()[0]
             r_embedded = self.sqlite.execute("SELECT COUNT(*) FROM photos WHERE root_id = ? AND embedded = 1 AND deleted = 0", (rid,)).fetchone()[0]
             per_root.append({
                 "root_id": rid,

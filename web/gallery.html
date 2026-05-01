@@ -1491,7 +1491,7 @@ function selectYear(year) {
         html += '<div class="dp-meta" style="color:#f85149;font-weight:600">Удалена</div>';
         html += '<button onclick="undeletePhoto(\'' + esc(p.photo_id) + '\')" style="padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;margin:4px 0">Восстановить</button>';
     }
-    html += '<div class="dp-meta">Индексация: ' + (p.embedded ? 'да' : 'нет') + '</div>';
+    html += '<div class="dp-meta">Семантическая индексация: ' + (p.embedded ? 'да' : 'нет') + '</div>';
     if (p.content_hash) html += '<div class="dp-meta dp-hash" style="word-break:break-all;display:flex;align-items:center;gap:6px"><span style="color:#6e7681">Хеш:</span> <span>' + esc(p.content_hash) + '</span> <button class="copy-hash-btn" data-hash="' + esc(p.content_hash) + '" onclick="var t=document.createElement(\'textarea\');t.value=this.dataset.hash;document.body.appendChild(t);t.select();document.execCommand(\'copy\');document.body.removeChild(t);this.textContent=\'✓\';var b=this;setTimeout(function(){b.textContent=\'📋\'},1000)">📋</button></div>';
     html += '<div class="dp-meta" style="word-break:break-all">Путь: ' + esc(p.photo_id || p.path) + '</div>';
     var allPaths = [p.path];
@@ -2439,8 +2439,8 @@ function filterByPerson(name) {
 
 function openPersonFilter() {
     if (allPersonas.length === 0) {
-        fetch(API + '/persons/').then(function(r) { return r.json(); }).then(function(list) {
-            allPersonas = list;
+        fetch(API + '/persons/?limit=500&named_only=true').then(function(r) { return r.json(); }).then(function(data) {
+            allPersonas = data.persons;
             renderPersonList(list);
             document.getElementById('personFilter').classList.add('show');
         });

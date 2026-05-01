@@ -22,16 +22,19 @@ def _rel_path(abs_path):
 
 def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_thumbnail=False, include_score=False, score=None):
     rel = _rel_path(p.get("path", ""))
-    faces = photo_faces.get(rel, [])
+    content_hash = p.get("content_hash", "")
+    faces = photo_faces.get(content_hash, []) if content_hash else []
     if not faces:
-        abs_path = p.get("path", "")
-        if abs_path:
-            for prefix in ["/mnt/share/Foto/", "/opt/gailray/photos/"]:
-                if abs_path.startswith(prefix):
-                    rel2 = abs_path[len(prefix):]
-                    faces = photo_faces.get(rel2, [])
-                    if faces:
-                        break
+        faces = photo_faces.get(rel, [])
+        if not faces:
+            abs_path = p.get("path", "")
+            if abs_path:
+                for prefix in ["/mnt/share/Foto/", "/opt/gailray/photos/"]:
+                    if abs_path.startswith(prefix):
+                        rel2 = abs_path[len(prefix):]
+                        faces = photo_faces.get(rel2, [])
+                        if faces:
+                            break
     personas_info = []
     seen_pids = set()
     faces_info = []
@@ -252,11 +255,13 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
         raise HTTPException(status_code=404, detail="Face not found")
 
     photo_path = None
-    raw_path = db.sqlite.execute("SELECT path FROM photos p JOIN faces f ON f.photo_id = substr(p.path, length(?) + 1) OR f.photo_id = p.path WHERE f.face_id = ?", (str(PHOTO_SHARE_PATH), face_id)).fetchone()
-    if raw_path:
-        photo_path = Path(raw_path[0])
+    ch_row = db.sqlite.execute("SELECT content_hash FROM faces WHERE face_id = ?", (face_id,)).fetchone()
+    if ch_row and ch_row[0]:
+        abs_row = db.sqlite.execute("SELECT abs_path FROM catalog_files WHERE content_hash = ? AND is_canonical = 1 AND deleted = 0", (ch_row[0],)).fetchone()
+        if abs_row:
+            photo_path = Path(abs_row[0])
     if not photo_path or not photo_path.exists():
-        photo_path = PHOTO_SHARE_PATH / face["photo_id"]
+        photo_path = PHOTO_SHARE_PATH / face.get("photo_id", "")
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
@@ -335,11 +340,13 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         raise HTTPException(status_code=404, detail="Face not found")
 
     photo_path = None
-    raw_path = db.sqlite.execute("SELECT path FROM photos p JOIN faces f ON f.photo_id = substr(p.path, length(?) + 1) OR f.photo_id = p.path WHERE f.face_id = ?", (str(PHOTO_SHARE_PATH), face_id)).fetchone()
-    if raw_path:
-        photo_path = Path(raw_path[0])
+    ch_row = db.sqlite.execute("SELECT content_hash FROM faces WHERE face_id = ?", (face_id,)).fetchone()
+    if ch_row and ch_row[0]:
+        abs_row = db.sqlite.execute("SELECT abs_path FROM catalog_files WHERE content_hash = ? AND is_canonical = 1 AND deleted = 0", (ch_row[0],)).fetchone()
+        if abs_row:
+            photo_path = Path(abs_row[0])
     if not photo_path or not photo_path.exists():
-        photo_path = PHOTO_SHARE_PATH / face["photo_id"]
+        photo_path = PHOTO_SHARE_PATH / face.get("photo_id", "")
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Photo not found")
 
@@ -428,16 +435,34 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
                 cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
                 photos.append(dict(zip(cols, row)))
         total = db.count_photos()
-    else:
-        total, photos = db.search_photos(sort="created_desc", limit=limit * 3, offset=0)
 
-    all_faces = db.get_all_faces()
-    all_personas = db.get_all_personas()
-    persona_map = {p["persona_id"]: p for p in all_personas}
-
+    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+    persona_ids_needed = set()
     photo_faces = {}
-    for f in all_faces:
-        photo_faces.setdefault(f.get("photo_id", ""), []).append(f)
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            hashes
+        ).fetchall()
+        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+        for fr in face_rows:
+            fd = dict(zip(face_cols, fr))
+            ch = fd.get("content_hash") or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append(fd)
+            pid = fd.get("photo_id", "")
+            if pid:
+                photo_faces.setdefault(pid, []).append(fd)
+            if fd.get("persona_id"):
+                persona_ids_needed.add(fd["persona_id"])
+
+    persona_map = {}
+    if persona_ids_needed:
+        pids = list(persona_ids_needed)
+        pid_ph = ",".join("?" * len(pids))
+        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():
+            persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2]}
 
     last_changes = {}
     if sort == "changed_desc":
@@ -549,39 +574,51 @@ async def search_photos(
         offset=offset,
     )
 
-    all_faces = db.get_all_faces()
-    all_personas = db.get_all_personas()
-
-    persona_counts = {}
-    for f in all_faces:
-        pid = f.get("persona_id")
-        if pid:
-            persona_counts[pid] = persona_counts.get(pid, 0) + 1
-
-    persona_map = {p["persona_id"]: {**p, "total_face_count": persona_counts.get(p["persona_id"], 0)} for p in all_personas}
+    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+    persona_ids_needed = set()
 
     photo_faces = {}
-    for f in all_faces:
-        photo_faces.setdefault(f.get("photo_id", ""), []).append(f)
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            hashes
+        ).fetchall()
+        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+        for fr in face_rows:
+            fd = dict(zip(face_cols, fr))
+            ch = fd.get("content_hash") or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append(fd)
+            pid = fd.get("photo_id", "")
+            if pid:
+                photo_faces.setdefault(pid, []).append(fd)
+            if fd.get("persona_id"):
+                persona_ids_needed.add(fd["persona_id"])
 
-    foto_prefix = str(PHOTO_SHARE_PATH) + "/"
+    persona_map = {}
+    if persona_ids_needed:
+        pids = list(persona_ids_needed)
+        pid_ph = ",".join("?" * len(pids))
+        p_rows = db.sqlite.execute(
+            f"SELECT persona_id, name, display_name FROM personas WHERE persona_id IN ({pid_ph})",
+            pids
+        ).fetchall()
+        for pr in p_rows:
+            pid = pr[0]
+            cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
+            persona_map[pid] = {"persona_id": pid, "name": pr[1], "display_name": pr[2], "total_face_count": cnt_row[0] if cnt_row else 0}
+
     result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
 
-    from database import DatabaseManager as _DB
-    _db = _DB()
     for p in result:
         abs_path = p.get("path", "")
-        hash_val = None
+        hash_val = p.get("content_hash")
         try:
-            hash_val = _db.sqlite.execute(
-                "SELECT content_hash FROM catalog_files WHERE abs_path = ? AND content_hash IS NOT NULL",
-                (abs_path,)
-            ).fetchone()
             if hash_val:
-                hash_val = hash_val[0]
-                dup_paths = _db.get_duplicate_paths(hash_val)
+                dup_paths = db.get_duplicate_paths(hash_val)
                 p["duplicate_paths"] = dup_paths
-                p["edits"] = _db.get_edits(hash_val)
+                p["edits"] = db.get_edits(hash_val)
             else:
                 p["duplicate_paths"] = []
                 p["edits"] = []
@@ -712,14 +749,6 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         top_dist = results[0].get("_distance", results[0].get("_relevance_score", "?"))
         logger.info(f"[SEMSEARCH] Top distance={top_dist}")
 
-    all_faces = db.get_all_faces()
-    all_personas = db.get_all_personas()
-    persona_map = {p["persona_id"]: p for p in all_personas}
-
-    photo_faces = {}
-    for f in all_faces:
-        photo_faces.setdefault(f.get("photo_id", ""), []).append(f)
-
     out_list = []
     seen_pids = set()
     skipped_no_photo = 0
@@ -741,21 +770,53 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         if score > threshold:
             skipped_threshold += 1
             continue
-        enriched = _enrich_photo(photo, photo_faces, persona_map, include_created=True, include_score=True, score=score)
+        out_list.append((photo, score))
+        if len(out_list) >= limit:
+            break
+
+    hashes = [p.get("content_hash", "") for p, _ in out_list if p.get("content_hash")]
+    persona_ids_needed = set()
+    photo_faces = {}
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            hashes
+        ).fetchall()
+        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+        for fr in face_rows:
+            fd = dict(zip(face_cols, fr))
+            ch = fd.get("content_hash") or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append(fd)
+            pid_legacy = fd.get("photo_id", "")
+            if pid_legacy:
+                photo_faces.setdefault(pid_legacy, []).append(fd)
+            if fd.get("persona_id"):
+                persona_ids_needed.add(fd["persona_id"])
+
+    persona_map = {}
+    if persona_ids_needed:
+        pids = list(persona_ids_needed)
+        pid_ph = ",".join("?" * len(pids))
+        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():
+            persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2]}
+
+    enriched_list = []
+    for photo, score in out_list:
+        ep = _enrich_photo(photo, photo_faces, persona_map, include_created=True, include_score=True, score=score)
         hash_val = db.sqlite.execute(
             "SELECT content_hash FROM catalog_files WHERE abs_path = ? AND content_hash IS NOT NULL",
             (photo.get("path", ""),)
         ).fetchone()
         if hash_val:
-            enriched["duplicate_paths"] = db.get_duplicate_paths(hash_val[0])
+            ep["duplicate_paths"] = db.get_duplicate_paths(hash_val[0])
         else:
-            enriched["duplicate_paths"] = []
-        out_list.append(enriched)
-        if len(out_list) >= limit:
-            break
+            ep["duplicate_paths"] = []
+        enriched_list.append(ep)
 
-    logger.info(f"[SEMSEARCH] Final: {len(out_list)} results (skipped: no_photo={skipped_no_photo}, not_embedded={skipped_not_embedded}, threshold={skipped_threshold})")
-    return {"total": len(out_list), "photos": out_list, "query": q}
+    logger.info(f"[SEMSEARCH] Final: {len(enriched_list)} results (skipped: no_photo={skipped_no_photo}, not_embedded={skipped_not_embedded}, threshold={skipped_threshold})")
+    return {"total": len(enriched_list), "photos": enriched_list, "query": q}
 
 
 @router.post("/{photo_id}/enrich")
@@ -914,13 +975,13 @@ async def get_neighbor(date: str, dir: str = "next"):
     if dir == "next":
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon "
-            "FROM photos WHERE COALESCE(manual_date, date) > ? ORDER BY effective_date ASC LIMIT 1",
+            "FROM photos WHERE COALESCE(manual_date, date) > ? AND deleted = 0 ORDER BY effective_date ASC LIMIT 1",
             (date,)
         ).fetchone()
     else:
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon "
-            "FROM photos WHERE COALESCE(manual_date, date) < ? ORDER BY effective_date DESC LIMIT 1",
+            "FROM photos WHERE COALESCE(manual_date, date) < ? AND deleted = 0 ORDER BY effective_date DESC LIMIT 1",
             (date,)
         ).fetchone()
 

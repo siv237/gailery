@@ -73,13 +73,16 @@ def db_with_photos(db):
     db.add_catalog_files_batch([
         {"file_id": "f1", "root_id": root_id,
          "rel_path": "2024/img1.jpg", "abs_path": "/photos/2024/img1.jpg",
-         "parent_dir": "2024", "ext": ".jpg", "is_canonical": 1},
+         "parent_dir": "2024", "ext": ".jpg", "is_canonical": 1,
+         "content_hash": "hash1"},
         {"file_id": "f2", "root_id": root_id,
          "rel_path": "2024/img2.jpg", "abs_path": "/photos/2024/img2.jpg",
-         "parent_dir": "2024", "ext": ".jpg", "is_canonical": 1},
+         "parent_dir": "2024", "ext": ".jpg", "is_canonical": 1,
+         "content_hash": "hash2"},
         {"file_id": "f3", "root_id": root_id,
          "rel_path": "2025/img3.jpg", "abs_path": "/photos/2025/img3.jpg",
-         "parent_dir": "2025", "ext": ".jpg", "is_canonical": 1},
+         "parent_dir": "2025", "ext": ".jpg", "is_canonical": 1,
+         "content_hash": "hash3"},
     ])
     db.add_photo("/photos/2024/img1.jpg", date="2024-01-15 10:00:00",
                  description="зимний лес", faces_present=True)

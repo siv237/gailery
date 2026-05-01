@@ -65,17 +65,15 @@ def is_pipeline_active():
         return False
 
 
-def ensure_pipeline_enabled():
+def is_pipeline_enabled():
     try:
         r = subprocess.run(
             ["systemctl", "is-enabled", PIPELINE_SERVICE],
             capture_output=True, text=True, timeout=5,
         )
-        if "enabled" not in r.stdout.strip():
-            logger.info("Pipeline disabled — восстанавливаю enable")
-            subprocess.run(["systemctl", "enable", PIPELINE_SERVICE], check=False, timeout=5)
+        return "enabled" in r.stdout.strip()
     except Exception:
-        pass
+        return False
 
 
 def start_pipeline():
@@ -88,7 +86,6 @@ def start_pipeline():
         logger.warning("Слишком много рестартов за 10 минут, пропускаю")
         return False
     _pipeline_restarts.append(now)
-    ensure_pipeline_enabled()
     logger.info("Pipeline не работает — запускаю")
     log_incident("PIPELINE START: пёс запускает неработающий pipeline")
     subprocess.run(["systemctl", "start", PIPELINE_SERVICE], check=False, timeout=10)
@@ -309,12 +306,24 @@ def main():
 
     try:
         while True:
-            mode = "sleeping" if is_no_restart() else "active"
+            if is_no_restart():
+                mode = "sleeping"
+                if _mqtt:
+                    try:
+                        mq.publish(_topic("watchdog", "mode"), mode, retain=True)
+                    except Exception:
+                        pass
+                log_incident(f"HEARTBEAT: pipeline={'active' if is_pipeline_active() else 'dead'}, mode={mode}")
+                time.sleep(CHECK_INTERVAL)
+                continue
 
-            if not is_no_restart() and not is_pipeline_active():
+            mode = "active"
+
+            if not is_pipeline_enabled():
+                pass
+            elif not is_pipeline_active():
                 logger.info("Pipeline не работает! Запускаю...")
                 start_pipeline()
-                mode = "active"
 
             if _mqtt:
                 try:

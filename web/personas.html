@@ -323,12 +323,13 @@ function loadAcNames() {
 }
 
 function loadPersonas() {
-    fetch(API + '/persons/').then(function(r) { return r.json(); }).then(function(personas) {
-        allPersonas = personas;
+    fetch(API + '/persons/?limit=500&named_only=true').then(function(r) { return r.json(); }).then(function(data) {
+        allPersonas = data.persons;
+        _personasAllLoaded = false;
+        var total = data.total;
 
-        var named = personas.filter(function(p) { return p.display_name; });
-        var unnamed = personas.filter(function(p) { return !p.display_name; });
-        document.getElementById('totalCount').textContent = personas.length;
+        var named = allPersonas.filter(function(p) { return p.display_name; });
+        document.getElementById('totalCount').textContent = total;
         document.getElementById('namedCount').textContent = named.length;
 
         applyFilter();
@@ -338,9 +339,25 @@ function loadPersonas() {
     });
 }
 
+var _personasAllLoaded = false;
+
+function _ensureAllPersonas(cb) {
+    if (_personasAllLoaded) { cb(); return; }
+    fetch(API + '/persons/?limit=2000').then(function(r) { return r.json(); }).then(function(data) {
+        allPersonas = data.persons;
+        _personasAllLoaded = true;
+        cb();
+    });
+}
+
 function applyFilter() {
     var q = document.getElementById('filterInput').value.toLowerCase();
     var mode = document.getElementById('filterMode').value;
+
+    if (mode === 'unnamed' && !_personasAllLoaded) {
+        _ensureAllPersonas(function() { applyFilter(); });
+        return;
+    }
 
     var filtered = allPersonas;
     if (mode === 'named') filtered = filtered.filter(function(p) { return p.display_name; });

@@ -178,11 +178,18 @@ async def map_page():
 
 @app.get("/api/log")
 async def get_log(lines: int = 100):
+    import asyncio
     log_path = Path(str(LOG_FILE))
     if not log_path.exists():
         return {"lines": [], "total": 0}
-    with open(log_path) as f:
-        all_lines = f.readlines()
+
+    def _read_tail():
+        with open(log_path) as f:
+            all_lines = f.readlines()
+        return all_lines
+
+    loop = asyncio.get_event_loop()
+    all_lines = await loop.run_in_executor(None, _read_tail)
     return {
         "lines": all_lines[-lines:],
         "total": len(all_lines),
@@ -198,7 +205,7 @@ async def health():
 
 
 _status_cache = {"data": None, "ts": 0}
-_STATUS_TTL = 5
+_STATUS_TTL = 10
 _api_mqtt = None
 
 
@@ -216,6 +223,7 @@ def _get_api_mqtt():
 @app.get("/api/status")
 async def get_status():
     import time as _time
+    import asyncio
     now = _time.time()
     cache_key = "_all"
     if _status_cache.get(cache_key) and (now - _status_cache[cache_key]["ts"]) < _STATUS_TTL:
@@ -225,8 +233,12 @@ async def get_status():
     from database import DatabaseManager
     from datetime import datetime
 
-    db = DatabaseManager()
-    status = db.get_status()
+    def _compute_status():
+        db = DatabaseManager()
+        return db.get_status()
+
+    loop = asyncio.get_event_loop()
+    status = await loop.run_in_executor(None, _compute_status)
 
     import os
     flag_dir = str(FLAG_DIR)
@@ -301,72 +313,72 @@ async def get_status():
 
     try:
         log_path = str(LOG_FILE)
-        progress_info = {}
-        tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
-        with open(log_path, "r") as f:
-            for line in f:
+
+        def _read_log_info():
+            progress_info = {}
+            tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
+            faces_phase = ""
+            faces_detail = ""
+            try:
+                with open(log_path, "r") as f:
+                    tail_lines = f.readlines()[-200:]
+            except Exception:
+                return {}, "", ""
+            for line in tail_lines:
                 for tag, key in tag_map.items():
                     if "[" + tag + "]" in line:
                         progress_info[key] = line.strip()
-        status["progress_lines"] = progress_info
-    except Exception:
-        status["progress_lines"] = {}
+            for line in reversed(tail_lines[-100:]):
+                if "[FACES]" in line or "[CLUSTER]" in line:
+                    stripped = line.strip()
+                    if "detecting " in stripped:
+                        faces_phase = "detecting"
+                        faces_detail = stripped.split("detecting ")[-1].replace("...", "")
+                        break
+                    elif "lance write " in stripped and "done" not in stripped:
+                        faces_phase = "lance_write"
+                        faces_detail = stripped.split("lance write ")[-1].replace(" vectors...", "") + " vectors"
+                        break
+                    elif "lance write done" in stripped:
+                        faces_phase = "lance_write"
+                        faces_detail = "done"
+                        break
+                    elif "Running DBSCAN" in stripped:
+                        faces_phase = "clustering"
+                        faces_detail = "DBSCAN"
+                        break
+                    elif "[CLUSTER]" in stripped and "DBSCAN on" in stripped:
+                        faces_phase = "clustering"
+                        faces_detail = "DBSCAN"
+                        break
+                    elif "[CLUSTER]" in stripped and "Matched" in stripped:
+                        faces_phase = "clustering"
+                        faces_detail = "matching"
+                        break
+                    elif "Detection done" in stripped:
+                        faces_phase = "detection_done"
+                        faces_detail = stripped.split("Detection done: ")[-1] if "Detection done: " in stripped else ""
+                        break
+                    elif "Clustering done" in stripped:
+                        faces_phase = "done"
+                        faces_detail = ""
+                        break
+                    elif "InsightFace loaded" in stripped:
+                        faces_phase = "loading"
+                        faces_detail = "InsightFace"
+                        break
+                    elif "Found " in stripped and "photos needing" in stripped:
+                        faces_phase = "loading"
+                        faces_detail = stripped.split("Found ")[-1].split(" photos")[0] + " photos"
+                        break
+            return progress_info, faces_phase, faces_detail
 
-    try:
-        faces_phase = ""
-        faces_detail = ""
-        with open(str(LOG_FILE), "r") as f:
-            lines = f.readlines()
-        for line in reversed(lines[-100:]):
-            if "[FACES]" in line or "[CLUSTER]" in line:
-                stripped = line.strip()
-                if "detecting " in stripped:
-                    fname = stripped.split("detecting ")[-1].replace("...", "")
-                    faces_phase = "detecting"
-                    faces_detail = fname
-                    break
-                elif "lance write " in stripped and "done" not in stripped:
-                    nvec = stripped.split("lance write ")[-1].replace(" vectors...", "")
-                    faces_phase = "lance_write"
-                    faces_detail = nvec + " vectors"
-                    break
-                elif "lance write done" in stripped:
-                    faces_phase = "lance_write"
-                    faces_detail = "done"
-                    break
-                elif "Running DBSCAN" in stripped:
-                    faces_phase = "clustering"
-                    faces_detail = "DBSCAN"
-                    break
-                elif "[CLUSTER]" in stripped and "DBSCAN on" in stripped:
-                    faces_phase = "clustering"
-                    faces_detail = "DBSCAN"
-                    break
-                elif "[CLUSTER]" in stripped and "Matched" in stripped:
-                    faces_phase = "clustering"
-                    faces_detail = "matching"
-                    break
-                elif "Detection done" in stripped:
-                    faces_phase = "detection_done"
-                    m = stripped.split("Detection done: ")[-1] if "Detection done: " in stripped else ""
-                    faces_detail = m
-                    break
-                elif "Clustering done" in stripped:
-                    faces_phase = "done"
-                    faces_detail = ""
-                    break
-                elif "InsightFace loaded" in stripped:
-                    faces_phase = "loading"
-                    faces_detail = "InsightFace"
-                    break
-                elif "Found " in stripped and "photos needing" in stripped:
-                    faces_phase = "loading"
-                    m = stripped.split("Found ")[-1].split(" photos")[0]
-                    faces_detail = m + " photos"
-                    break
+        progress_info, faces_phase, faces_detail = await loop.run_in_executor(None, _read_log_info)
+        status["progress_lines"] = progress_info
         status["faces_phase"] = faces_phase
         status["faces_detail"] = faces_detail
     except Exception:
+        status["progress_lines"] = {}
         status["faces_phase"] = ""
         status["faces_detail"] = ""
 
@@ -401,21 +413,21 @@ async def mqtt_workers():
 
 @app.get("/api/watchdog/crashes")
 async def watchdog_crashes():
-    try:
-        with open(str(LOG_FILE), "r") as f:
-            lines = f.readlines()
-    except Exception:
-        return {"crashes": [], "no_restart": False, "mode": "active"}
-    crashes = []
-    for line in reversed(lines[-500:]):
-        if "[WATCHDOG]" in line and ("DEAD" in line or "STALE" in line or "RESTART" in line or "RECOVERY" in line):
-            crashes.append(line.strip())
+    import asyncio
+    def _read_crashes():
+        try:
+            with open(str(LOG_FILE), "r") as f:
+                lines = f.readlines()[-500:]
+        except Exception:
+            return []
+        crashes = []
+        for line in reversed(lines):
+            if "[WATCHDOG]" in line and ("DEAD" in line or "STALE" in line or "RESTART" in line or "RECOVERY" in line):
+                crashes.append(line.strip())
+        return crashes
+    loop = asyncio.get_event_loop()
+    crashes = await loop.run_in_executor(None, _read_crashes)
     no_restart = (FLAG_DIR / "no_restart").exists()
-    if no_restart:
-        for fname in ["pipeline", "describe", "faces", "exif", "embed", "ingest", "enrich"]:
-            if (FLAG_DIR / fname).exists():
-                no_restart = False
-                break
     mode = "sleeping" if no_restart else "active"
     return {"crashes": crashes[:50], "no_restart": no_restart, "mode": mode}
 
@@ -464,12 +476,16 @@ async def control_start(body: dict):
         cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/pipeline.py --ingest {n} --describe {dl} --batch-size {bs} {root} >> {_lf} 2>&1 &"
 
     if cmd:
-        try:
-            (FLAG_DIR / "no_restart").unlink()
-        except FileNotFoundError:
-            pass
-        os.system("systemctl enable gailray-pipeline 2>/dev/null")
-        os.system("pkill -9 -f 'llama-server' 2>/dev/null")
+        is_chain = step == "chain"
+        if is_chain:
+            try:
+                (FLAG_DIR / "no_restart").unlink()
+            except FileNotFoundError:
+                pass
+            os.system("systemctl enable gailray-pipeline 2>/dev/null")
+        gpu_steps = {"describe", "faces", "embed", "chain"}
+        if step in gpu_steps:
+            os.system("pkill -9 -f 'llama-server' 2>/dev/null")
         from datetime import datetime
         with open(_lf, "a") as f:
             f.write(f"[{datetime.now().isoformat()}] [CONTROL] Starting: {step}\n")
@@ -528,10 +544,11 @@ async def get_changes(limit: int = 100):
     return {"changes": result, "server_time": datetime.now().isoformat()}
 
 
-from api import photos, persons, catalog
+from api import photos, persons, catalog, models
 app.include_router(photos.router)
 app.include_router(persons.router)
 app.include_router(catalog.router)
+app.include_router(models.router)
 
 
 @app.get("/api/settings/{key}")

@@ -39,13 +39,33 @@ def _persona_response(p, fc_map, face_map=None):
 
 
 @router.get("/")
-async def get_all_persons():
+async def get_all_persons(limit: int = 500, offset: int = 0, named_only: bool = False):
     try:
         db = DatabaseManager()
-        personas = db.get_all_personas()
-        fc_map = db.face_count_map()
-        face_map = db.persona_face_id_map()
-        return [_persona_response(p, fc_map, face_map) for p in personas]
+        cur = db.sqlite.cursor()
+
+        where = "WHERE p.display_name IS NOT NULL" if named_only else ""
+        total = cur.execute(f"SELECT COUNT(*) FROM personas p {where}").fetchone()[0]
+
+        rows = cur.execute(
+            f"SELECT p.persona_id, p.name, p.display_name, p.comment, "
+            f"(SELECT COUNT(*) FROM faces WHERE persona_id = p.persona_id) as face_count, "
+            f"(SELECT MIN(face_id) FROM faces WHERE persona_id = p.persona_id) as face_id "
+            f"FROM personas p {where} ORDER BY face_count DESC LIMIT ? OFFSET ?",
+            (limit, offset)
+        ).fetchall()
+
+        result = []
+        for r in rows:
+            result.append({
+                "persona_id": r[0],
+                "name": r[1],
+                "display_name": r[2],
+                "comment": r[3],
+                "face_count": r[4],
+                "face_id": r[5],
+            })
+        return {"total": total, "persons": result}
     except Exception as e:
         logger.error(f"Failed to get persons: {e}")
         raise HTTPException(status_code=500, detail="Failed to get persons")

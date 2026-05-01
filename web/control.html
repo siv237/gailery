@@ -91,6 +91,8 @@
         .light-theme .btn-go { background: #1f883d; }
         .light-theme .btn-go:hover { background: #29994a; }
         .light-theme .btn-go:disabled { background: #eaeef2; color: #8c949e; }
+        .light-theme .btn-sec { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
+        .light-theme .btn-sec:hover { background: #eaeef2; }
         .light-theme .btn-stop { background: #cf222e; }
         .light-theme .btn-stop:hover { background: #a40e26; }
         .light-theme .btn-stop:disabled { background: #eaeef2; color: #8c949e; }
@@ -209,6 +211,8 @@
         .btn-go { background: #238636; color: #fff; }
         .btn-go:hover { background: #2ea043; }
         .btn-go:disabled { background: #21262d; color: #484f58; cursor: default; }
+        .btn-sec { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+        .btn-sec:hover { background: #30363d; }
         .btn-stop { background: #da3633; color: #fff; }
         .btn-stop:hover { background: #f85149; }
         .btn-stop:disabled { background: #21262d; color: #484f58; cursor: default; }
@@ -311,6 +315,30 @@
         .light-theme .cfg-key { color: #8250df; }
         .light-theme .cfg-val { color: #1f883d; }
         .light-theme .cfg-desc { color: #57606a; }
+        .mdl-card { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:12px; margin-bottom:10px; }
+        .mdl-token-box { margin-bottom:16px; padding:12px; background:#161b22; border:1px solid #30363d; border-radius:6px; }
+        .mdl-input { flex:1; min-width:250px; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px; padding:6px 8px; font-family:monospace; font-size:13px; }
+        .mdl-input:focus { border-color:#58a6ff; outline:none; }
+        .mdl-note { font-size:11px; color:#484f58; margin-top:4px; }
+        .mdl-status { margin-top:8px; font-size:12px; color:#6e7681; }
+        .mdl-sub { font-size:11px; color:#484f58; margin-top:2px; }
+        .mdl-role { font-size:12px; color:#8b949e; margin-top:4px; }
+        .mdl-detail { font-size:11px; color:#8b949e; margin-top:2px; }
+        .mdl-size { color:#6e7681; font-size:11px; }
+        .mdl-file-list { margin-top:6px; font-size:11px; }
+        .mdl-file-item { margin-left:8px; }
+        .mdl-hint { color:#6e7681; font-size:12px; margin-bottom:12px; }
+        .light-theme .mdl-card { background:#ffffff; border-color:#d0d7de; }
+        .light-theme .mdl-token-box { background:#ffffff; border-color:#d0d7de; }
+        .light-theme .mdl-input { background:#f6f8fa; color:#24292f; border-color:#d0d7de; }
+        .light-theme .mdl-input:focus { border-color:#0969da; }
+        .light-theme .mdl-note { color:#57606a; }
+        .light-theme .mdl-status { color:#57606a; }
+        .light-theme .mdl-sub { color:#57606a; }
+        .light-theme .mdl-role { color:#57606a; }
+        .light-theme .mdl-detail { color:#57606a; }
+        .light-theme .mdl-size { color:#57606a; }
+        .light-theme .mdl-hint { color:#57606a; }
         .l-DESCRIBE{color:#58a6ff} .l-FACES{color:#d29922} .l-EXIF{color:#a5d6ff} .l-EMBED{color:#bc8cff} .l-PIPELINE{color:#3fb950;font-weight:bold} .l-INGEST{color:#c9d1d9} .l-error,.l-FAILED{color:#f85149} .l-DONE,.l-START{color:#3fb950}
 .hamburger { display: none; background: none; border: none; color: #c9d1d9; font-size: 20px; cursor: pointer; padding: 8px 10px; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; order: 99; }
 .mm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999; }
@@ -429,6 +457,7 @@
             <button class="tab-btn" onclick="switchTab('log')">&#128220; Лог</button>
             <button class="tab-btn" onclick="switchTab('config')">&#128736; Конфигурация</button>
             <button class="tab-btn" onclick="switchTab('family')">&#128106; Семья</button>
+            <button class="tab-btn" onclick="switchTab('models')">&#128187; Модели</button>
         </div>
 
         <div class="tab-panel active" id="tab-pipeline">
@@ -473,7 +502,7 @@
                     <span class="maint-info">Сжать SQLite, удалить мусор</span>
                 </div>
                 <div class="maint-row">
-                    <button class="btn btn-go" onclick="maintDedup()">Удалить дубли эмбеддингов</button>
+                    <button class="btn btn-go" onclick="maintDedup()">Удалить дубли семантических индексов</button>
                     <span class="maint-info">LanceDB: убрать повторные записи</span>
                 </div>
             </div>
@@ -523,12 +552,40 @@
             <div class="backup-sec">
                 <h3>&#128106; Факты о семье и связях</h3>
                 <p style="color:#6e7681;font-size:12px;margin-bottom:12px">Имена, родственные связи, даты, события. Модель обогащения описаний будет использовать этот текст для подстановки контекста.</p>
-                <textarea id="familyFacts" style="width:100%;min-height:400px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:12px;font-family:monospace;font-size:13px;line-height:1.6;resize:vertical;outline:none" onfocus="this.style.borderColor='#58a6ff'" onblur="this.style.borderColor='#30363d'"></textarea>
+                <textarea id="familyFacts" class="mdl-input" style="width:100%;min-height:400px;border-radius:6px;padding:12px;font-size:13px;line-height:1.6;resize:vertical"></textarea>
                 <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <button class="btn btn-go" onclick="saveFamilyFacts()">&#128190; Сохранить</button>
                     <button class="btn btn-go" onclick="fillTopPersonas()" style="background:#1f6feb">&#128101; Заполнить топ-10 персон</button>
                     <span id="familySaveStatus" style="font-size:12px;color:#6e7681"></span>
                 </div>
+            </div>
+        </div>
+
+        <div class="tab-panel" id="tab-models">
+            <div class="backup-sec">
+                <h3>&#128187; Управление моделями</h3>
+                <p class="mdl-hint">Контроль наличия, целостности и скачивания моделей для пайплайна.</p>
+                <div class="mdl-token-box">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:6px">&#128193; Папка моделей</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <input type="text" id="modelsDir" placeholder="/opt/gailray/models" class="mdl-input" style="flex:1;min-width:200px">
+                        <button class="btn btn-go" onclick="saveModelsDir()">Сохранить</button>
+                        <span id="modelsDirStatus" class="mdl-status"></span>
+                    </div>
+                    <div class="mdl-note">Все модели должны быть внутри этой папки. Перем: GALLERY_MODELS_DIR. После смены перезапустите воркеры.</div>
+                </div>
+                <div class="mdl-token-box">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:6px">&#128273; HuggingFace API Token</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <input type="password" id="hfToken" placeholder="hf_xxxxxxxxxxxxxxxxxxxx" class="mdl-input">
+                        <button class="btn btn-go" onclick="saveHfToken()">Сохранить</button>
+                        <button class="btn btn-sec" onclick="toggleHfTokenVisibility()">&#128065;</button>
+                        <span id="hfTokenStatus" class="mdl-status"></span>
+                    </div>
+                    <div class="mdl-note">Нужен для скачивания моделей с huggingface.co. Получить: Settings → Access Tokens → New token (read).</div>
+                </div>
+                <div id="modelsList"></div>
+                <div id="modelsStatus" class="mdl-status"></div>
             </div>
         </div>
     </div>
@@ -542,7 +599,7 @@ var STEPS = [
     {id:'describe', name:'Описание', icon:'&#128444;&#65039;', color:'#58a6ff'},
     {id:'faces', name:'Лица', icon:'&#128100;', color:'#d29922'},
     {id:'exif', name:'EXIF', icon:'&#128247;', color:'#a5d6ff'},
-    {id:'embed', name:'Индексация', icon:'&#128269;', color:'#bc8cff'},
+    {id:'embed', name:'Семантическая индексация', icon:'&#128269;', color:'#bc8cff'},
 ];
 
 var TASKS = [
@@ -550,11 +607,11 @@ var TASKS = [
      params:[{k:'ingest_limit',l:'Количество фото',v:100,t:'n'},{k:'exif',l:'Читать EXIF',v:'1',t:'s',opts:[['1','Да'],['0','Нет']]}]},
     {id:'describe', name:'Описание фото', icon:'&#128444;&#65039;', desc:'VLM (Qwen3.5-4B) генерирует описание и флаг лиц',
      params:[{k:'desc_limit',l:'Лимит описаний (0=все)',v:60,t:'n'},{k:'batch_size',l:'Размер батча ВЛМ',v:6,t:'n'}]},
-    {id:'faces', name:'Поиск лиц', icon:'&#128100;', desc:'InsightFace: детекция, эмбеддинги, кластеризация в персоны',
+    {id:'faces', name:'Поиск лиц', icon:'&#128100;', desc:'InsightFace: детекция, векторные представления, кластеризация в персоны',
      params:[]},
     {id:'exif', name:'Чтение EXIF', icon:'&#128247;', desc:'Дата, GPS, камера из метаданных фото',
      params:[]},
-    {id:'embed', name:'Индексация', icon:'&#128269;', desc:'Qwen3-Embedding: векторный индекс для смыслового поиска',
+    {id:'embed', name:'Семантическая индексация', icon:'&#128269;', desc:'Qwen3-Embedding: векторный индекс для смыслового поиска',
      params:[]},
 ];
 
@@ -1078,7 +1135,7 @@ function loadMaintStats(){
         if(legacyDb > 0) h += '<div class="maint-sbox legacy"><div class="sv">'+fmtBytes(legacyDb + legacyWAL)+'</div><div class="sl">gailray.db (устарела)</div></div>';
         // LanceDB tables
         var lanceNames = {
-            'photo_embeddings':'Эмбеддинги',
+            'photo_embeddings':'Семантические индексы',
             'face_vectors':'Векторы лиц',
             'faces':'Лица (legacy)',
             'personas':'Персоны',
@@ -1118,7 +1175,7 @@ function maintVacuum(){
 
 function maintDedup(){
     var el = document.getElementById('maintStatus');
-    el.className = 'backup-status'; el.textContent = 'Дедупликация эмбеддингов... (может занять минуту)';
+    el.className = 'backup-status'; el.textContent = 'Дедупликация семантических индексов... (может занять минуту)';
     fetch(API+'/maintenance/dedup_embeddings',{method:'POST'}).then(function(r){
         if(!r.ok) return r.json().then(function(d){ throw new Error(d.detail); });
         return r.json();
@@ -1292,7 +1349,7 @@ function loadConfig(){
 }
 
 var WORKER_NAMES = ['ingest','describe','faces','exif','embed','pipeline','thumbnails','scan_catalog','enrich'];
-var WORKER_LABELS = {ingest:'Наполнение',describe:'Описание',faces:'Лица',exif:'EXIF',embed:'Индексация',pipeline:'Пайплайн',thumbnails:'Превью',scan_catalog:'Каталог',enrich:'Обогащение'};
+var WORKER_LABELS = {ingest:'Наполнение',describe:'Описание',faces:'Лица',exif:'EXIF',embed:'Семантическая индексация',pipeline:'Пайплайн',thumbnails:'Превью',scan_catalog:'Каталог',enrich:'Обогащение'};
 
 function loadWorkers(){
     fetch(API+'/../api/mqtt/workers').then(function(r){return r.json()}).then(function(d){
@@ -1592,6 +1649,123 @@ function fillTopPersonas(){
 
 loadFamilyFacts();
 
+function loadModels(){
+    document.getElementById('modelsList').innerHTML = '<div style="color:#6e7681;padding:12px">&#8987; Загрузка моделей...</div>';
+    fetch(API+'/models').then(function(r){return r.json()}).then(function(d){
+        var html = '';
+        var models = d.models || [];
+        for(var i=0;i<models.length;i++){
+            var m = models[i];
+            var statusColor = m.present ? '#3fb950' : '#f85149';
+            var statusText = m.present ? 'OK' : 'ОТСУТСТВУЕТ';
+            if(m.present && m.size_ok === false){ statusColor='#f85149'; statusText='РАЗМЕР НЕ СОВПАДАЕТ'; }
+            else if(m.present && m.verified){ statusColor='#3fb950'; statusText='ВЕРИФИЦИРОВАН'; }
+            else if(m.present && m.size_ok){ statusColor='#58a6ff'; statusText='OK (размер совпадает)'; }
+            var sizeText = m.total_size_mb > 0 ? (m.total_size_mb > 1024 ? (m.total_size_mb/1024).toFixed(1)+' GB' : m.total_size_mb.toFixed(0)+' MB') : '';
+            html += '<div class="mdl-card">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+            html += '<div><span style="font-weight:600;font-size:14px">'+esc(m.name)+'</span> <span style="color:'+statusColor+';font-size:12px;font-weight:600">['+statusText+']</span></div>';
+            html += '<div style="display:flex;gap:6px;align-items:center">';
+            if(sizeText) html += '<span class="mdl-size">'+sizeText+'</span>';
+            html += '<button class="btn btn-sec" onclick="checkModel(\''+m.id+'\')" style="font-size:11px;padding:3px 10px">&#128270; Проверить</button>';
+            html += '</div></div>';
+            html += '<div class="mdl-role">'+esc(m.role)+'</div>';
+            if(m.note) html += '<div style="font-size:11px;color:#58a6ff;margin-top:2px">'+esc(m.note)+'</div>';
+            html += '<div class="mdl-sub">Репо: '+esc(m.repo)+' | Тип: '+m.type+' | Использует: '+esc(m.used_by||'')+'</div>';
+            if(m.files && m.files.length){
+                html += '<div class="mdl-file-list">';
+                for(var j=0;j<m.files.length;j++){
+                    var f = m.files[j];
+                    var fc = f.exists ? '#3fb950' : '#f85149';
+                    var fs = f.size_mb > 0 ? ' ('+f.size_mb.toFixed(0)+' MB)' : '';
+                    var hashIcon = '';
+                    if(f.exists && f.sha256_ok === true) hashIcon = ' <span style="color:#3fb950" title="SHA256 совпадает с HuggingFace LFS">&#128274;</span>';
+                    else if(f.exists && f.sha256_ok === false) hashIcon = ' <span style="color:#f85149" title="SHA256 НЕ совпадает!">&#128275;</span>';
+                    else if(f.exists && f.size_ok === false) hashIcon = ' <span style="color:#f85149" title="Размер файла не совпадает!">&#9888;</span>';
+                    else if(f.exists && f.size_ok) hashIcon = ' <span style="color:#58a6ff" title="Размер совпадает, SHA256 не проверен">&#128269;</span>';
+                    html += '<div class="mdl-file-item"><span style="color:'+fc+'">'+(f.exists?'&#10003;':'&#10007;')+'</span> '+esc(f.name)+fs+hashIcon+'</div>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+        document.getElementById('modelsList').innerHTML = html;
+        if(!d.hf_token_set){
+            document.getElementById('modelsStatus').innerHTML = '<span style="color:#d29922">&#9888; HF token не задан — скачивание моделей невозможно</span>';
+        } else {
+            document.getElementById('modelsStatus').innerHTML = '';
+        }
+        var dirInp = document.getElementById('modelsDir');
+        if(d.models_dir) dirInp.value = d.models_dir;
+    }).catch(function(e){
+        document.getElementById('modelsList').innerHTML = '<div style="color:#f85149">Ошибка загрузки: '+e+'</div>';
+    });
+    fetch(API+'/settings/hf_token').then(function(r){return r.json()}).then(function(d){
+        var inp = document.getElementById('hfToken');
+        if(d.value) inp.value = d.value;
+    }).catch(function(){});
+}
+function saveModelsDir(){
+    var dir = document.getElementById('modelsDir').value.trim();
+    var el = document.getElementById('modelsDirStatus');
+    if(!dir){ el.textContent='Путь пуст'; el.style.color='#f85149'; return; }
+    fetch(API+'/models/dir',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:dir})}).then(function(r){
+        if(r.ok) return r.json();
+        return r.json().then(function(d){ throw new Error(d.detail||'Error'); });
+    }).then(function(d){
+        el.textContent='Сохранено: '+d.models_dir; el.style.color='#3fb950';
+        if(d.note) setTimeout(function(){ el.textContent=d.note; el.style.color='#d29922'; },2000);
+        loadModels();
+    }).catch(function(e){ el.textContent='Ошибка: '+e.message; el.style.color='#f85149'; });
+    setTimeout(function(){ el.textContent=''; }, 5000);
+}
+function saveHfToken(){
+    var token = document.getElementById('hfToken').value.trim();
+    var el = document.getElementById('hfTokenStatus');
+    fetch(API+'/settings/hf_token',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:token})}).then(function(r){
+        if(r.ok){
+            el.textContent='Сохранено'; el.style.color='#3fb950';
+            loadModels();
+        } else { el.textContent='Ошибка'; el.style.color='#f85149'; }
+    }).catch(function(){ el.textContent='Ошибка сети'; el.style.color='#f85149'; });
+    setTimeout(function(){ el.textContent=''; }, 3000);
+}
+function toggleHfTokenVisibility(){
+    var inp = document.getElementById('hfToken');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+function downloadModel(modelId){
+    var el = document.getElementById('modelsStatus');
+    el.innerHTML = '<span style="color:#58a6ff">&#11015; Скачивание '+modelId+'...</span>';
+    fetch(API+'/models/download/'+modelId,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+        if(d.status==='ok'){
+            el.innerHTML = '<span style="color:#3fb950">&#10003; Модель '+modelId+' скачана</span>';
+            loadModels();
+        } else {
+            el.innerHTML = '<span style="color:#f85149">&#10007; Ошибка: '+esc(d.error||'unknown')+'</span>';
+        }
+    }).catch(function(e){
+        el.innerHTML = '<span style="color:#f85149">&#10007; Ошибка сети: '+e+'</span>';
+    });
+}
+function checkModel(modelId){
+    var el = document.getElementById('modelsStatus');
+    el.innerHTML = '<span style="color:#58a6ff">&#128270; Проверка SHA256 '+modelId+'... (может занять ~30с)</span>';
+    fetch(API+'/models/check/'+modelId).then(function(r){return r.json()}).then(function(d){
+        if(d.verified){
+            el.innerHTML = '<span style="color:#3fb950">&#10003; '+modelId+': SHA256 верифицирован (совпадает с HuggingFace LFS)</span>';
+        } else if(d.present){
+            el.innerHTML = '<span style="color:#f85149">&#10007; '+modelId+': файл есть, но SHA256 НЕ совпадает!</span>';
+        } else {
+            el.innerHTML = '<span style="color:#f85149">&#10007; '+modelId+': файл отсутствует</span>';
+        }
+        loadModels();
+    }).catch(function(e){
+        el.innerHTML = '<span style="color:#f85149">&#10007; Ошибка: '+e+'</span>';
+    });
+}
+
+loadModels();
 </script>
 </body>
 </html>

@@ -779,7 +779,7 @@ function showPhotoDetail(idx) {
     html += '<div class="dp-label">Имя файла</div><div class="dp-value">' + esc(fname) + '</div>';
     html += '<div class="dp-label">Размер</div><div class="dp-value">' + fmtSize(f.file_size) + '</div>';
     html += '<div class="dp-label">Путь</div><div class="dp-value">' + esc(f.rel_path || '') + '</div>';
-    html += '<div class="dp-label">Индексация</div><div class="dp-value">' + (f.ingested ? 'да' : '<span class="empty">нет</span>') + '</div>';
+    html += '<div class="dp-label">Семантическая индексация</div><div class="dp-value">' + (f.ingested ? 'да' : '<span class="empty">нет</span>') + '</div>';
     html += '<div class="dp-label">Описание</div><div class="dp-value' + (f.described ? '' : ' empty') + '">' + (f.described ? esc(f.description || 'да') : 'нет') + '</div>';
     html += '<div class="dp-label">EXIF</div><div class="dp-value">' + (f.exif_done ? 'да' : '<span class="empty">нет</span>') + '</div>';
     html += '<div class="dp-label">Лица</div><div class="dp-value">' + (f.faces_done ? 'да' : '<span class="empty">нет</span>') + '</div>';
