@@ -1873,6 +1873,7 @@ function formatBytes(b){ if(!b)return '?'; var u=['B','KB','MB','GB'],i=0; while
 // --- Task routing ---
 var DUAL_TASKS = [
     {id:'embed', name:'Семантическая индексация', modelId:'qwen3-embed', ollamaModel:'qwen3-embedding:0.6b'},
+    {id:'semantic_search', name:'Семантический поиск', modelId:'qwen3-embed', ollamaModel:'qwen3-embedding:0.6b'},
 ];
 function loadRouting(){
     var url = document.getElementById('ollamaUrl').value;
