@@ -154,6 +154,17 @@ async def pipeline_log():
     return {"error": "Page not found"}
 
 
+@app.get("/admin")
+async def admin_page():
+    from pathlib import Path
+    from fastapi.responses import HTMLResponse
+    admin_html = Path(__file__).parent.parent / "web" / "admin" / "index.html"
+    if admin_html.exists():
+        with open(admin_html) as f:
+            return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    return {"error": "Page not found"}
+
+
 @app.get("/control")
 async def control_page():
     from pathlib import Path
@@ -635,6 +646,11 @@ async def top_personas_for_facts(key: str):
     return {"text": "\n".join(lines)}
 
 from pathlib import Path
+# Admin static assets
+admin_dir = Path(__file__).parent.parent / "web" / "admin"
+app.mount("/admin/js", StaticFiles(directory=str(admin_dir / "js")), name="admin-js")
+app.mount("/admin/css", StaticFiles(directory=str(admin_dir / "css")), name="admin-css")
+# General static
 static_dir = Path(__file__).parent / "frontend"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

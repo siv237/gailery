@@ -299,21 +299,41 @@ def test_persons_api_includes_unnamed():
     )
 
 
+def test_admin_js_valid():
+    """app.js не содержит синтаксических ошибок — проверяется через Node.js.
+
+    Если тест падает — в app.js ошибка синтаксиса JavaScript.
+    Браузер покажет 'Uncaught SyntaxError' и админка не заработает.
+    """
+    import subprocess
+    r = subprocess.run(
+        ["node", "-e",
+         "new Function(require('fs').readFileSync("
+         "'/opt/gailray/web/admin/js/app.js','utf8'))"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if r.returncode != 0:
+        pytest.fail(
+            f"app.js содержит ошибку синтаксиса:\n{r.stderr.strip()}"
+        )
+
+
 # ── Проверка что все ключевые API отдают валидный JSON ──
 
 GALLERY_ENDPOINTS = [
-    ("/api/photos/search?limit=5&sort=date_desc", "поиск фото (главная галерея)"),
-    ("/api/photos/dates", "гистограмма дат (таймлайн)"),
-    ("/api/status", "статус пайплайна"),
-    ("/api/persons/?limit=5", "список персон"),
-    ("/api/persons/names", "имена персон (автокомплит)"),
-    ("/api/catalog/roots", "корни каталога"),
-    ("/api/catalog/stats", "статистика каталога"),
-    ("/api/photos/map", "карта с GPS-фото"),
-    ("/api/config", "конфиг (панель управления)"),
-    ("/api/photos/search?has_faces=true&limit=3", "фильтр по лицам"),
-    ("/api/photos/search?has_gps=true&limit=3", "фильтр по GPS"),
-    ("/api/photos/search?has_description=true&limit=3", "фильтр по описанию"),
+    ("/admin", "админка", False),  # HTML, not JSON
+    ("/api/photos/search?limit=5&sort=date_desc", "поиск фото (главная галерея)", True),
+    ("/api/photos/dates", "гистограмма дат (таймлайн)", True),
+    ("/api/status", "статус пайплайна", True),
+    ("/api/persons/?limit=5", "список персон", True),
+    ("/api/persons/names", "имена персон (автокомплит)", True),
+    ("/api/catalog/roots", "корни каталога", True),
+    ("/api/catalog/stats", "статистика каталога", True),
+    ("/api/photos/map", "карта с GPS-фото", True),
+    ("/api/config", "конфиг (панель управления)", True),
+    ("/api/photos/search?has_faces=true&limit=3", "фильтр по лицам", True),
+    ("/api/photos/search?has_gps=true&limit=3", "фильтр по GPS", True),
+    ("/api/photos/search?has_description=true&limit=3", "фильтр по описанию", True),
 ]
 
 
@@ -325,12 +345,15 @@ def test_all_gallery_endpoints_return_json():
     """
     import urllib.request
     errors = []
-    for url, desc in GALLERY_ENDPOINTS:
+    for url, desc, is_json in GALLERY_ENDPOINTS:
         try:
             resp = urllib.request.urlopen(
                 f"http://localhost:8000{url}", timeout=15)
             body = resp.read()
-            json.loads(body)
+            if is_json:
+                json.loads(body)
+            elif not body:
+                errors.append(f"{desc}: пустой ответ ({url})")
         except json.JSONDecodeError:
             errors.append(f"{desc}: не JSON ({url})")
             errors.append(f"  тело: {body[:200]}")

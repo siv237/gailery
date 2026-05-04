@@ -185,21 +185,26 @@ def main():
                 else:
                     log(f"  {step}: {val}")
 
-            all_done = all(pct >= 100 for _, _, pct in progress.values())
-            if all_done:
-                log("Все шаги 100% — цикл завершён")
+            # Always scan at start of iteration to discover new files immediately
+            scan_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"]
+            run_step("QUICK SCAN", scan_args)
+            if stopped():
                 break
+            progress = get_progress()
 
-            if progress["ingest"][2] < 100:
-                scan_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"]
-                if args.root:
-                    from database import DatabaseManager as _DB2
-                    _r2 = _DB2().get_catalog_root(args.root)
-                    if not _r2:
-                        scan_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"]
-                run_step("SCAN+INGEST", scan_args)
-                if stopped():
-                    break
+            all_done = all(pct >= 100 for _, _, pct in [v for v in progress.values() if isinstance(v, tuple)])
+            if all_done:
+                _idle_flag = Path(FLAG_FILE).parent / "pipeline_idle"
+                _idle_flag.parent.mkdir(parents=True, exist_ok=True)
+                _idle_flag.touch()
+                log("Все шаги 100% — засыпаю 5 минут, жду новых фото...")
+                if not stopped():
+                    time.sleep(300)
+                try:
+                    _idle_flag.unlink()
+                except Exception:
+                    pass
+                continue
 
             if progress["describe"][2] < 100:
                 kill_orphan_llama_servers()
@@ -247,7 +252,7 @@ def main():
                 (isinstance(progress2[k], tuple) and isinstance(progress[k], tuple) and progress2[k][0] != progress[k][0])
                 for k in progress
             )
-            if not any_changed and not all(pct >= 100 for _, _, pct in progress2.values()):
+            if not any_changed and not all(pct >= 100 for _, _, pct in [v for v in progress2.values() if isinstance(v, tuple)]):
                 log("Прогресса нет, засыпаю 30с...")
                 time.sleep(30)
 

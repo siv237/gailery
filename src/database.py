@@ -309,8 +309,8 @@ class DatabaseManager:
         for r in records:
             cur.execute(
                 "INSERT OR IGNORE INTO photos (photo_id,path,thumbnail_path,date,gps_lat,gps_lon,"
-                "camera_make,camera_model,description,faces_present,exif_checked,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "camera_make,camera_model,description,faces_present,exif_checked,created_at,root_id,deleted) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (r.get("photo_id", str(uuid.uuid4())),
                  r.get("path"), r.get("thumbnail_path"), r.get("date"),
                  r.get("gps_lat"), r.get("gps_lon"),
@@ -318,7 +318,9 @@ class DatabaseManager:
                  r.get("description"),
                  int(r.get("faces_present", False)),
                  int(r.get("exif_checked", False)),
-                 r.get("created_at") or datetime.now().isoformat())
+                 r.get("created_at") or datetime.now().isoformat(),
+                 r.get("root_id"),
+                 int(r.get("deleted", 0)))
             )
         self.sqlite.commit()
 

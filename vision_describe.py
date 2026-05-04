@@ -252,9 +252,7 @@ def describe_batch(image_paths):
         }))
 
     if not valid_paths:
-        return []
-
-    results = []
+        return results
     with ThreadPoolExecutor(max_workers=NP_SLOTS) as pool:
         futs = {pool.submit(describe_one, images_b64[i], valid_paths[i]): i for i in range(len(valid_paths))}
         for fut in as_completed(futs):
@@ -455,6 +453,11 @@ def process_directory(photo_dir, batch_size=BATCH_SIZE, limit=0):
                     continue
                 t_save = time.time()
                 save_description(db, path, parsed)
+                if parsed.get("issue_type") == "corrupted":
+                    db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE path = ? AND deleted = 0", (str(path),))
+                    db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (str(path),))
+                    db.sqlite.commit()
+                    log(f"    marked as deleted (corrupted file)")
                 dt_save = time.time() - t_save
                 processed += 1
                 desc_len = len(parsed["description"])

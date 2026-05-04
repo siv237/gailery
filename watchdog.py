@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 CHECK_INTERVAL = 10
 NO_RESTART_FLAG = FLAG_DIR / "no_restart"
+PIPELINE_IDLE_FLAG = FLAG_DIR / "pipeline_idle"
 PIPELINE_SERVICE = "gailray-pipeline"
 
 MEMORY_WARN_PCT = 85
@@ -257,8 +258,8 @@ def check_stale_flags():
     if not os.path.isdir(flag_dir):
         return
     for fname in os.listdir(flag_dir):
-        if fname == "no_restart":
-            continue
+        if fname in ("no_restart", "pipeline_idle"):
+                continue
         fpath = os.path.join(flag_dir, fname)
         if not os.path.isfile(fpath):
             continue
@@ -285,6 +286,11 @@ def check_stale_flags():
             logger.warning(f"Stale flag: {fname} (no live process)")
             log_incident(f"STALE FLAG: {fname} — удаляю")
             os.remove(fpath)
+            if fname == "pipeline":
+                try:
+                    os.remove(str(PIPELINE_IDLE_FLAG))
+                except Exception:
+                    pass
 
 
 def main():
@@ -317,11 +323,15 @@ def main():
                 time.sleep(CHECK_INTERVAL)
                 continue
 
-            mode = "active"
+            is_idle = PIPELINE_IDLE_FLAG.exists()
+            if is_idle:
+                mode = "waiting"
+            else:
+                mode = "active"
 
             if not is_pipeline_enabled():
                 pass
-            elif not is_pipeline_active():
+            elif not is_pipeline_active() and not is_idle:
                 logger.info("Pipeline не работает! Запускаю...")
                 start_pipeline()
 
@@ -336,7 +346,8 @@ def main():
             check_orphan_workers()
             check_memory_pressure()
 
-            log_incident(f"HEARTBEAT: pipeline={'active' if is_pipeline_active() else 'dead'}, mode={mode}")
+            if not is_idle:
+                log_incident(f"HEARTBEAT: pipeline={'active' if is_pipeline_active() else 'dead'}, mode={mode}")
 
             time.sleep(CHECK_INTERVAL)
     except KeyboardInterrupt:

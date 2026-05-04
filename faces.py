@@ -126,6 +126,13 @@ def run_detection(photos):
             dt_det = time.time() - t_det
         except Exception as e:
             log(f"ERROR {os.path.basename(path)}: {e}")
+            try:
+                db.sqlite.execute("UPDATE photos SET faces_present = 0, deleted = 1 WHERE path = ? AND deleted = 0", (path,))
+                db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (path,))
+                db.sqlite.commit()
+                log(f"  marked as deleted (corrupted file)")
+            except Exception:
+                pass
             continue
 
         t_sql = time.time()
