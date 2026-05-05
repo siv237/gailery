@@ -449,14 +449,25 @@ async def get_system_report():
         swap = psutil.swap_memory()
 
         disks = []
+        skip_prefixes = ('/dev', '/proc', '/sys', '/run', '/boot', '/usr', '/lib', '/etc', '/tmp')
+        skip_fstypes = ('tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'aufs')
+        seen_mounts = set()
         for mp in psutil.disk_partitions():
+            mnt = mp.mountpoint
+            if mnt in seen_mounts:
+                continue
+            if any(mnt.startswith(p + '/') or mnt == p for p in skip_prefixes):
+                continue
+            if mp.fstype in skip_fstypes or mp.device in ('none', 'tmpfs'):
+                continue
             try:
-                u = psutil.disk_usage(mp.mountpoint)
+                u = psutil.disk_usage(mnt)
                 disks.append({
-                    "mount": mp.mountpoint, "device": mp.device, "fstype": mp.fstype,
+                    "mount": mnt, "device": mp.device, "fstype": mp.fstype,
                     "total_gib": round(u.total / (1024**3), 1), "used_gib": round(u.used / (1024**3), 1),
                     "free_gib": round(u.free / (1024**3), 1), "percent": u.percent,
                 })
+                seen_mounts.add(mnt)
             except Exception:
                 pass
 
@@ -537,6 +548,12 @@ async def get_system_report():
                 "tx_gb": round(net.bytes_sent / 1e9, 2),
                 "packets_recv": net.packets_recv,
                 "packets_sent": net.packets_sent,
+                "rx_mbps": live.get("net_rx_mbps", 0),
+                "tx_mbps": live.get("net_tx_mbps", 0),
+            },
+            "disk_io": {
+                "read_mbps": live.get("disk_read_mbps", 0),
+                "write_mbps": live.get("disk_write_mbps", 0),
             },
             "top_processes": top_procs,
             "gailray": {

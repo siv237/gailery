@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 import psutil
 
 _first_net = None
+_first_disk = None
+_last_collect_time = None
 
 
 def _net_gb():
@@ -20,6 +22,43 @@ def _net_gb():
     if _first_net is None:
         _first_net = (net.bytes_recv, net.bytes_sent)
     return (net.bytes_recv - _first_net[0]) / 1e9, (net.bytes_sent - _first_net[1]) / 1e9
+
+
+def _net_speed():
+    global _first_net, _last_collect_time
+    net = psutil.net_io_counters()
+    now = time.time()
+    if _first_net is None or _last_collect_time is None:
+        _first_net = (net.bytes_recv, net.bytes_sent)
+        _last_collect_time = now
+        return 0.0, 0.0
+    dt = now - _last_collect_time
+    if dt <= 0:
+        return 0.0, 0.0
+    rx_mbps = ((net.bytes_recv - _first_net[0]) * 8) / (dt * 1_000_000)
+    tx_mbps = ((net.bytes_sent - _first_net[1]) * 8) / (dt * 1_000_000)
+    _first_net = (net.bytes_recv, net.bytes_sent)
+    _last_collect_time = now
+    return round(rx_mbps, 2), round(tx_mbps, 2)
+
+
+def _disk_io_speed():
+    global _first_disk
+    io = psutil.disk_io_counters()
+    if io is None:
+        return 0.0, 0.0
+    if _first_disk is None:
+        _first_disk = (io.read_bytes, io.write_bytes, time.time())
+        return 0.0, 0.0
+    prev_read, prev_write, prev_time = _first_disk
+    now = time.time()
+    dt = now - prev_time
+    if dt <= 0:
+        return 0.0, 0.0
+    read_mb_s = (io.read_bytes - prev_read) / (dt * 1024 * 1024)
+    write_mb_s = (io.write_bytes - prev_write) / (dt * 1024 * 1024)
+    _first_disk = (io.read_bytes, io.write_bytes, now)
+    return round(read_mb_s, 1), round(write_mb_s, 1)
 
 
 def _nvidia_smi(*fields):
@@ -137,6 +176,8 @@ def collect_metrics():
     mem = _mem_metrics()
     disk = _disk_metrics()
     net_rx, net_tx = _net_gb()
+    net_rx_mbps, net_tx_mbps = _net_speed()
+    disk_read_mbps, disk_write_mbps = _disk_io_speed()
 
     return {
         "timestamp": now,
@@ -158,6 +199,10 @@ def collect_metrics():
         "load15": cpu["load15"],
         "net_rx_gb": net_rx,
         "net_tx_gb": net_tx,
+        "net_rx_mbps": net_rx_mbps,
+        "net_tx_mbps": net_tx_mbps,
+        "disk_read_mbps": disk_read_mbps,
+        "disk_write_mbps": disk_write_mbps,
     }
 
 
