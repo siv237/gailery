@@ -40,7 +40,7 @@ def compute_file_hash(path, chunk_size=65536):
 
 def log(msg):
     line = f"[{datetime.now().isoformat()}] [CATALOG] {msg}"
-    pass  # log to file only
+    print(line, flush=True)
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 
@@ -142,7 +142,9 @@ def scan_root(db, root_id):
                 scanned += 1
                 if scanned % 10 == 0:
                     elapsed = time.time() - t0
-                    log(f"Scanned {scanned} files, new={len(new_files)}, changed={changed_count}, restored={restored_count}, dirs_skipped={skipped_dirs}, elapsed={elapsed:.1f}s")
+                    progress_msg = f"Scanned {scanned} files, new={len(new_files)}, changed={changed_count}, restored={restored_count}, dirs_skipped={skipped_dirs}, elapsed={elapsed:.1f}s"
+                    log(progress_msg)
+                    print(progress_msg, flush=True)
 
                 try:
                     stat = os.stat(abs_path)

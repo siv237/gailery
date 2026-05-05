@@ -26,6 +26,7 @@ LOGS_DIR = Path(os.environ.get("GALLERY_LOGS_DIR", str(PROJECT_ROOT / "logs")))
 LLAMA_CPP_DIR = Path(os.environ.get("LLAMA_CPP_DIR", "/opt/llama.cpp"))
 VENV_PYTHON = os.environ.get("GALLERY_VENV_PYTHON", str(PROJECT_ROOT / "venv" / "bin" / "python3"))
 LOG_FILE = LOGS_DIR / "pipeline.log"
+WATCHDOG_LOG_FILE = LOGS_DIR / "watchdog.log"
 FLAG_DIR = DATA_DIR / "pipeline_flags"
 
 MQTT_HOST = os.environ.get("GALLERY_MQTT_HOST", "127.0.0.1")

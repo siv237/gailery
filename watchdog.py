@@ -29,7 +29,7 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from config import FLAG_DIR, LOG_FILE
+from config import FLAG_DIR, LOG_FILE, WATCHDOG_LOG_FILE
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [WATCHDOG] %(message)s', datefmt='%Y-%m-%dT%H:%M:%S')
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ def start_pipeline():
 
 def log_incident(msg):
     line = f"[{datetime.now().isoformat()}] [WATCHDOG] {msg}"
-    with open(str(LOG_FILE), "a") as f:
+    with open(str(WATCHDOG_LOG_FILE), "a") as f:
         f.write(line + "\n")
     _crash_log.append({"ts": datetime.now().isoformat(), "msg": msg})
     if len(_crash_log) > 100:
