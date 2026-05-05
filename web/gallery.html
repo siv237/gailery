@@ -1382,16 +1382,6 @@ function onCatFilterChange() {
     updateCatFilterLabel();
     doSearch();
 }
-function updateCatFilterLabel() {
-    var cats = ['chkCatPhoto','chkCatScreenshot','chkCatDocument','chkCatMeme','chkCatIcon','chkCatOther'];
-    var labels = ['Фото','Скриншот','Документ','Мем','Иконка','Другое'];
-    var selected = [];
-    for (var i=0; i<cats.length; i++) {
-        if (document.getElementById(cats[i]).checked) selected.push(labels[i]);
-    }
-    var text = selected.length === 6 ? 'Все' : (selected.length === 0 ? 'Нет' : selected.join('+'));
-    document.getElementById('catDropdownBtn').textContent = 'Категории: ' + text + ' ▾';
-}
 
 function loadTimeline() {
     fetch(API + '/photos/dates').then(function(r) { return r.json(); }).then(function(data) {
