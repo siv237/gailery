@@ -82,3 +82,6 @@ protocols/
 
 # Deployment (contains local paths)
 deploy/
+
+# Screenshots
+web/screenshots/
