@@ -743,6 +743,12 @@
         </div>
     </div>
 
+    <div class="vid-modal-bg" id="vidModal">
+        <div class="vid-modal-close" onclick="closeVideoModal()">×</div>
+        <div class="vid-modal-bar" id="vidModalBar"></div>
+        <video id="vidModalPlayer" src="" controls preload="metadata" onclick="event.stopPropagation()"></video>
+    </div>
+
     <div class="detail-panel" id="detailPanel">
         <span class="dp-close" onclick="closeDetail()">&times;</span>
         <div id="dpContent"></div>
@@ -1264,12 +1270,14 @@ function reindexAll() {
     var isMobile = _isMobile();
     for (var i = 0; i < cards.length; i++) {
         cards[i].setAttribute('onclick', 'openDetail(' + i + ')');
+        var p = currentPhotos[i] || {};
+        var isVid = p.media_type === 'video';
         var btn = cards[i].querySelector('.expand-btn');
-        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();openViewer(' + i + ')');
+        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();' + (isVid ? 'playVideoCard(' + i + ')' : 'openViewer(' + i + ')'));
         if (isMobile) {
             cards[i].removeAttribute('ondblclick');
         } else {
-            cards[i].setAttribute('ondblclick', 'event.stopPropagation();openViewer(' + i + ');toggleFullscreen()');
+            cards[i].setAttribute('ondblclick', 'event.stopPropagation();' + (isVid ? 'playVideoCard(' + i + ')' : 'openViewer(' + i + ');toggleFullscreen()') );
         }
     }
 }
@@ -3369,10 +3377,5 @@ openDetail = function(idx) {
     }, { passive: true });
 })();
 </script>
-<div class="vid-modal-bg" id="vidModal">
-    <div class="vid-modal-close" onclick="closeVideoModal()">×</div>
-    <div class="vid-modal-bar" id="vidModalBar"></div>
-    <video id="vidModalPlayer" src="" controls preload="metadata" onclick="event.stopPropagation()"></video>
-</div>
 </body>
 </html>
