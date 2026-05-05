@@ -617,15 +617,17 @@
          <label title="Размытые, тёмные, повреждённые"><input type="checkbox" id="chkIssues"> С проблемами</label>
          <label title="Фото с геолокацией в EXIF"><input type="checkbox" id="chkGps"> С GPS</label>
          <label style="color:#f85149" title="Помеченные к удалению"><input type="checkbox" id="chkDeleted"> Удалённые</label>
-         <select id="photoTypeSelect" onchange="doSearch()" style="min-width:100px" title="Фильтр по типу файла (определяется ИИ)">
-             <option value="">Все типы</option>
-             <option value="photo">Фото</option>
-             <option value="screenshot">Скриншот</option>
-             <option value="document">Документ</option>
-             <option value="meme">Мем</option>
-             <option value="icon">Иконка</option>
-             <option value="other">Другое</option>
-          </select>
+<div class="type-dropdown" id="catDropdown">
+              <button class="type-dropdown-btn" id="catDropdownBtn" onclick="toggleCatDropdown(event)" title="Категории (определяется ИИ)">Категории: Все ▾</button>
+              <div class="type-dropdown-menu" id="catDropdownMenu">
+                  <label class="type-check"><input type="checkbox" id="chkCatPhoto" onchange="onCatFilterChange()"> Фото</label>
+                  <label class="type-check"><input type="checkbox" id="chkCatScreenshot" onchange="onCatFilterChange()"> Скриншот</label>
+                  <label class="type-check"><input type="checkbox" id="chkCatDocument" onchange="onCatFilterChange()"> Документ</label>
+                  <label class="type-check"><input type="checkbox" id="chkCatMeme" onchange="onCatFilterChange()"> Мем</label>
+                  <label class="type-check"><input type="checkbox" id="chkCatIcon" onchange="onCatFilterChange()"> Иконка</label>
+                  <label class="type-check"><input type="checkbox" id="chkCatOther" onchange="onCatFilterChange()"> Другое</label>
+              </div>
+          </div>
           <div class="type-dropdown" id="typeDropdown">
               <button class="type-dropdown-btn" id="typeDropdownBtn" onclick="toggleTypeDropdown(event)" title="Типы файлов">Типы: Все ▾</button>
               <div class="type-dropdown-menu" id="typeDropdownMenu">
@@ -670,16 +672,15 @@
             <option value="date_asc">Старые сначала</option>
             <option value="created_desc">Последние добавленные</option>
             <option value="relevance">По релевантности</option>
-        </select>
-         <select class="fs-select" id="photoTypeSelectMob" onchange="syncSelect(this,'photoTypeSelect')">
-             <option value="">Все типы</option>
-             <option value="photo">Фото</option>
-             <option value="screenshot">Скриншот</option>
-             <option value="document">Документ</option>
-             <option value="meme">Мем</option>
-             <option value="icon">Иконка</option>
-             <option value="other">Другое</option>
 </select>
+         <div class="fs-type-checks">
+             <label class="type-check"><input type="checkbox" id="chkCatPhotoMob" onchange="syncCatCheck(this,'chkCatPhoto')"> Фото</label>
+             <label class="type-check"><input type="checkbox" id="chkCatScreenshotMob" onchange="syncCatCheck(this,'chkCatScreenshot')"> Скриншот</label>
+             <label class="type-check"><input type="checkbox" id="chkCatDocumentMob" onchange="syncCatCheck(this,'chkCatDocument')"> Документ</label>
+             <label class="type-check"><input type="checkbox" id="chkCatMemeMob" onchange="syncCatCheck(this,'chkCatMeme')"> Мем</label>
+             <label class="type-check"><input type="checkbox" id="chkCatIconMob" onchange="syncCatCheck(this,'chkCatIcon')"> Иконка</label>
+             <label class="type-check"><input type="checkbox" id="chkCatOtherMob" onchange="syncCatCheck(this,'chkCatOther')"> Другое</label>
+         </div>
          <div class="fs-type-checks">
              <label class="type-check"><input type="checkbox" id="chkRawMob" onchange="syncTypeCheck(this,'chkRaw')"> RAW</label>
              <label class="type-check"><input type="checkbox" id="chkJpegMob" onchange="syncTypeCheck(this,'chkJpeg')"> JPEG</label>
@@ -953,7 +954,15 @@ function getSearchParams() {
     var issuesOnly = document.getElementById('chkIssues').checked;
     var gpsOnly = document.getElementById('chkGps').checked;
     var deletedOnly = document.getElementById('chkDeleted').checked;
-     var photoType = document.getElementById('photoTypeSelect').value;
+     var catTypes = [];
+     if (document.getElementById('chkCatPhoto').checked) catTypes.push('photo');
+     if (document.getElementById('chkCatScreenshot').checked) catTypes.push('screenshot');
+     if (document.getElementById('chkCatDocument').checked) catTypes.push('document');
+     if (document.getElementById('chkCatMeme').checked) catTypes.push('meme');
+     if (document.getElementById('chkCatIcon').checked) catTypes.push('icon');
+     if (document.getElementById('chkCatOther').checked) catTypes.push('other');
+     var allCatsChecked = catTypes.length === 6;
+     var noCatsChecked = catTypes.length === 0;
      var chkRaw = document.getElementById('chkRaw').checked;
      var chkJpeg = document.getElementById('chkJpeg').checked;
      var chkVideo = document.getElementById('chkVideo').checked;
@@ -966,7 +975,7 @@ function getSearchParams() {
     if (hasDesc) params += '&has_description=true';
     if (issuesOnly) params += '&has_issues=true';
     if (gpsOnly) params += '&has_gps=true';
-     if (photoType) params += '&photo_type=' + encodeURIComponent(photoType);
+     if (catTypes.length > 0 && catTypes.length < 6) params += '&photo_type=' + catTypes.join(',');
      if (!noneChecked && !allChecked) {
          if (!chkRaw && chkJpeg && !chkVideo) params += '&file_type=non_raw&media_type=photo';
          else if (chkRaw && !chkJpeg && !chkVideo) params += '&file_type=raw&media_type=photo';
@@ -1358,6 +1367,25 @@ document.addEventListener('click', function(e) {
         menu.classList.remove('open');
     }
 });
+
+function toggleCatDropdown(e) {
+    e.stopPropagation();
+    document.getElementById('catDropdownMenu').classList.toggle('open');
+}
+function onCatFilterChange() {
+    updateCatFilterLabel();
+    doSearch();
+}
+function updateCatFilterLabel() {
+    var cats = ['chkCatPhoto','chkCatScreenshot','chkCatDocument','chkCatMeme','chkCatIcon','chkCatOther'];
+    var labels = ['Фото','Скриншот','Документ','Мем','Иконка','Другое'];
+    var selected = [];
+    for (var i=0; i<cats.length; i++) {
+        if (document.getElementById(cats[i]).checked) selected.push(labels[i]);
+    }
+    var text = selected.length === 6 ? 'Все' : (selected.length === 0 ? 'Нет' : selected.join('+'));
+    document.getElementById('catDropdownBtn').textContent = 'Категории: ' + text + ' ▾';
+}
 
 function loadTimeline() {
     fetch(API + '/photos/dates').then(function(r) { return r.json(); }).then(function(data) {
@@ -2619,6 +2647,13 @@ function clearFilters() {
     document.getElementById('chkGps').checked = false;
     document.getElementById('chkDeleted').checked = false;
      document.getElementById('photoTypeSelect').value = '';
+     document.getElementById('chkCatPhoto').checked = true;
+     document.getElementById('chkCatScreenshot').checked = true;
+     document.getElementById('chkCatDocument').checked = true;
+     document.getElementById('chkCatMeme').checked = true;
+     document.getElementById('chkCatIcon').checked = true;
+     document.getElementById('chkCatOther').checked = true;
+     updateCatFilterLabel();
      document.getElementById('chkRaw').checked = true;
      document.getElementById('chkJpeg').checked = true;
      document.getElementById('chkVideo').checked = true;
@@ -2817,6 +2852,13 @@ function saveFilters() {
         gps: document.getElementById('chkGps').checked,
         deleted: document.getElementById('chkDeleted').checked,
         type: document.getElementById('photoTypeSelect').value,
+        type: document.getElementById('photoTypeSelect').value,
+        catPhoto: document.getElementById('chkCatPhoto').checked,
+        catScreenshot: document.getElementById('chkCatScreenshot').checked,
+        catDocument: document.getElementById('chkCatDocument').checked,
+        catMeme: document.getElementById('chkCatMeme').checked,
+        catIcon: document.getElementById('chkCatIcon').checked,
+        catOther: document.getElementById('chkCatOther').checked,
         chkRaw: document.getElementById('chkRaw').checked,
         chkJpeg: document.getElementById('chkJpeg').checked,
         chkVideo: document.getElementById('chkVideo').checked,
@@ -2840,6 +2882,13 @@ function restoreFilters() {
         if (s.gps) document.getElementById('chkGps').checked = true;
         if (s.deleted) document.getElementById('chkDeleted').checked = true;
         if (s.type) document.getElementById('photoTypeSelect').value = s.type;
+        if (s.catPhoto !== undefined) document.getElementById('chkCatPhoto').checked = s.catPhoto;
+        if (s.catScreenshot !== undefined) document.getElementById('chkCatScreenshot').checked = s.catScreenshot;
+        if (s.catDocument !== undefined) document.getElementById('chkCatDocument').checked = s.catDocument;
+        if (s.catMeme !== undefined) document.getElementById('chkCatMeme').checked = s.catMeme;
+        if (s.catIcon !== undefined) document.getElementById('chkCatIcon').checked = s.catIcon;
+        if (s.catOther !== undefined) document.getElementById('chkCatOther').checked = s.catOther;
+        updateCatFilterLabel();
         if (s.chkRaw !== undefined) document.getElementById('chkRaw').checked = s.chkRaw;
         if (s.chkJpeg !== undefined) document.getElementById('chkJpeg').checked = s.chkJpeg;
         if (s.chkVideo !== undefined) document.getElementById('chkVideo').checked = s.chkVideo;
@@ -2861,6 +2910,13 @@ document.getElementById('chkRaw').checked = true;
 document.getElementById('chkJpeg').checked = true;
 document.getElementById('chkVideo').checked = true;
 updateTypeFilterLabel();
+document.getElementById('chkCatPhoto').checked = true;
+document.getElementById('chkCatScreenshot').checked = true;
+document.getElementById('chkCatDocument').checked = true;
+document.getElementById('chkCatMeme').checked = true;
+document.getElementById('chkCatIcon').checked = true;
+document.getElementById('chkCatOther').checked = true;
+updateCatFilterLabel();
 
 restoreFilters();
 doSearch();
@@ -3131,6 +3187,11 @@ function syncTypeCheck(mobEl, deskId) {
     updateTypeFilterLabel();
     doSearch();
 }
+function syncCatCheck(mobEl, deskId) {
+    document.getElementById(deskId).checked = mobEl.checked;
+    updateCatFilterLabel();
+    doSearch();
+}
  function syncSheetFromBar() {
      var pairs = [['chkFacesMob','chkFaces'],['chkHasDescMob','chkHasDesc'],['chkIssuesMob','chkIssues'],['chkGpsMob','chkGps'],['chkDeletedMob','chkDeleted']];
      for (var i = 0; i < pairs.length; i++) {
@@ -3165,6 +3226,8 @@ function mobClearFilters() {
       document.getElementById('chkRawMob').checked = true;
       document.getElementById('chkJpegMob').checked = true;
       document.getElementById('chkVideoMob').checked = true;
+     var catMobs = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
+     for (var i = 0; i < catMobs.length; i++) { var el = document.getElementById(catMobs[i]); if (el) el.checked = true; }
      var modeMob = document.getElementById('searchModeMob'); if (modeMob) modeMob.value = 'exact';
      clearFilters();
  }

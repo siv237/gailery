@@ -477,8 +477,14 @@ deleted=None, deleted_only=None,
             sql += " AND issue_type = ?"
             params.append(issue_type)
         if photo_type:
-            sql += " AND photo_type = ?"
-            params.append(photo_type)
+            types = [t.strip() for t in photo_type.split(",") if t.strip()]
+            if len(types) == 1:
+                sql += " AND photo_type = ?"
+                params.append(types[0])
+            else:
+                placeholders = ",".join("?" * len(types))
+                sql += f" AND photo_type IN ({placeholders})"
+                params.extend(types)
         if has_gps is True:
             sql += " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
         elif has_gps is False:
