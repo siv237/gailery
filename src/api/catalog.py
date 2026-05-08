@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 import logging
 
-from database import DatabaseManager
+from database import get_db
 from config import VENV_PYTHON, LOG_FILE, PROJECT_ROOT, PHOTO_SHARE_PATH
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".raw", ".cr2", ".nef", ".arw", ".dng", ".heic"}
@@ -23,7 +23,7 @@ class AddRootRequest(BaseModel):
 @router.get("/roots")
 async def get_roots():
     try:
-        db = DatabaseManager()
+        db = get_db()
         roots = db.get_catalog_roots()
         result = []
         for r in roots:
@@ -56,7 +56,7 @@ async def get_roots():
 @router.post("/add_root")
 async def add_root(req: AddRootRequest):
     try:
-        db = DatabaseManager()
+        db = get_db()
         from pathlib import Path
         root_path = str(Path(req.path).resolve())
         existing_roots = db.get_catalog_roots()
@@ -92,7 +92,7 @@ async def scan_root(root_id: str):
 @router.get("/stats")
 async def catalog_stats():
     try:
-        db = DatabaseManager()
+        db = get_db()
         roots = db.get_catalog_roots()
         all_files = db.get_catalog_files()
 
@@ -142,7 +142,7 @@ async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: 
     import os
     from pathlib import Path
     try:
-        db = DatabaseManager()
+        db = get_db()
         root = db.get_catalog_root(root_id) if root_id else None
         root_path = root["root_path"] if root else ""
 
@@ -294,7 +294,7 @@ async def sync_flags():
 @router.delete("/root/{root_id}")
 async def delete_root(root_id: str):
     try:
-        db = DatabaseManager()
+        db = get_db()
         db.delete_catalog_root(root_id)
         return {"ok": True}
     except Exception as e:
@@ -305,7 +305,7 @@ async def delete_root(root_id: str):
 @router.post("/root/{root_id}/toggle")
 async def toggle_root(root_id: str):
     try:
-        db = DatabaseManager()
+        db = get_db()
         root = db.get_catalog_root(root_id)
         if not root:
             raise HTTPException(status_code=404, detail="Root not found")
@@ -322,7 +322,7 @@ async def toggle_root(root_id: str):
 @router.get("/locate")
 async def locate_photo(path: str = ""):
     try:
-        db = DatabaseManager()
+        db = get_db()
 
         row = db.sqlite.execute(
             "SELECT cf.root_id, cf.parent_dir FROM catalog_files cf WHERE cf.abs_path = ?",
@@ -387,7 +387,7 @@ async def browse_dirs(path: str = ""):
 @router.get("/hash_status")
 async def hash_status():
     try:
-        db = DatabaseManager()
+        db = get_db()
         total = db.count_catalog_files()
         with_hash = db.sqlite.execute(
             "SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NOT NULL"
@@ -437,7 +437,7 @@ async def hash_backfill():
 @router.get("/duplicates")
 async def find_duplicates(limit: int = 50):
     try:
-        db = DatabaseManager()
+        db = get_db()
         rows = db.sqlite.execute(
             "SELECT content_hash, COUNT(*) as cnt, "
             "GROUP_CONCAT(abs_path, '|') as paths "

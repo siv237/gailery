@@ -137,8 +137,8 @@ _CACHE_TTL = 300
 
 def _get_hf_token():
     try:
-        from database import DatabaseManager
-        db = DatabaseManager()
+        from database import get_db
+        db = get_db()
         return db.get_setting("hf_token") or ""
     except Exception:
         return ""
@@ -236,7 +236,7 @@ async def get_models_dir():
 
 @router.put("/dir")
 async def set_models_dir(request: Request):
-    from database import DatabaseManager
+    from database import get_db
     body = await request.json()
     path = body.get("path", "")
     if not path:
@@ -246,7 +246,7 @@ async def set_models_dir(request: Request):
         raise HTTPException(400, f"Directory does not exist: {p}")
     if not p.is_dir():
         raise HTTPException(400, f"Not a directory: {p}")
-    db = DatabaseManager()
+        db = get_db()
     db.set_setting("models_dir", str(p))
     import config
     config.MODELS_DIR = p

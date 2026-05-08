@@ -12,7 +12,7 @@ import sys
 import os
 import requests
 
-from database import DatabaseManager
+from database import DatabaseManager, get_db
 from config import LANCEDB_PATH, LOG_FILE, FLAG_DIR, VENV_PYTHON, PROJECT_ROOT, DATA_DIR
 
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +26,7 @@ _monitor_task = None
 async def lifespan(app: FastAPI):
     global db_manager, _monitor_task
     logger.info("Starting application...")
-    db_manager = DatabaseManager()
+    db_manager = get_db()
     logger.info("Database connected")
 
     import asyncio
@@ -259,11 +259,11 @@ async def get_status():
         return _status_cache[cache_key]["data"]
 
     import subprocess
-    from database import DatabaseManager
+    from database import DatabaseManager, get_db
     from datetime import datetime
 
     def _compute_status():
-        db = DatabaseManager()
+        db = get_db()
         return db.get_status()
 
     loop = asyncio.get_event_loop()
@@ -419,10 +419,10 @@ async def get_status():
 async def get_monitoring():
     import asyncio
     from system_monitor import collect_live
-    from database import DatabaseManager
+    from database import DatabaseManager, get_db
 
     def _compute():
-        db = DatabaseManager()
+        db = get_db()
         live = collect_live()
         history = db.get_system_metrics(limit=120)
         return {"live": live, "history": history}
@@ -435,13 +435,13 @@ async def get_monitoring():
 async def get_system_report():
     import asyncio
     from system_monitor import collect_live
-    from database import DatabaseManager
+    from database import DatabaseManager, get_db
     import psutil
     import os
     import subprocess
 
     def _report():
-        db = DatabaseManager()
+        db = get_db()
         live = collect_live()
         si = live.get("system_info", {})
 
@@ -688,7 +688,7 @@ async def control_start(body: dict):
         root_dir = ""
         if body.get("root_id"):
             try:
-                db_temp = DatabaseManager()
+                db_temp = get_db()
                 r = db_temp.get_catalog_root(body["root_id"])
                 if r:
                     root_dir = f"--dir {r['root_path']}"
@@ -760,8 +760,8 @@ async def control_stop():
 
 @app.get("/api/changes")
 async def get_changes(limit: int = 100):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import DatabaseManager, get_db
+    db = get_db()
     cur = db.sqlite.cursor()
     rows = cur.execute(
         "SELECT c.photo_id, c.field, c.value, c.changed_at, p.path "
@@ -788,26 +788,26 @@ app.include_router(models.router)
 
 @app.get("/api/settings/{key}")
 async def get_setting(key: str):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import DatabaseManager, get_db
+    db = get_db()
     value = db.get_setting(key)
     return {"key": key, "value": value or ""}
 
 
 @app.put("/api/settings/{key}")
 async def set_setting(key: str, request: Request):
-    from database import DatabaseManager
+    from database import DatabaseManager, get_db
     body = await request.json()
     value = body.get("value", "")
-    db = DatabaseManager()
+    db = get_db()
     db.set_setting(key, value)
     return {"key": key, "value": value}
 
 
 @app.get("/api/settings/{key}/top_personas")
 async def top_personas_for_facts(key: str):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import DatabaseManager, get_db
+    db = get_db()
     rows = db.sqlite.execute("""
         SELECT per.display_name, per.comment, SUM(subcnt) as total_faces
         FROM (
@@ -987,8 +987,8 @@ async def maintenance_vacuum():
 @app.post("/api/maintenance/dedup_embeddings")
 async def maintenance_dedup_embeddings():
     try:
-        from database import DatabaseManager
-        db = DatabaseManager()
+        from database import DatabaseManager, get_db
+        db = get_db()
         before, after, removed = db.dedup_photo_embeddings()
         return {"ok": True, "before": before, "after": after, "removed": removed}
     except Exception as e:
@@ -1043,7 +1043,7 @@ async def get_config():
             "name": "Пути",
             "icon": "\U0001f4c1",
             "params": [
-                {"k": "Корни фото (catalog_roots)", "v": ", ".join(r["root_path"] for r in DatabaseManager().get_catalog_roots()), "d": "Динамические корни из каталога"},
+                {"k": "Корни фото (catalog_roots)", "v": ", ".join(r["root_path"] for r in get_db().get_catalog_roots()), "d": "Динамические корни из каталога"},
                 {"k": "PHOTO_SHARE_PATH", "v": str(PHOTO_SHARE_PATH), "d": "Корневая папка фото"},
                 {"k": "DATA_DIR", "v": str(DATA_DIR), "d": "Директория данных (БД, LanceDB, флаги)"},
                 {"k": "THUMBNAILS_DIR", "v": str(THUMBNAILS_DIR), "d": "Директория превью"},

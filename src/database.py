@@ -3,6 +3,7 @@
 import sqlite3
 import json
 import logging
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,20 @@ import lancedb
 import pyarrow as pa
 
 from config import LANCEDB_PATH, EMBEDDINGS_TABLE, DATA_DIR, PHOTO_SHARE_PATH
+
+logger = logging.getLogger(__name__)
+
+_db_singleton = None
+_db_lock = threading.Lock()
+
+
+def get_db():
+    global _db_singleton
+    if _db_singleton is None:
+        with _db_lock:
+            if _db_singleton is None:
+                _db_singleton = DatabaseManager()
+    return _db_singleton
 
 SQLITE_PATH = DATA_DIR / "gallery.db"
 
@@ -40,7 +55,7 @@ class DatabaseManager:
         self.db_path = db_path or SQLITE_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.sqlite = sqlite3.connect(str(self.db_path), timeout=30)
+        self.sqlite = sqlite3.connect(str(self.db_path), timeout=30, check_same_thread=False)
         self.sqlite.row_factory = sqlite3.Row
         self.sqlite.execute("PRAGMA journal_mode=WAL")
         self.sqlite.execute("PRAGMA foreign_keys=ON")

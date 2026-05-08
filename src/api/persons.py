@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 import logging
 
-from database import DatabaseManager
+from database import get_db
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def _persona_response(p, fc_map, face_map=None):
 @router.get("/")
 async def get_all_persons(limit: int = 500, offset: int = 0, named_only: bool = False):
     try:
-        db = DatabaseManager()
+        db = get_db()
         cur = db.sqlite.cursor()
 
         where = "WHERE p.display_name IS NOT NULL" if named_only else ""
@@ -74,7 +74,7 @@ async def get_all_persons(limit: int = 500, offset: int = 0, named_only: bool = 
 @router.get("/names")
 async def get_display_names():
     try:
-        db = DatabaseManager()
+        db = get_db()
         return db.get_display_names()
     except Exception as e:
         logger.error(f"Failed to get names: {e}")
@@ -84,7 +84,7 @@ async def get_display_names():
 @router.get("/by_name/{display_name}")
 async def get_persons_by_name(display_name: str):
     try:
-        db = DatabaseManager()
+        db = get_db()
         fc_map = db.face_count_map()
         personas = db.get_personas_by_name(display_name)
         result = []
@@ -106,7 +106,7 @@ async def get_persons_by_name(display_name: str):
 @router.get("/{persona_id}")
 async def get_person(persona_id: str):
     try:
-        db = DatabaseManager()
+        db = get_db()
         persona = db.get_persona(persona_id)
         if not persona:
             raise HTTPException(status_code=404, detail="Person not found")
@@ -122,7 +122,7 @@ async def get_person(persona_id: str):
 @router.get("/{persona_id}/faces")
 async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: bool = True):
     try:
-        db = DatabaseManager()
+        db = get_db()
         faces = db.get_faces_for_persona(persona_id, limit)
 
         if dedupe_by_photo:
@@ -156,7 +156,7 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
 @router.put("/{persona_id}")
 async def update_person(persona_id: str, req: PersonaUpdateRequest):
     try:
-        db = DatabaseManager()
+        db = get_db()
         persona = db.update_persona(
             persona_id,
             display_name=req.display_name,
@@ -178,7 +178,7 @@ async def update_person(persona_id: str, req: PersonaUpdateRequest):
 @router.put("/batch/by_name")
 async def update_persons_by_name(old_name: str, req: PersonaUpdateRequest):
     try:
-        db = DatabaseManager()
+        db = get_db()
         personas = db.get_personas_by_name(old_name)
         fc_map = db.face_count_map()
         results = []
@@ -201,7 +201,7 @@ async def update_persons_by_name(old_name: str, req: PersonaUpdateRequest):
 @router.post("/merge")
 async def merge_persons(source_persona_id: str, target_persona_id: str):
     try:
-        db = DatabaseManager()
+        db = get_db()
         success = db.merge_personas(source_persona_id, target_persona_id)
         if success:
             db.invalidate_embeddings_for_persona(target_persona_id)
@@ -218,7 +218,7 @@ async def merge_persons(source_persona_id: str, target_persona_id: str):
 @router.post("/search")
 async def search_similar_faces(request: FaceSearchRequest):
     try:
-        db = DatabaseManager()
+        db = get_db()
         results = db.search_similar_faces(
             embedding=request.embedding,
             limit=request.limit,

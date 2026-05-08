@@ -831,7 +831,6 @@ var _firstDate = null;
 var _lastDate = null;
 var _firstPath = null;
 var _lastPath = null;
-var _noDateMode = false;
 var _needleMode = false;
 var _filterNeedleDate = null;
 var _prefetchQueue = [];
@@ -959,13 +958,6 @@ function doSearch() {
         return;
     }
     var afterDate = activeYear ? activeYear : null;
-    if (activeYear === 'no_date') {
-        _noDateMode = true;
-        activeYear = '';
-        afterDate = null;
-    } else {
-        _noDateMode = false;
-    }
     saveFilters();
     if (_restoreNeedleDate && !afterDate) {
         var saved = _restoreNeedleDate;
@@ -1027,7 +1019,7 @@ function getSearchParams() {
          else if (chkRaw && chkJpeg && !chkVideo) params += '&media_type=photo';
      }
      if (noneChecked) params += '&photo_id=none';
-    if (_noDateMode) params += '&no_date=true';
+    if (activeYear) params += '&date_from=' + encodeURIComponent(activeYear + '-01-01');
     if (deletedOnly) params += '&deleted_only=true';
     return params;
 }
@@ -1036,14 +1028,21 @@ function loadAfter(afterDate, afterPath, useDateFrom, useDateBefore, onComplete)
     if (_isLoading || !_canLoadMore) { if (onComplete) onComplete(); return; }
     _isLoading = true;
     var params = getSearchParams();
+    var sortVal = document.getElementById('sortSelect').value;
+    var isDesc = sortVal === 'date_desc';
     if (afterDate) {
         if (useDateFrom) {
             params += '&date_from=' + encodeURIComponent(afterDate);
         } else if (useDateBefore) {
             params += '&date_before=' + encodeURIComponent(afterDate);
         } else {
-            params += '&date_after=' + encodeURIComponent(afterDate);
-            if (afterPath) params += '&path_after=' + encodeURIComponent(afterPath);
+            if (isDesc) {
+                params += '&date_before=' + encodeURIComponent(afterDate);
+                if (afterPath) params += '&path_before=' + encodeURIComponent(afterPath);
+            } else {
+                params += '&date_after=' + encodeURIComponent(afterDate);
+                if (afterPath) params += '&path_after=' + encodeURIComponent(afterPath);
+            }
         }
     }
     if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="loading">Загрузка...</div>';
@@ -1081,8 +1080,9 @@ function _applyBatch(data) {
     var startIdx = currentPhotos.length;
     currentPhotos = currentPhotos.concat(data.photos);
     if (data.photos.length > 0) {
-        _lastDate = data.photos[data.photos.length - 1].date || null;
-        _lastPath = data.photos[data.photos.length - 1].path || null;
+        var lastIdx = data.photos.length - 1;
+        _lastDate = data.photos[lastIdx].date || null;
+        _lastPath = data.photos[lastIdx].path || null;
         if (!_firstDate) {
             _firstDate = data.photos[0].date || null;
             _firstPath = data.photos[0].path || null;
@@ -1170,9 +1170,16 @@ function _fillPrefetch() {
         if (idx >= requests.length) { _prefetching = false; return; }
         var req = requests[idx];
         var par = params0;
+        var sortVal = document.getElementById('sortSelect').value;
+        var isDesc = sortVal === 'date_desc';
         if (req.date) {
-            par += '&date_after=' + encodeURIComponent(req.date);
-            if (req.path) par += '&path_after=' + encodeURIComponent(req.path);
+            if (isDesc) {
+                par += '&date_before=' + encodeURIComponent(req.date);
+                if (req.path) par += '&path_before=' + encodeURIComponent(req.path);
+            } else {
+                par += '&date_after=' + encodeURIComponent(req.date);
+                if (req.path) par += '&path_after=' + encodeURIComponent(req.path);
+            }
         }
         var key = par + '|' + (req.date || '') + '|' + (req.path || '');
         fetch(API + '/photos/search?' + par).then(function(r) { return r.json(); }).then(function(data) {
@@ -1195,20 +1202,35 @@ function loadBefore(beforeDate, beforePath, onComplete) {
     if (_isLoading || !_canLoadPrev || !beforeDate) { if (onComplete) onComplete([]); return; }
     _isLoading = true;
     var sortVal = document.getElementById('sortSelect').value;
-    var sortForBefore = sortVal === 'date_asc' ? 'date_desc' : (sortVal === 'date_desc' ? 'date_asc' : sortVal);
-    var params = getSearchParams().replace('sort=' + sortVal, 'sort=' + sortForBefore);
-    params += '&date_before=' + encodeURIComponent(beforeDate);
-    if (beforePath) params += '&path_before=' + encodeURIComponent(beforePath);
+    var params = getSearchParams();
+    var isDesc = sortVal === 'date_desc';
+    if (isDesc) {
+        // date_desc: "before" means newer photos (above current viewport)
+        params = params.replace('sort=' + sortVal, 'sort=date_desc');
+        params += '&date_after=' + encodeURIComponent(beforeDate);
+        if (beforePath) params += '&path_after=' + encodeURIComponent(beforePath);
+    } else {
+        // date_asc: "before" means older photos (above current viewport)
+        var sortForBefore = sortVal === 'date_asc' ? 'date_desc' : sortVal;
+        params = params.replace('sort=' + sortVal, 'sort=' + sortForBefore);
+        params += '&date_before=' + encodeURIComponent(beforeDate);
+        if (beforePath) params += '&path_before=' + encodeURIComponent(beforePath);
+    }
 
     var oldScrollH = document.documentElement.scrollHeight;
     fetch(API + '/photos/search?' + params).then(function(r) { return r.json(); }).then(function(data) {
         console.log('loadBefore got:', data.photos.length, 'photos');
         if (data.photos.length > 0) {
-            data.photos.reverse();
+            if (!isDesc) data.photos.reverse();
             _firstDate = data.photos[0].date || null;
             _firstPath = data.photos[0].path || null;
             var startIdx = 0;
+            var wasEmpty = currentPhotos.length === 0;
             currentPhotos = data.photos.concat(currentPhotos);
+            if (wasEmpty) {
+                _lastDate = data.photos[data.photos.length - 1].date || null;
+                _lastPath = data.photos[data.photos.length - 1].path || null;
+            }
             prependGrid(data.photos, startIdx);
         }
         if (data.photos.length < pageSize) _canLoadPrev = false;
@@ -1238,7 +1260,12 @@ function doSemanticSearch(q) {
     var url = API + '/photos/semantic_search?q=' + encodeURIComponent(q) + '&limit=100';
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 90000);
-    fetch(url, {signal: controller.signal}).then(function(r) { return r.json(); }).then(function(data) {
+    fetch(url, {signal: controller.signal}).then(function(r) {
+        if (!r.ok) {
+            return r.text().then(function(t) { throw new Error(t || 'HTTP ' + r.status); });
+        }
+        return r.json();
+    }).then(function(data) {
         clearTimeout(timeoutId);
         totalResults = data.total;
         currentPhotos = data.photos;
@@ -1466,8 +1493,8 @@ function loadTimeline() {
         var keys = Object.keys(years).sort();
         for (var i = 0; i < keys.length; i++) {
             var y = keys[i];
-            var label = y === 'no_date' ? 'Без даты' : y;
-            html += '<div class="tl-bar" data-year="' + y + '">' + label + '</div>';
+            if (y === 'no_date') continue;
+            html += '<div class="tl-bar" data-year="' + y + '">' + y + '</div>';
         }
         html += '<div class="tl-needle" id="tlNeedle"><div class="tl-needle-arrow"></div><div class="tl-needle-flag" id="tlNeedleFlag"></div></div>';
         var tl = document.getElementById('timeline');
@@ -1493,15 +1520,10 @@ function onTimelineClick(e) {
         if (dist < bestDist) { bestDist = dist; clickedBar = br; }
     }
 
-    if (clickedBar && (clickedBar.getAttribute('data-year') === 'no_date')) {
-        selectYear('no_date');
-        return;
-    }
-
     var yearBars = [];
     for (var i = 0; i < bars.length; i++) {
         var yStr = bars[i].getAttribute('data-year');
-        if (yStr === '' || yStr === 'no_date') continue;
+        if (yStr === '') continue;
         var bYear = parseInt(yStr);
         if (isNaN(bYear)) continue;
         yearBars.push({ el: bars[i], year: bYear, cx: bars[i].offsetLeft + bars[i].offsetWidth / 2 });
@@ -1509,10 +1531,12 @@ function onTimelineClick(e) {
     if (!yearBars.length) return;
 
     var clickFrac = 0;
+    var isLastBar = false;
     if (clickX <= yearBars[0].cx) {
         clickFrac = yearBars[0].year;
     } else if (clickX >= yearBars[yearBars.length - 1].cx) {
-        clickFrac = yearBars[yearBars.length - 1].year + 0.5;
+        clickFrac = yearBars[yearBars.length - 1].year;
+        isLastBar = true;
     } else {
         for (var j = 0; j < yearBars.length - 1; j++) {
             var a = yearBars[j], b = yearBars[j + 1];
@@ -1532,9 +1556,8 @@ function onTimelineClick(e) {
         updateNeedleFlag(clickDate);
     }
 
-    activeYear = '';
+    activeYear = Math.floor(clickFrac).toString();
     _needleMode = true;
-    _noDateMode = false;
     currentPhotos = [];
     _canLoadMore = true;
     _canLoadPrev = false;
@@ -1545,12 +1568,20 @@ function onTimelineClick(e) {
     _lastPath = null;
     document.getElementById('grid').innerHTML = '';
     var sortSel = document.getElementById('sortSelect');
-    if (sortSel && sortSel.value === 'date_desc') {
-        sortSel.value = 'date_asc';
+    if (isLastBar) {
+        activeYear = yearBars[yearBars.length - 1].year.toString();
+        sortSel.value = 'date_desc';
+        _filterNeedleDate = '9999-12-31';
+        saveFilters();
+        loadAfter(null);
+    } else {
+        if (sortSel && sortSel.value === 'date_desc') {
+            sortSel.value = 'date_asc';
+        }
+        _lastDate = clickDate;
+        saveFilters();
+        loadAfter(clickDate);
     }
-    _lastDate = clickDate;
-    saveFilters();
-    loadAfter(clickDate);
 }
 
 function fracToISO(frac) {
@@ -1568,15 +1599,6 @@ function updateNeedleFlag(dateStr) {
     var needle = document.getElementById('tlNeedle');
     if (!flag) return;
     if (!dateStr) { flag.textContent = ''; return; }
-    if (dateStr === 'Без даты') {
-        flag.textContent = '';
-        if (needle) needle.style.opacity = '0';
-        var ndBar = document.querySelector('.tl-bar[data-year="no_date"]');
-        if (ndBar) { ndBar.style.background = '#da3633'; ndBar.style.color = '#fff'; }
-        return;
-    }
-    var ndBar = document.querySelector('.tl-bar[data-year="no_date"]');
-    if (ndBar) { ndBar.style.background = ''; ndBar.style.color = ''; }
     if (needle) needle.style.opacity = '1';
     var p = dateStr.substring(0, 10).split('-');
     if (p.length === 3) flag.textContent = p[2] + '.' + p[1] + '.' + p[0];
@@ -1585,11 +1607,7 @@ function updateNeedleFlag(dateStr) {
 
 function selectYear(year) {
     activeYear = year || '';
-    if (year === 'no_date') {
-        updateNeedleFlag('Без даты');
-    } else {
-        updateNeedleFlag(year + '-01-01');
-    }
+    updateNeedleFlag(year ? (year + '-01-01') : '');
     var needle = document.getElementById('tlNeedle');
     var tl = document.getElementById('timeline');
     if (needle && tl) {
@@ -2705,7 +2723,6 @@ function _goToTimeline(p) {
     onModeChange();
     isSemanticMode = false;
     activeYear = '';
-    _noDateMode = false;
     _restoreNeedleDate = date;
     _restorePhotoId = pid;
     doSearch();
@@ -3154,17 +3171,6 @@ function updateTimelinePosition(targetDate) {
     var tl = document.getElementById('timeline');
     if (!needle || !tl) return;
 
-    if (_noDateMode) {
-        _needleDateISO = null;
-        var ndBar = tl.querySelector('.tl-bar[data-year="no_date"]');
-        if (ndBar) {
-            needle.style.transition = 'left .4s ease-out';
-            needle.style.left = (ndBar.offsetLeft + ndBar.offsetWidth / 2) + 'px';
-        }
-        updateNeedleFlag('Без даты');
-        return;
-    }
-
     var nearDate;
     if (targetDate) {
         nearDate = targetDate;
@@ -3203,7 +3209,7 @@ function updateTimelinePosition(targetDate) {
     var prevBar = null, nextBar = null;
     for (var j = 0; j < bars.length; j++) {
         var yStr = bars[j].getAttribute('data-year');
-        if (!yStr || yStr === 'no_date' || yStr === '') continue;
+        if (!yStr || yStr === '') continue;
         var bYear = parseInt(yStr);
         if (isNaN(bYear)) continue;
         if (bYear <= nearYear) prevBar = bars[j];
@@ -3264,9 +3270,13 @@ window.addEventListener('scroll', function() {
       }
      _lastScrollY = scrollY;
 
-     if (!_isLoading && !_needleMode) {
-         if (_canLoadMore && scrollY + vvH >= docH - 2000) loadAfter(_lastDate, _lastPath);
+     if (!_isLoading) {
+         if (_canLoadMore && scrollY + vvH >= docH - 2000) {
+             console.log('scroll loadAfter', _lastDate, _isLoading, _canLoadMore);
+             loadAfter(_lastDate, _lastPath);
+         }
          if (_canLoadPrev && scrollY < 800) {
+             console.log('scroll loadBefore', _firstDate, _isLoading, _canLoadPrev);
              loadBefore(_firstDate, _firstPath);
          }
      }

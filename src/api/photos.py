@@ -110,8 +110,8 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
 @router.get("/")
 async def get_photo(path: str):
     photo_path = None
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import get_db
+    db = get_db()
     row = db.sqlite.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
     if row:
         photo_path = Path(row[0])
@@ -191,8 +191,8 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
     if abs_path:
         photo_path = Path(abs_path)
     else:
-        from database import DatabaseManager
-        db = DatabaseManager()
+        from database import get_db
+        db = get_db()
         row = db.sqlite.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
         if row:
             photo_path = Path(row[0])
@@ -258,9 +258,9 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
 @router.get("/face/{face_id}")
 async def get_face_crop(face_id: str, margin: float = 0.5):
     import asyncio
-    from database import DatabaseManager
+    from database import get_db
 
-    db = DatabaseManager()
+    db = get_db()
     face = db.get_face(face_id)
     if not face:
         raise HTTPException(status_code=404, detail="Face not found")
@@ -342,10 +342,10 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
 
 @router.get("/face_context/{face_id}")
 async def get_face_context(face_id: str, zoom: float = 3.0):
-    from database import DatabaseManager
+    from database import get_db
     import io
 
-    db = DatabaseManager()
+    db = get_db()
     face = db.get_face(face_id)
     if not face:
         raise HTTPException(status_code=404, detail="Face not found")
@@ -423,10 +423,10 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
 
 @router.get("/list")
 async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_desc"):
-    from database import DatabaseManager
+    from database import get_db
     from datetime import datetime
 
-    db = DatabaseManager()
+    db = get_db()
 
     actual_sort = "created_desc" if sort not in ("changed_desc", "changed_asc") else sort
 
@@ -510,9 +510,9 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
 
 @router.get("/description")
 async def get_description(path: str):
-    from database import DatabaseManager
+    from database import get_db
 
-    db = DatabaseManager()
+    db = get_db()
     if path.startswith("/"):
         photo = db.get_photo_by_path(path)
     else:
@@ -550,9 +550,9 @@ async def search_photos(
     limit: int = 60,
     offset: int = 0,
 ):
-    from database import DatabaseManager
+    from database import get_db
 
-    db = DatabaseManager()
+    db = get_db()
 
     _hash_q = None
     _text_q = q or None
@@ -688,14 +688,14 @@ def _embed_query(query_text):
 
 @router.get("/semantic_search")
 async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
-    from database import DatabaseManager
+    from database import get_db
 
     if not q:
         return {"total": 0, "photos": [], "query": q}
 
     logger.info(f"[SEMSEARCH] Start: q={q!r} threshold={threshold} limit={limit}")
 
-    db = DatabaseManager()
+    db = get_db()
 
     task = "Retrieve photographs matching the description, including people, places, events, and scenes"
     query_text = "Instruct: " + task + "\nQuery: " + q
@@ -731,7 +731,24 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         return {"total": 0, "photos": [], "query": q, "error": "no embedding"}
 
     logger.info(f"[SEMSEARCH] Searching LanceDB with threshold={threshold}")
-    results = db.search_photo_embeddings(q_emb, limit=limit * 2)
+    try:
+        results = db.search_photo_embeddings(q_emb, limit=limit * 2)
+    except RuntimeError as e:
+        err_msg = str(e)
+        logger.error(f"[SEMSEARCH] LanceDB RuntimeError: {err_msg}")
+        if "open files" in err_msg.lower() or "Too many" in err_msg:
+            try:
+                db._open_vector_tables()
+                logger.info("[SEMSEARCH] Reopened LanceDB tables after FD exhaustion, retrying search")
+                results = db.search_photo_embeddings(q_emb, limit=limit * 2)
+            except Exception as e2:
+                logger.error(f"[SEMSEARCH] Retry after reopen also failed: {e2}")
+                return {"total": 0, "photos": [], "query": q, "error": "LanceDB unavailable (too many open files), please try again"}
+        else:
+            return {"total": 0, "photos": [], "query": q, "error": f"LanceDB error: {err_msg[:200]}"}
+    except Exception as e:
+        logger.error(f"[SEMSEARCH] LanceDB error: {e}")
+        return {"total": 0, "photos": [], "query": q, "error": str(e)[:200]}
     logger.info(f"[SEMSEARCH] LanceDB returned {len(results)} raw results")
     if results:
         top_dist = results[0].get("_distance", results[0].get("_relevance_score", "?"))
@@ -810,8 +827,8 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
 @router.post("/{photo_id}/enrich")
 async def enrich_description(photo_id: str):
     import subprocess, os
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import get_db
+    db = get_db()
     photo = db.get_photo(photo_id)
     if not photo:
         photo = db.get_photo_by_path(photo_id)
@@ -841,7 +858,7 @@ async def enrich_description(photo_id: str):
         logger.warning("[ENRICH] No MQTT, proceeding without GPU lock")
     try:
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
-        db2 = DatabaseManager()
+        db2 = get_db()
         updated = db2.get_photo(photo_id)
         if not updated:
             updated = db2.get_photo_by_path(path)
@@ -859,7 +876,7 @@ async def enrich_description(photo_id: str):
 
 @router.put("/{photo_id}/rich_description")
 async def save_rich_description(photo_id: str, request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     rich = body.get("rich_description")
@@ -867,7 +884,7 @@ async def save_rich_description(photo_id: str, request: Request):
     if rich is None:
         raise HTTPException(status_code=400, detail="rich_description is required")
 
-    db = DatabaseManager()
+    db = get_db()
     photo = db.get_photo(photo_id)
     if not photo:
         photo = db.get_photo_by_path(photo_id)
@@ -880,9 +897,9 @@ async def save_rich_description(photo_id: str, request: Request):
 
 @router.get("/dates")
 async def get_date_histogram():
-    from database import DatabaseManager
+    from database import get_db
 
-    db = DatabaseManager()
+    db = get_db()
     return db.get_date_histogram()
 
 
@@ -915,8 +932,8 @@ async def describe_photos(paths: List[str], batch_size: int = 10):
 @router.get("/map")
 async def get_map_photos():
     try:
-        from database import DatabaseManager
-        db = DatabaseManager()
+        from database import get_db
+        db = get_db()
         cur = db.sqlite.cursor()
         rows = cur.execute("""
             SELECT photo_id, path, description, gps_lat, gps_lon, COALESCE(manual_date, date) as date, camera_make, camera_model, img_width, img_height, manual_gps
@@ -952,12 +969,12 @@ async def get_map_photos():
 
 @router.get("/neighbor")
 async def get_neighbor(date: str, dir: str = "next"):
-    from database import DatabaseManager
+    from database import get_db
 
     if dir not in ("next", "prev"):
         raise HTTPException(status_code=400, detail="dir must be next or prev")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     if dir == "next":
@@ -1034,7 +1051,7 @@ async def reverse_geocode(request: Request):
 
 @router.post("/set_gps")
 async def set_gps(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1052,7 +1069,7 @@ async def set_gps(request: Request):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="lat and lon must be valid numbers")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1074,7 +1091,7 @@ async def set_gps(request: Request):
 
 @router.post("/set_date")
 async def set_date(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1090,7 +1107,7 @@ async def set_date(request: Request):
     elif len(manual_date) == 16 and manual_date[10] == ' ':
         manual_date += ":00"
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1112,7 +1129,7 @@ async def set_date(request: Request):
 
 @router.post("/clear_date")
 async def clear_date(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1120,7 +1137,7 @@ async def clear_date(request: Request):
     if not photo_id:
         raise HTTPException(status_code=400, detail="photo_id is required")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1142,7 +1159,7 @@ async def clear_date(request: Request):
 
 @router.post("/clear_gps")
 async def clear_gps(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1150,7 +1167,7 @@ async def clear_gps(request: Request):
     if not photo_id:
         raise HTTPException(status_code=400, detail="photo_id is required")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1172,7 +1189,7 @@ async def clear_gps(request: Request):
 
 @router.post("/mark_deleted")
 async def mark_deleted(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1180,7 +1197,7 @@ async def mark_deleted(request: Request):
     if not photo_id:
         raise HTTPException(status_code=400, detail="photo_id is required")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1198,7 +1215,7 @@ async def mark_deleted(request: Request):
 
 @router.post("/undelete")
 async def undelete(request: Request):
-    from database import DatabaseManager
+    from database import get_db
 
     body = await request.json()
     photo_id = body.get("photo_id")
@@ -1206,7 +1223,7 @@ async def undelete(request: Request):
     if not photo_id:
         raise HTTPException(status_code=400, detail="photo_id is required")
 
-    db = DatabaseManager()
+    db = get_db()
     cur = db.sqlite.cursor()
 
     row = cur.execute(
@@ -1224,15 +1241,15 @@ async def undelete(request: Request):
 
 @router.get("/edits/{content_hash}")
 async def get_edits(content_hash: str):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import get_db
+    db = get_db()
     return {"edits": db.get_edits(content_hash), "content_hash": content_hash}
 
 
 @router.post("/edits/{content_hash}")
 async def save_edit(content_hash: str, request: Request):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import get_db
+    db = get_db()
     body = await request.json()
     action = body.get("action")
     params = body.get("params", {})
@@ -1246,7 +1263,7 @@ async def save_edit(content_hash: str, request: Request):
 
 @router.delete("/edits/{edit_id}")
 async def delete_edit(edit_id: int):
-    from database import DatabaseManager
-    db = DatabaseManager()
+    from database import get_db
+    db = get_db()
     db.remove_edit(edit_id)
     return {"ok": True}
