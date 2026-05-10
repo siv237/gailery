@@ -597,7 +597,24 @@ deleted=None, deleted_only=None,
         if no_date > 0:
             years["no_date"] = no_date
         total = self.count_photos(where="deleted = 0")
-        result = {"years": dict(sorted(years.items())), "months": dict(sorted(months.items())), "days": dict(sorted(days.items())), "total": total}
+
+        time_rows = self.sqlite.execute(
+            f"SELECT {ed} FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
+            f"WHERE {ed} IS NOT NULL AND length({ed}) >= 4 "
+            f"AND substr({ed},1,4) != '0000' AND photos.deleted = 0 AND cf.is_canonical = 1 AND cf.deleted = 0 AND {root_filter} "
+            f"ORDER BY {ed}",
+            root_params
+        ).fetchall()
+        photo_times = []
+        for r in time_rows:
+            d = r[0]
+            if not d:
+                continue
+            if len(d) >= 10 and d[4] == ':':
+                d = d[:4] + '-' + d[5:7] + '-' + d[8:10] + d[10:]
+            photo_times.append(d)
+
+        result = {"years": dict(sorted(years.items())), "months": dict(sorted(months.items())), "days": dict(sorted(days.items())), "total": total, "photo_times": photo_times}
         if min_date:
             result["date_range"] = {"min": min_date, "max": max_date}
         return result

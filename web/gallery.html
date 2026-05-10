@@ -829,6 +829,7 @@ var _firstPath = null;
 var _lastPath = null;
 var _needleMode = false;
 var _filterNeedleDate = null;
+var _filterNeedleFrac = 0;
 var _tlCanvas = null;
 var _tlCtx = null;
 var _tlZoom = 0;
@@ -846,6 +847,8 @@ var _tlPinchDist = 0;
 var _tlPinchZoom = 0;
 var _tlPinchOff = 0;
 var _tlPinchCX = 0;
+var _photoTimes = [];
+var _photoTimeFracs = [];
 var MONTH_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
 var _prefetchQueue = [];
 var _prefetching = false;
@@ -1043,21 +1046,23 @@ function loadAfter(afterDate, afterPath, useDateFrom, useDateBefore, onComplete)
     var params = getSearchParams();
     var sortVal = document.getElementById('sortSelect').value;
     var isDesc = sortVal === 'date_desc';
+    var urlParams = '';
     if (afterDate) {
         if (useDateFrom) {
-            params += '&date_from=' + encodeURIComponent(afterDate);
+            urlParams = '&date_from=' + encodeURIComponent(afterDate);
         } else if (useDateBefore) {
-            params += '&date_before=' + encodeURIComponent(afterDate);
+            urlParams = '&date_before=' + encodeURIComponent(afterDate);
         } else {
             if (isDesc) {
-                params += '&date_before=' + encodeURIComponent(afterDate);
-                if (afterPath) params += '&path_before=' + encodeURIComponent(afterPath);
+                urlParams = '&date_before=' + encodeURIComponent(afterDate);
+                if (afterPath) urlParams += '&path_before=' + encodeURIComponent(afterPath);
             } else {
-                params += '&date_after=' + encodeURIComponent(afterDate);
-                if (afterPath) params += '&path_after=' + encodeURIComponent(afterPath);
+                urlParams = '&date_after=' + encodeURIComponent(afterDate);
+                if (afterPath) urlParams += '&path_after=' + encodeURIComponent(afterPath);
             }
         }
     }
+    params += urlParams;
     if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="loading">Загрузка...</div>';
 
     var taken = _prefetchQueue.shift();
@@ -1123,20 +1128,31 @@ function _applyBatch(data) {
          } else {
              setTimeout(function() { updateTimelinePosition(); }, 100);
          }
-         if (_filterNeedleDate) {
-             var needle = _filterNeedleDate;
-             _filterNeedleDate = null;
-             var cards = document.querySelectorAll('.card');
-             var bestIdx = -1;
-             for (var i = 0; i < currentPhotos.length; i++) {
-                 var d = currentPhotos[i].date || '';
-                 if (d >= needle) { bestIdx = i; break; }
-             }
-             if (bestIdx < 0 && currentPhotos.length > 0) bestIdx = 0;
-             if (bestIdx >= 0 && cards[bestIdx]) {
-                 cards[bestIdx].scrollIntoView({ block: 'start' });
-             }
-         }
+          if (_filterNeedleDate) {
+              var needleFrac = _filterNeedleFrac;
+              _filterNeedleDate = null;
+              _filterNeedleFrac = 0;
+              var cards = document.querySelectorAll('.card');
+              var bestIdx = -1;
+              var bestDist = Infinity;
+              for (var i = 0; i < currentPhotos.length; i++) {
+                  var d = currentPhotos[i].date || '';
+                  var df = _dateToFracRaw(d);
+                  var dist = Math.abs(df - needleFrac);
+                  if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+                  if (df > needleFrac + 0.001) break;
+              }
+              if (bestIdx < 0 && currentPhotos.length > 0) bestIdx = 0;
+              if (bestIdx >= 0 && cards[bestIdx]) {
+                  cards[bestIdx].scrollIntoView({ block: 'start' });
+                  var bp = currentPhotos[bestIdx];
+                  if (bp && bp.date) {
+                      _needleDateISO = bp.date;
+                      var nd = document.getElementById('tlNeedle');
+                      if (nd) { nd.style.transition = 'none'; nd.style.left = _dateToX(bp.date) + 'px'; updateNeedleFlag(bp.date); }
+                  }
+              }
+          }
     }
     if (data.photos.length < totalResults) {
         _canLoadPrev = true;
@@ -1502,6 +1518,11 @@ function onCatFilterChange() {
 function loadTimeline() {
     fetch(API + '/photos/dates').then(function(r) { return r.json(); }).then(function(data) {
         dateData = data;
+        _photoTimes = data.photo_times || [];
+        _photoTimeFracs = [];
+        for (var i = 0; i < _photoTimes.length; i++) {
+            _photoTimeFracs.push(_dateToFracRaw(_photoTimes[i]));
+        }
         var dr = data.date_range || {};
         var minD = dr.min, maxD = dr.max;
         if (!minD || !maxD) {
@@ -1646,6 +1667,29 @@ function renderTimeline() {
             var bh = Math.round(days[dk] / maxCnt * barMaxH);
             ctx.fillStyle = cBar;
             ctx.fillRect(Math.max(0, x1), barTop + barMaxH - bh, Math.max(1, Math.min(W, x2) - Math.max(0, x1)), bh);
+        }
+    } else if (pxH >= 3 && _photoTimeFracs.length > 0) {
+        var dotSize = Math.max(2, Math.min(4, Math.floor(pxH * 0.5)));
+        var dotGap = Math.max(1, dotSize);
+        var cDot = light ? 'rgba(9,105,218,0.75)' : 'rgba(88,166,255,0.75)';
+        var vf0 = _xToFrac(0), vf1 = _xToFrac(W);
+        var si = 0;
+        while (si < _photoTimeFracs.length && _photoTimeFracs[si] < vf0) si++;
+        var lastPx = -999;
+        var dotRow = 0;
+        for (var pi = si; pi < _photoTimeFracs.length; pi++) {
+            if (_photoTimeFracs[pi] > vf1) break;
+            var px = Math.floor(_fracToX(_photoTimeFracs[pi]));
+            if (px === lastPx) {
+                dotRow++;
+            } else {
+                dotRow = 0;
+                lastPx = px;
+            }
+            var dotY = barTop + dotRow * (dotSize + dotGap);
+            if (dotY + dotSize > barTop + barMaxH) { dotRow = 0; dotY = barTop; }
+            ctx.fillStyle = cDot;
+            ctx.fillRect(px, dotY, dotSize, dotSize);
         }
     } else {
         var sqSize = Math.min(Math.max(Math.floor(pxD * 0.7), 3), 10);
@@ -1920,11 +1964,34 @@ function _tlOnTouchEnd(e) {
 
 function _tlNavigateAt(clickX) {
     var clickFrac = _xToFrac(clickX);
-    var isLastBar = clickFrac >= _tlMaxYear - 0.08;
-    var clickDate = fracToISO(clickFrac);
+    var needleX = clickX;
+    var navDate = null;
+
+    if (_photoTimeFracs.length > 0) {
+        var lo = 0, hi = _photoTimeFracs.length - 1;
+        while (lo <= hi) {
+            var mid = (lo + hi) >> 1;
+            if (_photoTimeFracs[mid] < clickFrac) lo = mid + 1;
+            else hi = mid - 1;
+        }
+        var bestDist = Infinity, bestIdx = -1;
+        for (var c = Math.max(0, lo - 2); c <= Math.min(_photoTimeFracs.length - 1, lo + 2); c++) {
+            var dist = Math.abs(_photoTimeFracs[c] - clickFrac);
+            if (dist < bestDist) { bestDist = dist; bestIdx = c; }
+        }
+        if (bestIdx >= 0) {
+            navDate = _photoTimes[bestIdx];
+            needleX = _fracToX(_photoTimeFracs[bestIdx]);
+        }
+    }
+
+    if (!navDate) {
+        navDate = fracToISO(clickFrac);
+    }
+
     var needle = document.getElementById('tlNeedle');
-    if (needle) { needle.style.transition = 'none'; needle.style.left = clickX + 'px'; updateNeedleFlag(clickDate); }
-    activeDate = clickDate;
+    if (needle) { needle.style.transition = 'none'; needle.style.left = needleX + 'px'; updateNeedleFlag(navDate); }
+    activeDate = navDate;
     _needleMode = true;
     currentPhotos = [];
     _canLoadMore = true;
@@ -1936,18 +2003,11 @@ function _tlNavigateAt(clickX) {
     _lastPath = null;
     document.getElementById('grid').innerHTML = '';
     var sortSel = document.getElementById('sortSelect');
-    if (isLastBar) {
-        activeDate = fracToISO(_tlMaxYear);
-        sortSel.value = 'date_desc';
-        _filterNeedleDate = '9999-12-31';
-        saveFilters();
-        loadAfter(activeDate, null, true);
-    } else {
-        if (sortSel && sortSel.value === 'date_desc') sortSel.value = 'date_asc';
-        _lastDate = clickDate;
-        saveFilters();
-        loadAfter(clickDate, null, true);
-    }
+    if (sortSel && sortSel.value === 'date_desc') sortSel.value = 'date_asc';
+    _filterNeedleDate = navDate;
+    _filterNeedleFrac = _dateToFracRaw(navDate);
+    saveFilters();
+    loadAfter(navDate, null, true);
 }
 function fracToISO(frac) {
     var y = Math.floor(frac);

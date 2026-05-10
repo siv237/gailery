@@ -32,6 +32,8 @@ class TestPhotosSearchAPI:
         data = resp.json()
         assert "years" in data
         assert "total" in data
+        assert "photo_times" in data
+        assert isinstance(data["photo_times"], list)
 
     def test_photo_list(self, app_client):
         """Эндпоинт списка фото возвращает photos в ответе."""
