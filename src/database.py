@@ -1010,21 +1010,31 @@ deleted=None, deleted_only=None,
         """Compact LanceDB fragments to reclaim space from soft-deleted rows."""
         self._optimize_table(self.photo_embeddings)
 
+    def _fresh_embeddings(self):
+        try:
+            return self.vectordb.open_table("photo_embeddings")
+        except Exception as e:
+            logger.warning(f"LanceDB open_table failed, retrying: {e}")
+            self.vectordb = lancedb.connect(str(self.lancedb_path))
+            return self.vectordb.open_table("photo_embeddings")
+
     def search_photo_embeddings(self, query_vector, limit=20):
-        return self.photo_embeddings.search(query_vector).limit(limit).to_list()
+        try:
+            return self._fresh_embeddings().search(query_vector).limit(limit).to_list()
+        except Exception as e:
+            logger.warning(f"LanceDB search failed, retrying with fresh reconnect: {e}")
+            self.vectordb = lancedb.connect(str(self.lancedb_path))
+            return self.vectordb.open_table("photo_embeddings").search(query_vector).limit(limit).to_list()
 
     def count_photo_embeddings(self):
         try:
-            return self.photo_embeddings.count_rows()
+            return self._fresh_embeddings().count_rows()
         except Exception:
-            try:
-                return len(self.photo_embeddings.search().select(["photo_id"]).limit(100000).to_list())
-            except Exception:
-                return 0
+            return 0
 
     def get_photo_embedding(self, photo_id):
         try:
-            results = self.photo_embeddings.search().where(
+            results = self._fresh_embeddings().search().where(
                 f"photo_id = '{photo_id}'"
             ).limit(1).to_list()
             return results[0] if results else None
