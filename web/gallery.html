@@ -855,8 +855,11 @@ var _prefetching = false;
 var _PREFETCH_AHEAD = 5;
 var _phCount = 0;
 var _faceLazyObs = null;
+var _faceLoadEnabled = false;
+setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 1500);
 
 function _observeThumbs() {
+    if (!_faceLoadEnabled) return;
     if (!_faceLazyObs) {
         _faceLazyObs = new IntersectionObserver(function(entries) {
             for (var i = 0; i < entries.length; i++) {
@@ -1431,7 +1434,7 @@ function buildCardHtml(p, idx) {
     if (thumbBase) {
         var _rot = '';
         if (p.edits) { var _re = p.edits.find(function(e){return e.action==='rotate'}); if (_re) _rot = ' style="transform:rotate('+((_re.params.angle % 360 + 360) % 360)+'deg)"'; }
-        html += '<img' + _rot + ' src="' + thumbBase + '&size=sm" srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">';
+        html += '<img' + _rot + ' fetchpriority="high" src="' + thumbBase + '&size=sm" srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">';
     }
      if (p.is_raw) html += '<div class="raw-badge">RAW</div>';
      html += gpsIcon;
