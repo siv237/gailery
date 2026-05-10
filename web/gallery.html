@@ -43,13 +43,13 @@
         .search-bar .btn-secondary:hover { background: #30363d; }
         .search-bar label { color: #8b949e; font-size: 11px; display: flex; align-items: center; gap: 4px; }
         .search-bar label input[type="checkbox"] { accent-color: #238636; }
-        .timeline { padding: 0 20px 0; background: #0d1117; border-bottom: 1px solid #21262d; display: flex; gap: 2px; overflow-x: auto; font-size: 11px; position: sticky; z-index: 17; transition: top .2s; width: 100%; justify-content: space-between; cursor: pointer; padding-top: 2px; padding-bottom: 18px; }
+        .timeline { position: sticky; z-index: 17; background: #0d1117; border-bottom: 1px solid #21262d; height: 48px; cursor: grab; overflow: hidden; transition: top .2s; }
+        .timeline.dragging { cursor: grabbing; }
 
         .header-sticky { position: sticky; top: 0; z-index: 20; background: #161b22; transition: transform .2s; }
         .header-sticky h1 { margin: 0; display: flex; align-items: center; }
         .header-sticky h1 .logo { height: 32px; width: auto; margin-right: 6px; }
-        .tl-bar { padding: 2px 8px; border-radius: 3px; color: #484f58; white-space: nowrap; min-width: 32px; text-align: center; position: relative; }
-        .tl-bar:hover { color: #8b949e; }
+        #tlCanvas { display: block; width: 100%; height: 100%; }
         .tl-needle { position: absolute; bottom: 0; transform: translateX(-50%); z-index: 2; pointer-events: none; transition: left .4s ease-out; filter: drop-shadow(0 0 4px rgba(218,54,51,.6)); display: flex; flex-direction: column; align-items: center; }
         .tl-needle-arrow { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid #da3633; }
         .tl-needle-flag { background: #da3633; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 2px; white-space: nowrap; margin-top: 1px; text-align: center; }
@@ -297,8 +297,6 @@
         .light-theme .search-bar label input[type=checkbox] { accent-color: #1f883d; }
         .light-theme .timeline { background: #ffffff; border-bottom: 1px solid #d8dee4; }
         .light-theme .header-sticky { background: #f6f8fa; }
-        .light-theme .tl-bar { color: #8b949e; }
-        .light-theme .tl-bar:hover { color: #57606a; }
         .light-theme .tl-needle-arrow { border-bottom-color: #da3633; }
         .light-theme .tl-needle-flag { background: #da3633; }
         .light-theme .info-bar { background: #ffffff; border-bottom: 1px solid #d8dee4; color: #57606a; }
@@ -422,7 +420,6 @@
         .light-theme .dd-confirm:hover { background: #a40e26; }
         .light-theme .dd-cancel { background: #eaeef2; color: #24292f; }
         .light-theme .dd-cancel:hover { background: #d0d7de; }
-        .light-theme .tl-bar.current { background: #0969da; color: #fff; }
 
         .hamburger { display: none; background: none; border: none; color: #c9d1d9; font-size: 20px; cursor: pointer; padding: 8px 10px; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; order: 99; }
         .mm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999; }
@@ -568,8 +565,7 @@
 
             .info-bar { font-size: 12px; padding: 4px 12px; }
 
-            .timeline { padding-top: 2px; padding-bottom: 14px; }
-            .tl-bar { font-size: 10px; padding: 2px 6px; }
+            .timeline { height: 42px; }
             .tl-needle-flag { font-size: 9px; }
 
             .dp-pchip { padding: 6px 8px; }
@@ -709,7 +705,7 @@
         </div>
     </div>
 
-    <div class="timeline" id="timeline"></div>
+    <div class="timeline" id="timeline"><canvas id="tlCanvas"></canvas><div class="tl-needle" id="tlNeedle"><div class="tl-needle-arrow"></div><div class="tl-needle-flag" id="tlNeedleFlag"></div></div></div>
 
     <div class="info-bar" id="infoBar">
         <span id="infoLeft">Загрузка...</span>
@@ -833,6 +829,24 @@ var _firstPath = null;
 var _lastPath = null;
 var _needleMode = false;
 var _filterNeedleDate = null;
+var _tlCanvas = null;
+var _tlCtx = null;
+var _tlZoom = 0;
+var _tlOffsetX = 20;
+var _tlMinYear = 0;
+var _tlMaxYear = 1;
+var _tlDefaultZoom = 0;
+var _tlMinZoom = 1;
+var _tlMaxZoom = 50000;
+var _tlIsDragging = false;
+var _tlDragStartX = 0;
+var _tlDragStartOffset = 0;
+var _tlWheelTimer = null;
+var _tlPinchDist = 0;
+var _tlPinchZoom = 0;
+var _tlPinchOff = 0;
+var _tlPinchCX = 0;
+var MONTH_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
 var _prefetchQueue = [];
 var _prefetching = false;
 var _PREFETCH_AHEAD = 5;
@@ -1488,74 +1502,428 @@ function onCatFilterChange() {
 function loadTimeline() {
     fetch(API + '/photos/dates').then(function(r) { return r.json(); }).then(function(data) {
         dateData = data;
-        var html = '';
-        var years = data.years || {};
-        var keys = Object.keys(years).sort();
-        for (var i = 0; i < keys.length; i++) {
-            var y = keys[i];
-            if (y === 'no_date') continue;
-            html += '<div class="tl-bar" data-year="' + y + '">' + y + '</div>';
+        var dr = data.date_range || {};
+        var minD = dr.min, maxD = dr.max;
+        if (!minD || !maxD) {
+            var years = data.years || {};
+            var keys = Object.keys(years).sort();
+            for (var i = 0; i < keys.length; i++) {
+                if (keys[i] === 'no_date') continue;
+                var y = parseInt(keys[i]); if (isNaN(y)) continue;
+                var jan1 = y + '-01-01';
+                if (!minD || jan1 < minD) minD = jan1;
+                if (!maxD || jan1 > maxD) maxD = jan1;
+            }
         }
-        html += '<div class="tl-needle" id="tlNeedle"><div class="tl-needle-arrow"></div><div class="tl-needle-flag" id="tlNeedleFlag"></div></div>';
+        if (!minD) minD = '2020-01-01';
+        if (!maxD) maxD = '2025-12-31';
+        _tlMinYear = _dateToFracRaw(minD);
+        _tlMaxYear = _dateToFracRaw(maxD);
+        var span = _tlMaxYear - _tlMinYear;
+        if (span < 0.5) { _tlMinYear -= 0.25; _tlMaxYear += 0.25; span = 0.5; }
+        _tlCanvas = document.getElementById('tlCanvas');
+        _tlCtx = _tlCanvas.getContext('2d');
+        var W = document.getElementById('timeline').clientWidth;
+        var pad = 20;
+        _tlDefaultZoom = (W - 2 * pad) / span;
+        _tlMinZoom = Math.max(1, _tlDefaultZoom * 0.5);
+        _tlMaxZoom = 365.25 * 24 * 6 / span * _tlDefaultZoom;
+        _tlMaxZoom = Math.min(_tlMaxZoom, 365.25 * 24 * 8);
+        _tlZoom = _tlDefaultZoom;
+        _tlOffsetX = pad;
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem('gallery-filters')); } catch(e) {}
+        if (saved && saved.tlZoom) { _tlZoom = saved.tlZoom; _tlOffsetX = saved.tlOffsetX || pad; }
+        _clampTlOffset();
+        renderTimeline();
         var tl = document.getElementById('timeline');
-        tl.innerHTML = html;
-        tl.onclick = onTimelineClick;
+        tl.addEventListener('wheel', _tlOnWheel, { passive: false });
+        tl.addEventListener('mousedown', _tlOnMouseDown);
+        tl.addEventListener('touchstart', _tlOnTouchStart, { passive: false });
+        tl.addEventListener('touchmove', _tlOnTouchMove, { passive: false });
+        tl.addEventListener('touchend', _tlOnTouchEnd);
     }).catch(function() {});
 }
 
-function onTimelineClick(e) {
-    var tl = document.getElementById('timeline');
-    var bars = tl.querySelectorAll('.tl-bar[data-year]');
-    if (!bars.length) return;
-    var tlRect = tl.getBoundingClientRect();
-    var clickX = e.clientX - tlRect.left + tl.scrollLeft;
-    var needle = document.getElementById('tlNeedle');
+function _dateToFracRaw(dateStr) {
+    if (!dateStr || dateStr.length < 4) return 0;
+    var y = parseInt(dateStr.substring(0, 4)) || 0;
+    var m = parseInt(dateStr.substring(5, 7)) || 1;
+    var d = parseInt(dateStr.substring(8, 10)) || 1;
+    var h = parseInt(dateStr.substring(11, 13)) || 0;
+    var mn = parseInt(dateStr.substring(14, 16)) || 0;
+    return y + (m - 1) / 12 + (d - 1) / 365.25 + (h * 60 + mn) / 1440 / 365.25;
+}
 
-    var clickedBar = null;
-    var bestDist = Infinity;
-    for (var i = 0; i < bars.length; i++) {
-        var br = bars[i];
-        var cx = br.offsetLeft + br.offsetWidth / 2;
-        var dist = Math.abs(clickX - cx);
-        if (dist < bestDist) { bestDist = dist; clickedBar = br; }
-    }
+function _dateToFrac(dateStr) {
+    if (!dateStr || dateStr.length < 4) return _tlMinYear;
+    return _dateToFracRaw(dateStr);
+}
 
-    var yearBars = [];
-    for (var i = 0; i < bars.length; i++) {
-        var yStr = bars[i].getAttribute('data-year');
-        if (yStr === '') continue;
-        var bYear = parseInt(yStr);
-        if (isNaN(bYear)) continue;
-        yearBars.push({ el: bars[i], year: bYear, cx: bars[i].offsetLeft + bars[i].offsetWidth / 2 });
-    }
-    if (!yearBars.length) return;
+function _fracToX(frac) { return _tlOffsetX + (frac - _tlMinYear) * _tlZoom; }
+function _dateToX(dateStr) { return _fracToX(_dateToFrac(dateStr)); }
+function _xToFrac(x) { return _tlMinYear + (x - _tlOffsetX) / _tlZoom; }
 
-    var clickFrac = 0;
-    var isLastBar = false;
-    if (clickX <= yearBars[0].cx) {
-        clickFrac = yearBars[0].year;
-    } else if (clickX >= yearBars[yearBars.length - 1].cx) {
-        clickFrac = yearBars[yearBars.length - 1].year;
-        isLastBar = true;
+function _clampTlOffset() {
+    var W = _tlCanvas ? _tlCanvas.clientWidth : 0;
+    if (!W) return;
+    var dataW = (_tlMaxYear - _tlMinYear) * _tlZoom;
+    var pad = 10;
+    if (dataW + 2 * pad <= W) {
+        _tlOffsetX = (W - dataW) / 2;
     } else {
-        for (var j = 0; j < yearBars.length - 1; j++) {
-            var a = yearBars[j], b = yearBars[j + 1];
-            if (clickX >= a.cx && clickX <= b.cx) {
-                var frac = (clickX - a.cx) / (b.cx - a.cx);
-                clickFrac = a.year + frac * (b.year - a.year);
-                break;
+        _tlOffsetX = Math.max(W - pad - dataW, Math.min(pad, _tlOffsetX));
+    }
+}
+
+function renderTimeline() {
+    var ctx = _tlCtx;
+    if (!ctx || !dateData) return;
+    var dpr = window.devicePixelRatio || 1;
+    var W = _tlCanvas.clientWidth;
+    var H = _tlCanvas.clientHeight;
+    if (!W || !H) return;
+    _tlCanvas.width = W * dpr;
+    _tlCanvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    var light = document.body.classList.contains('light-theme');
+    var cAxis = light ? '#d0d7de' : '#21262d';
+    var cYearTick = light ? '#57606a' : '#484f58';
+    var cYearLabel = light ? '#57606a' : '#484f58';
+    var cMonTick = light ? '#d0d7de' : '#30363d';
+    var cMonLabel = light ? '#57606a' : '#3b424d';
+    var cMonNum = light ? '#8b949e' : '#30363d';
+    var cDayTick = light ? '#d0d7de' : '#21262d';
+    var cDayLabel = light ? '#8b949e' : '#30363d';
+    var cHourTick = light ? '#eaeef2' : '#161b22';
+    var cHourLabel = light ? '#8b949e' : '#21262d';
+    var cDateLabel = light ? '#24292f' : '#484f58';
+    var cBar = light ? 'rgba(9,105,218,0.10)' : 'rgba(88,166,255,0.12)';
+    var cScale = light ? '#8b949e' : '#30363d';
+
+    var axisY = 24;
+    var pxY = _tlZoom;
+    var pxM = pxY / 12;
+    var pxD = pxY / 365.25;
+    var pxH = pxD / 24;
+
+    var months = dateData.months || {};
+    var days = dateData.days || {};
+    var barTop = 3;
+    var barMaxH = 16;
+
+    if (pxD < 3) {
+        var maxCnt = 1;
+        for (var k in months) if (months[k] > maxCnt) maxCnt = months[k];
+        for (var k in months) {
+            var my = parseInt(k.substring(0, 4));
+            var mm = parseInt(k.substring(5, 7)) - 1;
+            if (isNaN(my) || isNaN(mm)) continue;
+            var x1 = _fracToX(my + mm / 12);
+            var x2 = _fracToX(my + (mm + 1) / 12);
+            if (x2 < 0 || x1 > W) continue;
+            var bh = Math.round(months[k] / maxCnt * barMaxH);
+            ctx.fillStyle = cBar;
+            ctx.fillRect(Math.max(0, x1), barTop + barMaxH - bh, Math.min(W, x2) - Math.max(0, x1), bh);
+        }
+    } else if (pxD < 20) {
+        var maxCnt = 1;
+        for (var k in days) if (days[k] > maxCnt) maxCnt = days[k];
+        var dkeys = Object.keys(days);
+        for (var i = 0; i < dkeys.length; i++) {
+            var dk = dkeys[i];
+            var dy = parseInt(dk.substring(0, 4));
+            var dm = parseInt(dk.substring(5, 7)) - 1;
+            var dd = parseInt(dk.substring(8, 10)) - 1;
+            if (isNaN(dy) || isNaN(dm) || isNaN(dd)) continue;
+            var frac1 = dy + dm / 12 + dd / 365.25;
+            var frac2 = dy + dm / 12 + (dd + 1) / 365.25;
+            var x1 = _fracToX(frac1);
+            var x2 = _fracToX(frac2);
+            if (x2 < 0 || x1 > W) continue;
+            var bh = Math.round(days[dk] / maxCnt * barMaxH);
+            ctx.fillStyle = cBar;
+            ctx.fillRect(Math.max(0, x1), barTop + barMaxH - bh, Math.max(1, Math.min(W, x2) - Math.max(0, x1)), bh);
+        }
+    } else {
+        var sqSize = Math.min(Math.max(Math.floor(pxD * 0.7), 3), 10);
+        var gap = Math.max(1, Math.floor(sqSize * 0.15));
+        var maxCols = Math.floor(barMaxH / (sqSize + gap));
+        if (maxCols < 1) maxCols = 1;
+        var cSq = light ? 'rgba(9,105,218,0.55)' : 'rgba(88,166,255,0.55)';
+        var cSqFill = light ? 'rgba(9,105,218,0.25)' : 'rgba(88,166,255,0.25)';
+        var dkeys = Object.keys(days);
+        for (var i = 0; i < dkeys.length; i++) {
+            var dk = dkeys[i];
+            var dy = parseInt(dk.substring(0, 4));
+            var dm = parseInt(dk.substring(5, 7)) - 1;
+            var dd = parseInt(dk.substring(8, 10)) - 1;
+            if (isNaN(dy) || isNaN(dm) || isNaN(dd)) continue;
+            var frac1 = dy + dm / 12 + dd / 365.25;
+            var x = _fracToX(frac1);
+            if (x < -sqSize || x > W + sqSize) continue;
+            var cnt = days[dk];
+            var row = 0, col = 0;
+            for (var n = 0; n < cnt; n++) {
+                var sx = Math.floor(x) + col * (sqSize + gap);
+                var sy = barTop + row * (sqSize + gap);
+                if (sy + sqSize > barTop + barMaxH + sqSize + gap) break;
+                ctx.fillStyle = cSq;
+                ctx.fillRect(sx, sy, sqSize, sqSize);
+                col++;
+                if (col >= maxCols) { col = 0; row++; }
+                if (row >= 4) break;
             }
         }
     }
 
-    var clickDate = fracToISO(clickFrac);
+    ctx.strokeStyle = cAxis;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, axisY); ctx.lineTo(W, axisY); ctx.stroke();
 
-    if (needle) {
-        needle.style.transition = 'none';
-        needle.style.left = clickX + 'px';
-        updateNeedleFlag(clickDate);
+    var f0 = _xToFrac(0), f1 = _xToFrac(W);
+    var clipL = _fracToX(_tlMinYear);
+    var clipR = _fracToX(_tlMaxYear);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(Math.max(0, clipL), 0, Math.min(W, clipR) - Math.max(0, clipL), H);
+    ctx.clip();
+
+    if (pxY >= 5) {
+        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (var y = y0; y <= y1; y++) {
+            var x = _fracToX(y);
+            if (x < -50 || x > W + 50) continue;
+            ctx.strokeStyle = cYearTick;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + (pxY >= 20 ? 8 : 4)); ctx.stroke();
+            if (pxY >= 20) {
+                ctx.fillStyle = cYearLabel;
+                ctx.font = (pxY >= 50 ? '11' : '10') + 'px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(y.toString(), x, axisY - 12);
+            }
+        }
     }
 
+    if (pxM >= 3) {
+        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (var y = y0; y <= y1; y++) {
+            for (var m = 1; m <= 12; m++) {
+                if (m === 1 && pxY >= 8) continue;
+                var x = _fracToX(y + (m - 1) / 12);
+                if (x < -10 || x > W + 10) continue;
+                ctx.strokeStyle = cMonTick;
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + 4); ctx.stroke();
+                if (pxM >= 30) {
+                    ctx.fillStyle = cMonLabel; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText(MONTH_SHORT[m - 1], x, axisY - 12);
+                } else if (pxM >= 12) {
+                    ctx.fillStyle = cMonNum; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText(m.toString(), x, axisY - 10);
+                }
+            }
+        }
+        if (pxM >= 12 && pxY < 50) {
+            for (var y = y0; y <= y1; y++) {
+                var x = _fracToX(y);
+                if (x < -30 || x > W + 30) continue;
+                ctx.fillStyle = cDateLabel; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+                ctx.fillText(y.toString(), x + 3, axisY - 12);
+            }
+        }
+    }
+
+    if (pxD >= 3) {
+        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (var y = y0; y <= y1; y++) {
+            for (var m = 0; m < 12; m++) {
+                var daysInM = new Date(y, m + 1, 0).getDate();
+                for (var d = 1; d <= daysInM; d++) {
+                    var frac = y + m / 12 + (d - 1) / 365.25;
+                    var x = _fracToX(frac);
+                    if (x < -5 || x > W + 5) continue;
+                    ctx.strokeStyle = cDayTick; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + 3); ctx.stroke();
+                    var step = pxD >= 30 ? 1 : (pxD >= 15 ? 2 : 5);
+                    if (pxD >= 15 && d % step === 0) {
+                        ctx.fillStyle = cDayLabel; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+                        ctx.fillText(d.toString(), x, axisY - 10);
+                    }
+                }
+            }
+        }
+        if (pxD >= 10 && pxM < 30) {
+            for (var y = y0; y <= y1; y++) {
+                for (var m = 0; m < 12; m++) {
+                    var x = _fracToX(y + m / 12);
+                    if (x < -40 || x > W + 40) continue;
+                    ctx.fillStyle = cDateLabel; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+                    ctx.fillText(MONTH_SHORT[m] + ' ' + y, x + 2, axisY - 12);
+                }
+            }
+        }
+    }
+
+    if (pxH >= 2) {
+        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (var y = y0; y <= y1; y++) {
+            for (var m = 0; m < 12; m++) {
+                var daysInM = new Date(y, m + 1, 0).getDate();
+                for (var d = 1; d <= daysInM; d++) {
+                    for (var h = 0; h < 24; h++) {
+                        if (h === 0 && pxD >= 5) continue;
+                        var frac = y + m / 12 + (d - 1) / 365.25 + h / 24 / 365.25;
+                        var x = _fracToX(frac);
+                        if (x < -3 || x > W + 3) continue;
+                        ctx.strokeStyle = cHourTick; ctx.lineWidth = 1;
+                        ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + 2); ctx.stroke();
+                        var step = pxH >= 20 ? 1 : (pxH >= 10 ? 2 : 6);
+                        if (pxH >= 10 && h % step === 0) {
+                            ctx.fillStyle = cHourLabel; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+                            ctx.fillText(h + ':00', x, axisY - 8);
+                        }
+                    }
+                }
+            }
+        }
+        if (pxH >= 5 && pxD < 15) {
+            for (var y = y0; y <= y1; y++) {
+                for (var m = 0; m < 12; m++) {
+                    var daysInM = new Date(y, m + 1, 0).getDate();
+                    for (var d = 1; d <= daysInM; d++) {
+                        var frac = y + m / 12 + (d - 1) / 365.25;
+                        var x = _fracToX(frac);
+                        if (x < -40 || x > W + 40) continue;
+                        ctx.fillStyle = cDateLabel; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+                        ctx.fillText(('0' + d).slice(-2) + '.' + ('0' + (m + 1)).slice(-2) + '.' + y, x + 2, axisY - 12);
+                    }
+                }
+            }
+        }
+    }
+
+    var label = pxD >= 20 ? 'Фото' : pxH >= 10 ? 'Часы' : pxD >= 10 ? 'Дни' : pxM >= 12 ? 'Месяцы' : 'Года';
+    ctx.restore();
+    ctx.fillStyle = cScale; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(label, W - 6, 10);
+}
+
+function _tlOnWheel(e) {
+    e.preventDefault();
+    var delta = e.deltaY > 0 ? -1 : 1;
+    var factor = delta > 0 ? 1.3 : 1 / 1.3;
+    if (e.ctrlKey || e.metaKey) factor = delta > 0 ? 2 : 0.5;
+    var tlRect = document.getElementById('timeline').getBoundingClientRect();
+    var mouseX = e.clientX - tlRect.left;
+    var mouseFrac = _xToFrac(mouseX);
+    _tlZoom *= factor;
+    _tlZoom = Math.max(_tlMinZoom, Math.min(_tlMaxZoom, _tlZoom));
+    _tlOffsetX = mouseX - (mouseFrac - _tlMinYear) * _tlZoom;
+    _clampTlOffset();
+    renderTimeline();
+    if (_needleDateISO) {
+        var needle = document.getElementById('tlNeedle');
+        if (needle) { needle.style.transition = 'none'; needle.style.left = _dateToX(_needleDateISO) + 'px'; }
+    }
+    clearTimeout(_tlWheelTimer);
+    _tlWheelTimer = setTimeout(function() { saveFilters(); }, 500);
+}
+
+function _tlOnMouseDown(e) {
+    if (e.button !== 0) return;
+    _tlIsDragging = true;
+    _tlDragStartX = e.clientX;
+    _tlDragStartOffset = _tlOffsetX;
+    document.getElementById('timeline').classList.add('dragging');
+    e.preventDefault();
+    document.addEventListener('mousemove', _tlOnMouseMove);
+    document.addEventListener('mouseup', _tlOnMouseUp);
+}
+
+function _tlOnMouseMove(e) {
+    if (!_tlIsDragging) return;
+    _tlOffsetX = _tlDragStartOffset + (e.clientX - _tlDragStartX);
+    _clampTlOffset();
+    renderTimeline();
+    if (_needleDateISO) {
+        var needle = document.getElementById('tlNeedle');
+        if (needle) { needle.style.transition = 'none'; needle.style.left = _dateToX(_needleDateISO) + 'px'; }
+    }
+}
+
+function _tlOnMouseUp(e) {
+    document.removeEventListener('mousemove', _tlOnMouseMove);
+    document.removeEventListener('mouseup', _tlOnMouseUp);
+    document.getElementById('timeline').classList.remove('dragging');
+    var dx = Math.abs(e.clientX - _tlDragStartX);
+    _tlIsDragging = false;
+    if (dx < 5) {
+        var tlRect = document.getElementById('timeline').getBoundingClientRect();
+        _tlNavigateAt(e.clientX - tlRect.left);
+    }
+    saveFilters();
+}
+
+function _tlOnTouchStart(e) {
+    if (e.touches.length === 1) {
+        _tlIsDragging = true;
+        _tlDragStartX = e.touches[0].clientX;
+        _tlDragStartOffset = _tlOffsetX;
+    } else if (e.touches.length === 2) {
+        _tlIsDragging = false;
+        _tlPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        _tlPinchZoom = _tlZoom;
+        _tlPinchOff = _tlOffsetX;
+        var tlRect = document.getElementById('timeline').getBoundingClientRect();
+        _tlPinchCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - tlRect.left;
+    }
+    e.preventDefault();
+}
+
+function _tlOnTouchMove(e) {
+    if (e.touches.length === 1 && _tlIsDragging) {
+        _tlOffsetX = _tlDragStartOffset + (e.touches[0].clientX - _tlDragStartX);
+        _clampTlOffset();
+        renderTimeline();
+        if (_needleDateISO) {
+            var needle = document.getElementById('tlNeedle');
+            if (needle) { needle.style.transition = 'none'; needle.style.left = _dateToX(_needleDateISO) + 'px'; }
+        }
+    } else if (e.touches.length === 2) {
+        var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        var factor = dist / _tlPinchDist;
+        var mouseFrac = _tlMinYear + (_tlPinchCX - _tlPinchOff) / _tlPinchZoom;
+        _tlZoom = _tlPinchZoom * factor;
+        _tlZoom = Math.max(_tlMinZoom, Math.min(_tlMaxZoom, _tlZoom));
+        _tlOffsetX = _tlPinchCX - (mouseFrac - _tlMinYear) * _tlZoom;
+        _clampTlOffset();
+        renderTimeline();
+        if (_needleDateISO) {
+            var needle = document.getElementById('tlNeedle');
+            if (needle) { needle.style.transition = 'none'; needle.style.left = _dateToX(_needleDateISO) + 'px'; }
+        }
+    }
+    e.preventDefault();
+}
+
+function _tlOnTouchEnd(e) {
+    if (e.touches.length === 0 && _tlIsDragging) {
+        _tlIsDragging = false;
+        saveFilters();
+    }
+}
+
+function _tlNavigateAt(clickX) {
+    var clickFrac = _xToFrac(clickX);
+    var isLastBar = clickFrac >= _tlMaxYear - 0.5;
+    var clickDate = fracToISO(clickFrac);
+    var needle = document.getElementById('tlNeedle');
+    if (needle) { needle.style.transition = 'none'; needle.style.left = clickX + 'px'; updateNeedleFlag(clickDate); }
     activeYear = Math.floor(clickFrac).toString();
     _needleMode = true;
     currentPhotos = [];
@@ -1569,15 +1937,13 @@ function onTimelineClick(e) {
     document.getElementById('grid').innerHTML = '';
     var sortSel = document.getElementById('sortSelect');
     if (isLastBar) {
-        activeYear = yearBars[yearBars.length - 1].year.toString();
+        activeYear = Math.floor(_tlMaxYear).toString();
         sortSel.value = 'date_desc';
         _filterNeedleDate = '9999-12-31';
         saveFilters();
         loadAfter(null);
     } else {
-        if (sortSel && sortSel.value === 'date_desc') {
-            sortSel.value = 'date_asc';
-        }
+        if (sortSel && sortSel.value === 'date_desc') sortSel.value = 'date_asc';
         _lastDate = clickDate;
         saveFilters();
         loadAfter(clickDate);
@@ -1587,11 +1953,18 @@ function onTimelineClick(e) {
 function fracToISO(frac) {
     var y = Math.floor(frac);
     var rest = frac - y;
-    var totalDays = Math.round(rest * 365);
-    var d = new Date(y, 0, 1 + totalDays);
+    if (rest < 0) rest = 0;
+    var dayOfYear = Math.floor(rest * 365.25);
+    var hourFrac = (rest * 365.25 - dayOfYear) * 24;
+    var hour = Math.floor(hourFrac);
+    var minute = Math.floor((hourFrac - hour) * 60);
+    var d = new Date(y, 0, 1 + dayOfYear);
+    var realY = d.getFullYear();
     var mm = ('0' + (d.getMonth() + 1)).slice(-2);
     var dd = ('0' + d.getDate()).slice(-2);
-    return y + '-' + mm + '-' + dd;
+    var result = realY + '-' + mm + '-' + dd;
+    if (hour > 0 || minute > 0 || _tlZoom > 5000) result += ' ' + ('0' + hour).slice(-2) + ':' + ('0' + minute).slice(-2);
+    return result;
 }
 
 function updateNeedleFlag(dateStr) {
@@ -1601,24 +1974,24 @@ function updateNeedleFlag(dateStr) {
     if (!dateStr) { flag.textContent = ''; return; }
     if (needle) needle.style.opacity = '1';
     var p = dateStr.substring(0, 10).split('-');
-    if (p.length === 3) flag.textContent = p[2] + '.' + p[1] + '.' + p[0];
-    else flag.textContent = dateStr.substring(0, 10);
+    if (p.length === 3) {
+        var text = p[2] + '.' + p[1] + '.' + p[0];
+        var timePart = dateStr.substring(11, 16);
+        if (timePart && timePart !== '00:0' && timePart !== '00:00') text += ' ' + timePart;
+        else if (_tlZoom > 5000) text += ' 00:00';
+        flag.textContent = text;
+    } else {
+        flag.textContent = dateStr.substring(0, 10);
+    }
 }
 
 function selectYear(year) {
     activeYear = year || '';
     updateNeedleFlag(year ? (year + '-01-01') : '');
     var needle = document.getElementById('tlNeedle');
-    var tl = document.getElementById('timeline');
-    if (needle && tl) {
-        var bars = tl.querySelectorAll('.tl-bar[data-year]');
-        for (var i = 0; i < bars.length; i++) {
-            if (bars[i].getAttribute('data-year') === year) {
-                needle.style.transition = 'left .4s ease-out';
-                needle.style.left = (bars[i].offsetLeft + bars[i].offsetWidth / 2) + 'px';
-                break;
-            }
-        }
+    if (needle && year) {
+        needle.style.transition = 'left .4s ease-out';
+        needle.style.left = _fracToX(parseInt(year)) + 'px';
     }
     doSearch();
 }
@@ -3097,6 +3470,8 @@ function saveFilters() {
         chkVideo: document.getElementById('chkVideo').checked,
         needleDate: _needleDateISO || null,
         photoId: _firstVisiblePhotoId || null,
+        tlZoom: _tlZoom,
+        tlOffsetX: _tlOffsetX,
     };
     localStorage.setItem('gallery-filters', JSON.stringify(state));
 }
@@ -3168,8 +3543,7 @@ function _syncTimelineToPhoto() {
 function updateTimelinePosition(targetDate) {
     if (!dateData || !dateData.years) return;
     var needle = document.getElementById('tlNeedle');
-    var tl = document.getElementById('timeline');
-    if (!needle || !tl) return;
+    if (!needle) return;
 
     var nearDate;
     if (targetDate) {
@@ -3195,56 +3569,16 @@ function updateTimelinePosition(targetDate) {
     if (!nearDate) return;
     _needleDateISO = nearDate;
 
-    var nearYear = parseInt(nearDate.substring(0, 4));
-    if (isNaN(nearYear)) { _needleDateISO = null; return; }
-    var nearMonth = parseInt(nearDate.substring(5, 7)) || 1;
-    var nearDay = parseInt(nearDate.substring(8, 10)) || 1;
-    var nearHour = parseInt(nearDate.substring(11, 13)) || 0;
-    var nearMin = parseInt(nearDate.substring(14, 16)) || 0;
-    var yearFrac = nearYear + (nearMonth - 1) / 12 + (nearDay - 1) / 365 + (nearHour * 60 + nearMin) / 1440 / 365;
-
     updateNeedleFlag(nearDate);
 
-    var bars = tl.querySelectorAll('.tl-bar[data-year]');
-    var prevBar = null, nextBar = null;
-    for (var j = 0; j < bars.length; j++) {
-        var yStr = bars[j].getAttribute('data-year');
-        if (!yStr || yStr === '') continue;
-        var bYear = parseInt(yStr);
-        if (isNaN(bYear)) continue;
-        if (bYear <= nearYear) prevBar = bars[j];
-        if (bYear > nearYear && !nextBar) nextBar = bars[j];
-    }
-
-    var newLeft;
-    if (prevBar && nextBar) {
-        var pLeft = prevBar.offsetLeft + prevBar.offsetWidth / 2;
-        var nLeft = nextBar.offsetLeft + nextBar.offsetWidth / 2;
-        var pYear = parseInt(prevBar.getAttribute('data-year'));
-        var nYear = parseInt(nextBar.getAttribute('data-year'));
-        var frac = (yearFrac - pYear) / (nYear - pYear);
-        if (frac < 0) frac = 0;
-        if (frac > 1) frac = 1;
-        newLeft = pLeft + (nLeft - pLeft) * frac;
-    } else if (prevBar) {
-        newLeft = prevBar.offsetLeft + prevBar.offsetWidth / 2;
-    } else if (nextBar) {
-        newLeft = nextBar.offsetLeft + nextBar.offsetWidth / 2;
-    } else {
-        return;
-    }
-
+    var newLeft = _dateToX(nearDate);
     needle.style.transition = 'left .4s ease-out';
     needle.style.left = newLeft + 'px';
 
-    if (nearYear !== _scrollYear) {
-        _scrollYear = nearYear;
-        for (var m = 0; m < bars.length; m++) {
-            var bY = parseInt(bars[m].getAttribute('data-year'));
-            if (bY === nearYear) {
-                bars[m].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-                break;
-            }
+    if (_tlZoom <= _tlDefaultZoom * 1.5) {
+        var nearYear = parseInt(nearDate.substring(0, 4));
+        if (nearYear && nearYear !== _scrollYear) {
+            _scrollYear = nearYear;
         }
     }
 }
@@ -3281,7 +3615,11 @@ window.addEventListener('scroll', function() {
          }
      }
 
-    updateTimelinePosition();
+     updateTimelinePosition();
+});
+
+window.addEventListener('resize', function() {
+    if (_tlCanvas) { _clampTlOffset(); renderTimeline(); if (_needleDateISO) { var n = document.getElementById('tlNeedle'); if (n) { n.style.transition = 'none'; n.style.left = _dateToX(_needleDateISO) + 'px'; } } }
 });
 
  function openMobileNav() {

@@ -570,26 +570,37 @@ deleted=None, deleted_only=None,
         root_filter, root_params = self._enabled_root_filter()
         ed = "COALESCE(manual_date, date)"
         rows = self.sqlite.execute(
-            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, COUNT(*) as cnt "
+            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, substr({ed},1,10) as day, COUNT(*) as cnt "
             f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
             f"WHERE {ed} IS NOT NULL AND length({ed}) >= 4 "
             f"AND substr({ed},1,4) != '0000' AND photos.deleted = 0 AND cf.is_canonical = 1 AND cf.deleted = 0 AND {root_filter} "
-            f"GROUP BY year, month ORDER BY year, month",
+            f"GROUP BY year, month, day ORDER BY year, month, day",
             root_params
         ).fetchall()
         years = {}
         months = {}
+        days = {}
+        min_date = None
+        max_date = None
         for r in rows:
-            y, m, cnt = r[0], r[1], r[2]
+            y, m, d, cnt = r[0], r[1], r[2], r[3]
             years[y] = years.get(y, 0) + cnt
             months[m] = months.get(m, 0) + cnt
+            days[d] = days.get(d, 0) + cnt
+            if min_date is None or d < min_date:
+                min_date = d
+            if max_date is None or d > max_date:
+                max_date = d
         no_date = self.sqlite.execute(
             "SELECT COUNT(*) FROM photos WHERE (COALESCE(manual_date, date) IS NULL OR length(COALESCE(manual_date, date)) < 4 OR substr(COALESCE(manual_date, date),1,4) = '0000') AND deleted = 0"
         ).fetchone()[0]
         if no_date > 0:
             years["no_date"] = no_date
         total = self.count_photos(where="deleted = 0")
-        return {"years": dict(sorted(years.items())), "months": dict(sorted(months.items())), "total": total}
+        result = {"years": dict(sorted(years.items())), "months": dict(sorted(months.items())), "days": dict(sorted(days.items())), "total": total}
+        if min_date:
+            result["date_range"] = {"min": min_date, "max": max_date}
+        return result
 
     # ─── Faces ──────────────────────────────────────────
 
