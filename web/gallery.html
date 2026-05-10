@@ -2161,6 +2161,35 @@ function selectYear(year) {
                     h += '<div class="dp-meta">Битрейт: ' + mbps + ' Мбит/с</div>';
                 }
                 if (m.container) h += '<div class="dp-meta">Контейнер: ' + esc(m.container) + '</div>';
+            if (m.tags && Object.keys(m.tags).length > 0) {
+                var skipTags = {'creation_time':1,'major_brand':1,'minor_version':1,'compatible_brands':1};
+                var tagItems = [];
+                var brandItems = [];
+                for (var tk in m.tags) {
+                    if (skipTags[tk] && m[tk !== 'creation_time' ? '' : 'creation_time']) continue;
+                    var tval = String(m.tags[tk]);
+                    if (tk === 'major_brand' || tk === 'minor_version' || tk === 'compatible_brands') {
+                        brandItems.push(esc(tk.replace(/_/g,' ')) + ': ' + esc(tval));
+                    } else {
+                        var tl = tk.replace(/^com\.apple\.quicktime\./, '').replace(/_/g, ' ');
+                        tagItems.push(esc(tl) + ': ' + esc(tval));
+                    }
+                }
+                if (brandItems.length > 0) {
+                    h += '<div style="margin-top:6px">';
+                    h += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'vtagBrand\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Контейнер теги (' + brandItems.length + ') ▾</div>';
+                    h += '<div id="vtagBrand" style="display:none;padding-left:8px">';
+                    for (var bi = 0; bi < brandItems.length; bi++) h += '<div class="dp-meta">' + brandItems[bi] + '</div>';
+                    h += '</div></div>';
+                }
+                if (tagItems.length > 0) {
+                    h += '<div style="margin-top:6px">';
+                    h += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'vtagOther\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Метаданные (' + tagItems.length + ') ▾</div>';
+                    h += '<div id="vtagOther" style="display:none;padding-left:8px">';
+                    for (var oi = 0; oi < tagItems.length; oi++) h += '<div class="dp-meta">' + tagItems[oi] + '</div>';
+                    h += '</div></div>';
+                }
+            }
                 el.innerHTML = h;
             }).catch(function(){
                 var el = document.getElementById('videoMetaArea');

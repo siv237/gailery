@@ -700,6 +700,16 @@ async def video_meta(path: str = ""):
             meta["audio_sample_rate"] = s.get("sample_rate")
             meta["audio_channels"] = s.get("channels")
 
+    all_tags = {}
+    for k, v in tags.items():
+        all_tags[k] = v
+    for s in info.get("streams", []):
+        st = s.get("tags", {})
+        for k, v in st.items():
+            if k not in all_tags:
+                all_tags[k] = v
+    meta["tags"] = all_tags
+
     return meta
 
 
