@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
-TRANSCODE_EXTS = {'.avi', '.3gp', '.wmv', '.mpg', '.mpeg', '.flv', '.m4v'}
-REMUX_EXTS = {'.mkv'}
+STREAM_VIDEO_EXTS = {'.avi', '.3gp', '.wmv', '.mpg', '.mpeg', '.flv', '.m4v', '.mov', '.mkv'}
 
 FOTO_PREFIX = str(PHOTO_SHARE_PATH) + "/"
 
@@ -101,8 +100,7 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
         "is_raw": is_raw,
         "media_type": p.get("media_type", "photo"),
         "duration_seconds": p.get("duration_seconds", 0),
-        "needs_transcode": p.get("media_type") == "video" and Path(p.get("path", "")).suffix.lower() in TRANSCODE_EXTS,
-        "needs_remux": p.get("media_type") == "video" and Path(p.get("path", "")).suffix.lower() in REMUX_EXTS,
+        "needs_stream": p.get("media_type") == "video" and Path(p.get("path", "")).suffix.lower() in STREAM_VIDEO_EXTS,
         "is_canonical": p.get("is_canonical", True),
         "duplicate_paths": p.get("duplicate_paths", []),
         "content_hash": p.get("content_hash"),
@@ -442,6 +440,30 @@ def _resolve_photo_path(path: str):
     return PHOTO_SHARE_PATH / path
 
 
+def _probe_video_codecs(input_path):
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-hide_banner", "-loglevel", "error",
+             "-show_entries", "stream=codec_type,codec_name,pix_fmt",
+             "-print_format", "json", str(input_path)],
+            capture_output=True, timeout=10
+        )
+        import json
+        info = json.loads(result.stdout)
+        video_codec = None
+        audio_codec = None
+        pix_fmt = None
+        for s in info.get("streams", []):
+            if s.get("codec_type") == "video" and not video_codec:
+                video_codec = s.get("codec_name")
+                pix_fmt = s.get("pix_fmt")
+            elif s.get("codec_type") == "audio" and not audio_codec:
+                audio_codec = s.get("codec_name")
+        return video_codec, audio_codec, pix_fmt
+    except Exception:
+        return None, None, None
+
+
 def _start_ffmpeg_transcode(input_path, seek_time=0):
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if seek_time > 0:
@@ -459,7 +481,7 @@ def _start_ffmpeg_transcode(input_path, seek_time=0):
     return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
-def _start_ffmpeg_remux(input_path, seek_time=0):
+def _start_ffmpeg_audio_transcode(input_path, seek_time=0):
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if seek_time > 0:
         cmd.extend(["-ss", f"{seek_time:.3f}"])
@@ -468,6 +490,21 @@ def _start_ffmpeg_remux(input_path, seek_time=0):
         "-err_detect", "ignore_err",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
+        "-f", "mp4", "pipe:1",
+    ])
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _start_ffmpeg_remux(input_path, seek_time=0):
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if seek_time > 0:
+        cmd.extend(["-ss", f"{seek_time:.3f}"])
+    cmd.extend([
+        "-i", str(input_path),
+        "-err_detect", "ignore_err",
+        "-c:v", "copy",
+        "-c:a", "copy",
         "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
         "-f", "mp4", "pipe:1",
     ])
@@ -512,7 +549,18 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
     if not photo_path.exists() or not photo_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    is_remux = photo_path.suffix.lower() in REMUX_EXTS
+    video_codec, audio_codec, pix_fmt = _probe_video_codecs(photo_path)
+
+    h264_ok = video_codec in ("h264",)
+    aac_ok = audio_codec in ("aac", "mp4a")
+    yuv420p_ok = pix_fmt in ("yuv420p", "yuvj420p")
+
+    if h264_ok and aac_ok:
+        strategy = "remux"
+    elif h264_ok and yuv420p_ok:
+        strategy = "audio_transcode"
+    else:
+        strategy = "transcode"
 
     from database import get_db
     db = get_db()
@@ -533,15 +581,18 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
 
     MAX_TRANSCODE_SIZE = 500 * 1024 * 1024
     estimated_size = _estimate_transcode_size(duration, width, height)
-    if not is_remux and estimated_size > MAX_TRANSCODE_SIZE:
+    if strategy == "transcode" and estimated_size > MAX_TRANSCODE_SIZE:
         raise HTTPException(status_code=413, detail=f"Video too large to transcode on-the-fly ({estimated_size // 1024 // 1024}MB estimated)")
 
     seek_time = max(0, min(t, duration - 0.5))
 
     def start_ffmpeg(seek):
-        if is_remux:
+        if strategy == "remux":
             return _start_ffmpeg_remux(photo_path, seek)
-        return _start_ffmpeg_transcode(photo_path, seek)
+        elif strategy == "audio_transcode":
+            return _start_ffmpeg_audio_transcode(photo_path, seek)
+        else:
+            return _start_ffmpeg_transcode(photo_path, seek)
 
     range_header = request.headers.get("range", "") if request else ""
     if range_header:

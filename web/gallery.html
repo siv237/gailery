@@ -813,7 +813,7 @@
 <script>
 var API = '/api';
 function videoSrc(p) {
-    if (p.media_type === 'video' && (p.needs_transcode || p.needs_remux)) {
+    if (p.media_type === 'video' && p.needs_stream) {
         return API + '/photos/video_stream?path=' + encodeURIComponent(p.photo_id);
     }
     return p.photo_id ? (API + '/photos/?path=' + encodeURIComponent(p.photo_id)) : '';
