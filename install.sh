@@ -206,13 +206,14 @@ log_info "Установка requirements.txt (с numpy<2 для onnxruntime-gpu
 pip install "numpy<2.0"
 
 # НЮАНС #1: pip install -r requirements.txt пытается обновить torch до >=2.10.0
-# (CUDA 13) и numpy до >=2. Решение: constraint-файл фиксирует версии torch и numpy.
+# (CUDA 13) и numpy до >=2. Решение: исключаем torch из requirements (уже стоит с cu124),
+# фиксируем numpy<2 через constraint-файл.
+grep -vi '^torch' "$INSTALL_DIR/requirements.txt" > /tmp/gailery-req-notorch.txt
 cat > /tmp/gailery-constraints.txt << CONEOF
-torch==2.6.0
 numpy<2.0
 CONEOF
-pip install -r "$INSTALL_DIR/requirements.txt" -c /tmp/gailery-constraints.txt
-rm -f /tmp/gailery-constraints.txt
+pip install -r /tmp/gailery-req-notorch.txt -c /tmp/gailery-constraints.txt
+rm -f /tmp/gailery-req-notorch.txt /tmp/gailery-constraints.txt
 
 # НЮАНС #6: paho-mqtt, psutil, xxhash отсутствуют в requirements.txt
 log_info "Установка недостающих зависимостей (нюанс: не в requirements.txt)..."
