@@ -107,6 +107,21 @@ function toggleTheme() {
     _isLightTheme = !_isLightTheme;
     document.body.classList.toggle('light-theme', _isLightTheme);
     localStorage.setItem('gallery-theme', _isLightTheme ? 'light' : 'dark');
+    updateLogo();
+    updateThemeBtn();
+}
+
+function updateLogo() {
+    var logo = document.querySelector('.topbar .logo');
+    if (!logo) return;
+    logo.src = _isLightTheme ? (logo.getAttribute('data-light') || logo.getAttribute('data-dark')) : (logo.getAttribute('data-dark') || logo.getAttribute('data-light'));
+}
+
+function updateThemeBtn() {
+    var btn = byId('themeBtn');
+    if (!btn) return;
+    btn.textContent = _isLightTheme ? '🌙' : '☀️';
+    btn.title = _isLightTheme ? 'Ночная тема' : 'Дневная тема';
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -122,6 +137,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var themeBtn = byId('themeBtn');
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
     if (_isLightTheme) document.body.classList.add('light-theme');
+    updateLogo();
+    updateThemeBtn();
     navigate(_activePage);
 });
 

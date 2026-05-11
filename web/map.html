@@ -7,9 +7,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Карта — Gailery</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="/lib/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="/lib/leaflet/MarkerCluster.css" />
+    <link rel="stylesheet" href="/lib/leaflet/MarkerCluster.Default.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
@@ -170,7 +170,7 @@
             <a href="/persons">Персоны</a>
             <a href="/admin">Управление</a>
         </div>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀</button>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
     </h1>
 
     <div class="mm-overlay" id="mmOverlay"></div>
@@ -185,7 +185,7 @@
             <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
             <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
         </div>
-        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀</span><span id="mmThemeLbl">Дневная тема</span></button></div>
+        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
     </div>
     <div id="map"></div>
     <div class="info-bar">
@@ -219,8 +219,8 @@
 
     <div class="pick-success" id="pickSuccess">Точка успешно установлена!</div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="/lib/leaflet/leaflet.js"></script>
+    <script src="/lib/leaflet/leaflet.markercluster.js"></script>
     <script>
         var API = '/api';
         var mapPhotos = [];
@@ -766,7 +766,7 @@ function toggleTheme() {
 function updateThemeIcon() {
     var btn = document.querySelector('.theme-toggle');
     if (btn) {
-        btn.innerHTML = _isLightTheme ? '\u263E' : '\u2600';
+        btn.innerHTML = _isLightTheme ? '🌙' : '☀️';
         btn.title = _isLightTheme ? 'Тёмная тема' : 'Дневная тема';
     }
 }
@@ -804,7 +804,7 @@ function toggleMobileNav() {
 function updateMmTheme() {
     var ico = document.getElementById('mmThemeIco');
     var lbl = document.getElementById('mmThemeLbl');
-    if (ico) ico.innerHTML = _isLightTheme ? '\u263E' : '\u2600';
+    if (ico) ico.innerHTML = _isLightTheme ? '🌙' : '☀️';
     if (lbl) lbl.textContent = _isLightTheme ? 'Тёмная тема' : 'Дневная тема';
     var mmLogo = document.querySelector('.mm-head img');
     if (mmLogo) mmLogo.src = _isLightTheme ? mmLogo.dataset.light : mmLogo.dataset.dark;

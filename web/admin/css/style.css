@@ -70,7 +70,12 @@ a { color: inherit; text-decoration: none; }
     grid-column: 1 / -1; background: #161b22; border-bottom: 1px solid #30363d;
     display: flex; align-items: center; padding: 0 16px; gap: 16px;
 }
-.topbar .title { font-weight: 600; font-size: 14px; color: #e3b341; }
+.topbar .logo-link { display: flex; align-items: center; text-decoration: none; }
+.topbar .logo { height: 28px; width: auto; margin-right: 6px; }
+.topbar .topbar-nav { display: flex; gap: 2px; margin-left: 8px; }
+.topbar .topbar-nav a { color: #6e7681; text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 4px; }
+.topbar .topbar-nav a:hover { color: #c9d1d9; background: rgba(255,255,255,.06); }
+.topbar .topbar-nav a.active { color: #58a6ff; }
 .topbar .mqtt-summary { margin-left: auto; font-size: 12px; color: #6e7681; display: flex; gap: 12px; }
 .topbar .mqtt-summary .w { padding: 2px 8px; border-radius: 4px; background: #21262d; }
 .topbar .mqtt-summary .w.run { color: #3fb950; background: rgba(63,185,80,.15); border: 1px solid #3fb950; }
@@ -310,7 +315,9 @@ a { color: inherit; text-decoration: none; }
 /* ═════════════════════ LIGHT THEME — from control.html ═════════════════════ */
 .light-theme { background: #ffffff; color: #24292f; }
 .light-theme .topbar { background: #fff; border-color: #d0d7de; }
-.light-theme .topbar .title { color: #0969da; }
+.light-theme .topbar .topbar-nav a { color: #57606a; }
+.light-theme .topbar .topbar-nav a:hover { color: #24292f; background: rgba(0,0,0,.04); }
+.light-theme .topbar .topbar-nav a.active { color: #0969da; }
 .light-theme .topbar .mqtt-summary { color: #57606a; }
 .light-theme .topbar .mqtt-summary .w { background: #eaeef2; }
 .light-theme .topbar .theme-btn { color: #0969da; }
@@ -483,6 +490,7 @@ a { color: inherit; text-decoration: none; }
     .sidebar.open { display: block; }
     .main { grid-column: 1; padding: 10px 12px; }
     .topbar .burger { display: block; }
+    .topbar .topbar-nav { display: none; }
     .summary { grid-template-columns: repeat(3, 1fr); gap: 6px; }
     .sbox .sv { font-size: 18px; }
     .sbox .sl { font-size: 9px; }

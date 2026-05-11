@@ -1,13 +1,20 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/admin/css/style.css?v=39"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=39"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/admin/css/style.css?v=41"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=41"></head>
 <body>
 <div class="topbar">
     <button class="burger">☰</button>
-    <span class="title">👁 Gailery Admin</span>
+    <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a>
+    <nav class="topbar-nav">
+        <a href="/gallery">Галерея</a>
+        <a href="/catalog">Каталог</a>
+        <a href="/map">Карта</a>
+        <a href="/persons">Персоны</a>
+        <a href="/admin" class="active">Управление</a>
+    </nav>
     <span class="mqtt-summary" id="mqttSummary"></span>
-    <span style="font-size:11px;color:#6e7681;margin-left:8px" id="watchdogInfo"></span>
-    <button class="theme-btn" id="themeBtn" title="Тема">☀</button>
+    <span class="c-dim" style="font-size:11px;margin-left:8px" id="watchdogInfo"></span>
+    <button class="theme-btn" id="themeBtn" title="Дневная тема">☀️</button>
 </div>
 <nav class="sidebar" id="sidebar">
     <div class="section"><div class="section-title">Главное</div>
@@ -47,17 +54,17 @@
 <div class="page" id="page-workers"></div>
 <div class="page" id="page-monitoring"></div>
 </main>
-<script src="/admin/js/admin-core.js?v=39"></script>
-<script src="/admin/js/dashboard.js?v=39"></script>
-<script src="/admin/js/pipeline.js?v=39"></script>
-<script src="/admin/js/watchdog.js?v=39"></script>
-<script src="/admin/js/workers.js?v=39"></script>
-<script src="/admin/js/logs.js?v=39"></script>
-<script src="/admin/js/tools.js?v=39"></script>
-<script src="/admin/js/config.js?v=39"></script>
-<script src="/admin/js/ollama.js?v=39"></script>
-<script src="/admin/js/routing.js?v=39"></script>
-<script src="/admin/js/uplot.min.js?v=39"></script>
-<script src="/admin/js/monitoring.js?v=39"></script>
+<script src="/admin/js/admin-core.js?v=41"></script>
+<script src="/admin/js/dashboard.js?v=41"></script>
+<script src="/admin/js/pipeline.js?v=41"></script>
+<script src="/admin/js/watchdog.js?v=41"></script>
+<script src="/admin/js/workers.js?v=41"></script>
+<script src="/admin/js/logs.js?v=41"></script>
+<script src="/admin/js/tools.js?v=41"></script>
+<script src="/admin/js/config.js?v=41"></script>
+<script src="/admin/js/ollama.js?v=41"></script>
+<script src="/admin/js/routing.js?v=41"></script>
+<script src="/admin/js/uplot.min.js?v=41"></script>
+<script src="/admin/js/monitoring.js?v=41"></script>
 </body>
 </html>

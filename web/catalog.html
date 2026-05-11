@@ -297,7 +297,7 @@
             <a href="/persons">Персоны</a>
             <a href="/admin">Управление</a>
         </div>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀</button>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
     </h1>
 
     <div class="mm-overlay" id="mmOverlay"></div>
@@ -312,7 +312,7 @@
             <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
             <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
         </div>
-        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀</span><span id="mmThemeLbl">Дневная тема</span></button></div>
+        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
     </div>
 
     <div class="fm">
@@ -1096,7 +1096,7 @@ function toggleTheme() {
 function updateThemeIcon() {
     var btn = document.querySelector('.theme-toggle');
     if (btn) {
-        btn.innerHTML = _isLightTheme ? '\u263E' : '\u2600';
+        btn.innerHTML = _isLightTheme ? '🌙' : '☀️';
         btn.title = _isLightTheme ? 'Тёмная тема' : 'Дневная тема';
     }
 }
@@ -1134,7 +1134,7 @@ function toggleMobileNav() {
 function updateMmTheme() {
     var ico = document.getElementById('mmThemeIco');
     var lbl = document.getElementById('mmThemeLbl');
-    if (ico) ico.innerHTML = _isLightTheme ? '\u263E' : '\u2600';
+    if (ico) ico.innerHTML = _isLightTheme ? '🌙' : '☀️';
     if (lbl) lbl.textContent = _isLightTheme ? 'Тёмная тема' : 'Дневная тема';
     var mmLogo = document.querySelector('.mm-head img');
     if (mmLogo) mmLogo.src = _isLightTheme ? mmLogo.dataset.light : mmLogo.dataset.dark;

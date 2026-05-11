@@ -861,6 +861,9 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 web_dir = Path(__file__).parent.parent / "web"
+lib_dir = web_dir / "lib"
+if lib_dir.exists():
+    app.mount("/lib", StaticFiles(directory=str(lib_dir)), name="lib")
 
 @app.get("/logo-dark.png")
 async def logo_dark():
