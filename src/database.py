@@ -724,9 +724,10 @@ deleted=None, deleted_only=None,
         faces = self.sqlite.execute(
             "SELECT face_id, persona_id, photo_id FROM faces"
         ).fetchall()
-        df = self.face_vectors.search().select(["face_id", "embedding"]).limit(10000000).to_pandas()
-        face_ids = df["face_id"].values
-        embeddings_all = np.stack(df["embedding"].values)
+        tbl = self.face_vectors.search().select(["face_id", "embedding"]).limit(10000000).to_arrow()
+        face_ids = tbl.column("face_id").to_pylist()
+        embeddings_col = tbl.column("embedding").to_pylist()
+        embeddings_all = np.stack([np.array(e, dtype=np.float32) for e in embeddings_col])
         id_to_idx = {fid: i for i, fid in enumerate(face_ids)}
         result = []
         for f in faces:

@@ -456,9 +456,10 @@ def process_directory(photo_dir, batch_size=BATCH_SIZE, limit=0):
                 if parsed.get("issue_type") == "corrupted":
                     ext = os.path.splitext(str(path))[1].lower()
                     if ext in {".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp", ".wmv", ".mpg", ".mpeg", ".m4v", ".flv", ".vob", ".ts"}:
-                        db.sqlite.execute("UPDATE photos SET media_type = 'video', description = NULL, faces_present = 0 WHERE path = ? AND deleted = 0", (str(path),))
+                        db.sqlite.execute("UPDATE photos SET media_type = 'video', description = '[видео]', faces_present = 0 WHERE path = ? AND deleted = 0", (str(path),))
                         db.sqlite.commit()
-                        log(f"    set media_type=video (not an image)")
+                        db.update_catalog_file_by_path(str(path), described=1, faces_done=0)
+                        log(f"    set media_type=video (not an image), description='[видео]'")
                         continue
                     db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE path = ? AND deleted = 0", (str(path),))
                     db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (str(path),))

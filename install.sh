@@ -83,6 +83,7 @@ VENV_DIR="$INSTALL_DIR/venv"
 LLAMA_CPP_DIR="/opt/llama.cpp"
 GGUF_DIR="$INSTALL_DIR/models/gguf"
 CUDA_ARCH="61"
+CODE_UPDATED=0
 
 # =============================================================================
 # Проверка предварительных условий
@@ -145,15 +146,26 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
 log_info "Системные пакеты установлены"
 
 # =============================================================================
-# 2. Клонирование репозитория
+# 2. Клонирование / обновление репозитория
 # =============================================================================
-log_step "2. Клонирование репозитория"
+log_step "2. Клонирование / обновление репозитория"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
-    log_info "Репозиторий уже в $INSTALL_DIR"
+    log_info "Репозиторий в $INSTALL_DIR — обновляем..."
+    BEFORE=$(git -C "$INSTALL_DIR" rev-parse HEAD)
+    git -C "$INSTALL_DIR" pull --ff-only
+    AFTER=$(git -C "$INSTALL_DIR" rev-parse HEAD)
+    if [ "$BEFORE" != "$AFTER" ]; then
+        log_info "Обновлено: $BEFORE → $AFTER"
+        CODE_UPDATED=1
+    else
+        log_info "Код актуален (без изменений)"
+        CODE_UPDATED=0
+    fi
 else
     git clone https://github.com/siv237/gailery.git "$INSTALL_DIR"
     log_info "Репозиторий клонирован в $INSTALL_DIR"
+    CODE_UPDATED=1
 fi
 
 # =============================================================================
@@ -217,7 +229,7 @@ rm -f /tmp/gailery-req-notorch.txt /tmp/gailery-constraints.txt
 
 # НЮАНС #6: paho-mqtt, psutil, xxhash отсутствуют в requirements.txt
 log_info "Установка недостающих зависимостей (нюанс: не в requirements.txt)..."
-pip install paho-mqtt psutil xxhash
+pip install paho-mqtt psutil xxhash pandas
 
 log_info "Установка python-multipart (нюанс #11: нужен для backup upload)..."
 pip install python-multipart
@@ -266,7 +278,21 @@ fi
 log_step "6. Сборка llama.cpp с CUDA"
 
 if [ -x "$LLAMA_CPP_DIR/build/bin/llama-server" ]; then
-    log_info "llama-server уже собран"
+    if [ "$CODE_UPDATED" -eq 1 ]; then
+        log_info "llama-server собран, но код обновлён — пересборка..."
+        git -C "$LLAMA_CPP_DIR" pull --ff-only 2>/dev/null || true
+        cmake -B "$LLAMA_CPP_DIR/build" -S "$LLAMA_CPP_DIR" \
+            -DGGML_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+            -DCMAKE_C_COMPILER=gcc-12 \
+            -DCMAKE_CXX_COMPILER=g++-12 \
+            -DCMAKE_CUDA_HOST_COMPILER=g++-12 \
+            -DCMAKE_PREFIX_PATH=/usr/local/cuda-12.6
+        cmake --build "$LLAMA_CPP_DIR/build" --config Release -j"$(nproc)"
+        log_info "llama-server пересобран"
+    else
+        log_info "llama-server уже собран и код не обновлялся"
+    fi
 else
     if [ ! -d "$LLAMA_CPP_DIR/.git" ]; then
         git clone https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
@@ -535,14 +561,30 @@ fi
 # =============================================================================
 # 12. Запуск веб-сервера
 # =============================================================================
-log_step "12. Запуск gailery"
+log_step "12. Запуск gailery (пропуск — запуск на шаге 14)"
 
-systemctl start gailery || true
+true
+
+# =============================================================================
+# 14. Перезапуск сервисов (при обновлении кода)
+# =============================================================================
+log_step "14. Перезапуск сервисов"
+
+if [ "$CODE_UPDATED" -eq 1 ]; then
+    log_info "Код обновлён — перезапускаем сервисы..."
+    systemctl restart gailery || true
+    systemctl restart gailery-pipeline 2>/dev/null || true
+    systemctl restart gailery-watchdog 2>/dev/null || true
+    log_info "Сервисы перезапущены"
+else
+    log_info "Код не обновлялся — перезапуск не нужен"
+    systemctl start gailery || true
+fi
 
 sleep 3
 
 # =============================================================================
-# 13. Проверка установки
+# 15. Проверка установки
 # =============================================================================
 log_step "13. Проверка установки"
 
