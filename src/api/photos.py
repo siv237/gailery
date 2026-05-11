@@ -100,7 +100,7 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
         "is_raw": is_raw,
         "media_type": p.get("media_type", "photo"),
         "duration_seconds": p.get("duration_seconds", 0),
-        "needs_stream": p.get("media_type") == "video" and Path(p.get("path", "")).suffix.lower() in STREAM_VIDEO_EXTS,
+        "needs_stream": _video_needs_stream(p),
         "is_canonical": p.get("is_canonical", True),
         "duplicate_paths": p.get("duplicate_paths", []),
         "content_hash": p.get("content_hash"),
@@ -428,6 +428,25 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         raise HTTPException(status_code=500, detail="Failed to get face context")
 
 
+_video_codec_cache = {}
+
+
+def _video_needs_stream(p):
+    if p.get("media_type") != "video":
+        return False
+    video_path = p.get("path", "")
+    if not video_path or not Path(video_path).exists():
+        ext = Path(video_path).suffix.lower() if video_path else ""
+        return ext in STREAM_VIDEO_EXTS
+    ch = p.get("content_hash") or video_path
+    if ch in _video_codec_cache:
+        return _video_codec_cache[ch]
+    vc, ac, _ = _probe_video_codecs(Path(video_path))
+    needs = not (vc in ("h264",) and ac in ("aac", "mp4a"))
+    _video_codec_cache[ch] = needs
+    return needs
+
+
 def _resolve_photo_path(path: str):
     from database import get_db
     db = get_db()
@@ -595,7 +614,7 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
             return _start_ffmpeg_transcode(photo_path, seek)
 
     range_header = request.headers.get("range", "") if request else ""
-    if range_header:
+    if range_header and strategy == "remux":
         m = re.match(r'bytes=(\d+)-(\d*)', range_header)
         if m:
             start_byte = int(m.group(1))
@@ -623,7 +642,6 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
         status_code=200,
         media_type="video/mp4",
         headers={
-            "Accept-Ranges": "bytes",
             "Cache-Control": "no-cache",
         }
     )
