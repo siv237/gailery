@@ -11,9 +11,11 @@ A.renderBlock_workers = function(containerId) {
     if (!el) return;
     el.innerHTML =
         '<div class="workers-panel"><h3>🔌 Воркеры MQTT</h3>'+
-        '<div class="workers-grid" id="wkGrid_'+containerId+'"></div></div>';
+        '<div class="workers-grid" id="wkGrid_'+containerId+'"></div>'+
+        '<div id="dbWriterBlock_'+containerId+'"></div></div>';
     A.ajax('/api/mqtt/workers', function(d) {
         A.renderWorkerCards('wkGrid_'+containerId, d.workers || {});
+        renderDbWriter('dbWriterBlock_'+containerId, d);
     });
 };
 
@@ -30,6 +32,7 @@ function buildUI() {
         '<h2 class="page-h2">🔌 Воркеры MQTT</h2>'+
         '<div class="workers-panel"><h3>Воркеры MQTT <span id="watchdogStatus" style="font-weight:normal;font-size:11px"></span></h3>'+
         '<div class="workers-grid" id="workersGrid"></div>'+
+        '<div id="dbWriterBlock"></div>'+
         '<div style="margin-top:8px"><button class="btn btn-go btn-sm" id="btnCrashLog">Журнал срабатываний</button><span id="crashCount" class="c-orange" style="font-size:11px;margin-left:8px"></span></div>'+
         '<div id="crashLog" class="crash-log" style="display:none"></div></div>';
     A.$('btnCrashLog').addEventListener('click', toggleCrashLog);
@@ -40,6 +43,7 @@ function loadWorkers() {
     A.ajax('/api/mqtt/workers', function(d) {
         var w = d.workers || {};
         A.renderWorkerCards('workersGrid', w);
+        renderDbWriter('dbWriterBlock', d);
         window._lastWorkers = w;
         var anyAlive = false, anyDead = false;
         for (var i=0;i<A.WORKER_NAMES.length;i++) {
@@ -121,6 +125,27 @@ function loadCrashes() {
             }
         }
     });
+}
+
+function renderDbWriter(containerId, d) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    var workers = d.workers || {};
+    var p = workers.pipeline || {};
+    var isAlive = p.alive || false;
+    var dotCls = isAlive ? 'alive' : 'idle';
+    var subTopic = 'gailray/db/cmd';
+    var resTopic = 'gailray/db/result/{id}';
+    var statusText = isAlive ? 'подписан на ' + subTopic : 'не запущен — запись через fallback';
+    var statusCls = isAlive ? 'c-ok' : 'c-warn';
+    el.innerHTML =
+        '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">'+
+        '<div class="wcard" style="max-width:340px">'+
+        '<div class="wcard-name"><span>🗄 DB Writer (pipeline)</span><span class="wcard-dot '+dotCls+'"></span></div>'+
+        '<div class="wcard-row">Подписка: <b class="'+statusCls+'">'+esc(statusText)+'</b></div>'+
+        '<div class="wcard-row c-dim" style="font-size:11px">Команды: insert_system_metric, control_reset, set_setting, update_photo, set_gps, set_date, mark_deleted, undelete, update_persona, merge_personas, add_catalog_root, vacuum, dedup_embeddings</div>'+
+        '<div class="wcard-row c-dim" style="font-size:11px">Ответ: '+esc(resTopic)+'</div>'+
+        '</div></div>';
 }
 
 A.on('navigate', function(page) {
