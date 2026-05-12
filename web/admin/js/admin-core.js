@@ -216,7 +216,7 @@ function renderWorkerCards(containerId, workers, dbWriting) {
     var wCls = dbWriting ? 'db-write-active' : '';
     var dotCls = dbWriting ? 'alive' : 'idle';
     h += '<div class="wcard '+wCls+'" id="dbWriteCard">';
-    h += '<div class="wcard-name"><span>🗄 Запись в БД</span><span class="wcard-dot '+dotCls+'"></span></div>';
+    h += '<div class="wcard-name"><span>Запись в БД</span><span class="wcard-dot '+dotCls+'"></span></div>';
     h += '<div class="wcard-row">'+(dbWriting?'<b class="c-ok">⚡ пишет</b>':'<span class="c-dim">ожидание</span>')+'</div>';
     h += '</div>';
     el.innerHTML = h;
