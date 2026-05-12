@@ -781,6 +781,44 @@ async def control_stop():
     return {"ok": True}
 
 
+@app.post("/api/control/reset")
+async def control_reset(body: dict):
+    step = body.get("step", "")
+    db = get_db()
+    reset_map = {
+        "describe": [
+            ("UPDATE photos SET description=NULL, faces_present=0, embedded=0, rich_description=NULL WHERE deleted=0", None),
+            ("UPDATE catalog_files SET described=0 WHERE is_canonical=1 AND deleted=0", None),
+        ],
+        "faces": [
+            ("DELETE FROM faces", None),
+            ("UPDATE photos SET faces_present=0 WHERE deleted=0", None),
+            ("UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0", None),
+            ("DELETE FROM personas", None),
+        ],
+        "exif": [
+            ("UPDATE photos SET exif_checked=0 WHERE deleted=0", None),
+            ("UPDATE catalog_files SET exif_done=0 WHERE is_canonical=1 AND deleted=0", None),
+        ],
+        "embed": [
+            ("UPDATE photos SET embedded=0 WHERE deleted=0", None),
+            ("UPDATE catalog_files SET embedded=0 WHERE is_canonical=1 AND deleted=0", None),
+        ],
+    }
+    sqls = reset_map.get(step)
+    if not sqls:
+        return {"ok": False, "error": f"unknown step: {step}"}
+    affected = 0
+    for sql, _ in sqls:
+        cur = db.sqlite.execute(sql)
+        affected += cur.rowcount
+    db.sqlite.commit()
+    from datetime import datetime
+    with open(str(LOG_FILE), "a") as f:
+        f.write(f"[{datetime.now().isoformat()}] [CONTROL] RESET {step}: {affected} rows affected\n")
+    return {"ok": True, "step": step, "affected": affected}
+
+
 @app.get("/api/changes")
 async def get_changes(limit: int = 100):
     from database import DatabaseManager, get_db

@@ -102,15 +102,12 @@ def get_progress(root_id=None):
     p_faces = faces_done / max(faces_flagged, 1) * 100 if faces_flagged > 0 else 100
     p_embed = embedded / max(ingested_photos, 1) * 100
 
-    faces_no_cluster = cur.execute("SELECT COUNT(*) FROM faces WHERE persona_id IS NULL OR persona_id = ''").fetchone()[0]
-
     return {
         "ingest": (ingested, cat_total, p_ingest),
         "describe": (described, ingested_photos, p_describe),
         "exif": (exif_checked, ingested_photos, p_exif),
         "faces": (faces_done, faces_flagged, p_faces),
         "faces_pending": faces_pending,
-        "faces_no_cluster": faces_no_cluster,
         "embed": (embedded, ingested_photos, p_embed),
         "videos": {
             "catalog": videos_catalog,
@@ -240,8 +237,7 @@ def main():
                 if stopped():
                     break
 
-            faces_unclustered = progress.get("faces_no_cluster", 0)
-            if progress["faces"][2] < 100 or progress.get("faces_pending", 0) > 0 or faces_unclustered > 0:
+            if progress["faces"][2] < 100 or progress.get("faces_pending", 0) > 0:
                 kill_orphan_llama_servers()
                 run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py"])
                 if stopped():

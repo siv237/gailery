@@ -469,6 +469,7 @@ function renderTasks() {
         h += '<div class="task-btns" data-stop-propagation>';
         h += '<button class="btn btn-go" data-task="'+t.id+'" data-action="run" '+(run?'disabled':'')+'>Запустить</button>';
         h += '<button class="btn btn-stop" data-task="'+t.id+'" data-action="stop" '+(isActive?'':'disabled')+'>Стоп</button>';
+        h += '<button class="btn btn-warn" data-task="'+t.id+'" data-action="reset">Сброс</button>';
         h += '</div></div>';
         h += '<div class="task-body" id="tb_'+t.id+'">';
         if (t.params.length>0) {
@@ -495,6 +496,9 @@ function renderTasks() {
     });
     sec.querySelectorAll('.task-btns button[data-task][data-action="stop"]').forEach(function(btn) {
         btn.addEventListener('click', function(e) { e.stopPropagation(); A._stopTask(this.getAttribute('data-task')); });
+    });
+    sec.querySelectorAll('.task-btns button[data-task][data-action="reset"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) { e.stopPropagation(); A._resetTask(this.getAttribute('data-task')); });
     });
     sec.querySelectorAll('.task-btns[data-stop-propagation]').forEach(function(el) {
         el.addEventListener('click', function(e) { e.stopPropagation(); });
@@ -528,6 +532,20 @@ A._stopTask = function(step) {
         if (d.ok) {
             taskState[step] = {status:'idle',started:taskState[step].started,stopped:new Date(),baseCount:0};
             renderCyclo(); renderTasks(); loadStatus();
+        }
+    });
+};
+
+A._resetTask = function(step) {
+    var name = '';
+    TASKS.forEach(function(t) { if (t.id===step) name = t.name; });
+    if (!confirm('Сбросить результаты шага «'+name+'»?\nЭто обнулит прогресс и позволит выполнить шаг заново.')) return;
+    A.post('/api/control/reset', {step:step}, function(d) {
+        if (d.ok) {
+            taskState[step] = {status:'idle',started:null,stopped:null,startPct:0,baseCount:0};
+            renderCyclo(); renderTasks(); loadStatus();
+        } else {
+            alert('Ошибка: '+(d.error||'неизвестно'));
         }
     });
 };
