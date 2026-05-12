@@ -1171,21 +1171,35 @@ async def get_config():
         FACE_DETECTION_MODEL, FACE_CONFIDENCE_THRESHOLD,
         EMBEDDING_MODEL, EMBEDDING_DIM, BATCH_SIZE, MAX_WORKERS,
         LANCEDB_PATH, FLAG_DIR, LOG_FILE,
+        SERVICE_NAME, MQTT_PREFIX,
+        OLLAMA_MODE, OLLAMA_BASE_URL, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_CHUNK, OLLAMA_DESCRIBE_MODEL,
     )
+    try:
+        from config import embed_backend, search_backend, describe_backend
+    except ImportError:
+        embed_backend = search_backend = describe_backend = ""
     groups = [
+        {
+            "name": "Сервис",
+            "icon": "\U0001f3e0",
+            "params": [
+                {"k": "GALLERY_SERVICE_NAME", "v": SERVICE_NAME, "d": "Имя сервиса (systemd, MQTT prefix по умолчанию)"},
+                {"k": "GALLERY_MQTT_PREFIX", "v": MQTT_PREFIX, "d": "MQTT префикс (топики: {prefix}/worker/...)"},
+            ]
+        },
         {
             "name": "Пути",
             "icon": "\U0001f4c1",
             "params": [
-                {"k": "Корни фото (catalog_roots)", "v": ", ".join(r["root_path"] for r in get_db().get_catalog_roots()), "d": "Динамические корни из каталога"},
-                {"k": "PHOTO_SHARE_PATH", "v": str(PHOTO_SHARE_PATH), "d": "Корневая папка фото"},
-                {"k": "DATA_DIR", "v": str(DATA_DIR), "d": "Директория данных (БД, LanceDB, флаги)"},
-                {"k": "THUMBNAILS_DIR", "v": str(THUMBNAILS_DIR), "d": "Директория превью"},
-                {"k": "LOGS_DIR", "v": str(LOGS_DIR), "d": "Директория логов"},
-                {"k": "LLAMA_CPP_DIR", "v": str(LLAMA_CPP_DIR), "d": "Путь к llama.cpp"},
-                {"k": "LANCEDB_PATH", "v": str(LANCEDB_PATH), "d": "Путь к LanceDB"},
+                {"k": "Корни фото (catalog_roots)", "v": ", ".join(r["root_path"] for r in get_db().get_catalog_roots()), "d": "Динамические корни из каталога", "path": True},
+                {"k": "PHOTO_SHARE_PATH", "v": str(PHOTO_SHARE_PATH), "d": "Корневая папка фото", "path": True},
+                {"k": "DATA_DIR", "v": str(DATA_DIR), "d": "Директория данных (БД, LanceDB, флаги)", "path": True},
+                {"k": "THUMBNAILS_DIR", "v": str(THUMBNAILS_DIR), "d": "Директория превью", "path": True},
+                {"k": "LOGS_DIR", "v": str(LOGS_DIR), "d": "Директория логов", "path": True},
+                {"k": "LLAMA_CPP_DIR", "v": str(LLAMA_CPP_DIR), "d": "Путь к llama.cpp", "path": True},
+                {"k": "LANCEDB_PATH", "v": str(LANCEDB_PATH), "d": "Путь к LanceDB", "path": True},
                 {"k": "LOG_FILE", "v": str(LOG_FILE), "d": "Файл лога пайплайна"},
-                {"k": "FLAG_DIR", "v": str(FLAG_DIR), "d": "Директория флагов воркеров"},
+                {"k": "FLAG_DIR", "v": str(FLAG_DIR), "d": "Директория флагов воркеров", "path": True},
             ]
         },
         {
@@ -1196,6 +1210,20 @@ async def get_config():
                 {"k": "MQTT_PORT", "v": str(MQTT_PORT), "d": "TCP порт MQTT"},
                 {"k": "MQTT_WS_PORT", "v": str(MQTT_WS_PORT), "d": "WebSocket порт MQTT"},
                 {"k": "GPU_LOCK_TIMEOUT", "v": str(GPU_LOCK_TIMEOUT), "d": "Таймаут захвата GPU (сек)"},
+            ]
+        },
+        {
+            "name": "Маршрутизация AI",
+            "icon": "\U0001f500",
+            "params": [
+                {"k": "OLLAMA_MODE", "v": OLLAMA_MODE, "d": "Режим: local | ollama (глобальный override)"},
+                {"k": "OLLAMA_BASE_URL", "v": OLLAMA_BASE_URL, "d": "URL Ollama сервера", "url": True},
+                {"k": "OLLAMA_EMBED_MODEL", "v": OLLAMA_EMBED_MODEL, "d": "Модель Ollama для эмбеддингов"},
+                {"k": "OLLAMA_EMBED_CHUNK", "v": str(OLLAMA_EMBED_CHUNK), "d": "Размер чанка Ollama эмбеддингов"},
+                {"k": "OLLAMA_DESCRIBE_MODEL", "v": OLLAMA_DESCRIBE_MODEL, "d": "Модель Ollama для описания фото"},
+                {"k": "embed_backend", "v": embed_backend or "(из OLLAMA_MODE)", "d": "Бэкенд эмбеддингов: local | ollama"},
+                {"k": "search_backend", "v": search_backend or "(из OLLAMA_MODE)", "d": "Бэкенд поиска: local | ollama"},
+                {"k": "describe_backend", "v": describe_backend or "(из OLLAMA_MODE)", "d": "Бэкенд описания: local | ollama"},
             ]
         },
         {
@@ -1271,6 +1299,12 @@ async def get_config():
             ]
         },
     ]
+    from pathlib import Path as _P
+    for g in groups:
+        for p in g["params"]:
+            if p.get("path"):
+                v = p["v"].split(",")[0].strip()
+                p["exists"] = _P(v).is_dir() if v else False
     result = {"groups": groups}
     _config_cache["data"] = result
     _config_cache["ts"] = _time.time()

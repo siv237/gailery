@@ -28,7 +28,11 @@ A.renderBlock_config = function(containerId) {
             for (var j=0;j<g.params.length;j++) {
                 var p = g.params[j];
                 var isPrompt = p.k.indexOf('SYSTEM_PROMPT')!==-1||p.k.indexOf('tool:')!==-1;
-                h += '<div class="cfg-row"><div class="cfg-key">'+A.esc(p.k)+'</div>';
+                var pathBadge = '';
+                if (p.path) {
+                    pathBadge = p.exists ? ' <span class="c-ok" title="Директория существует">✓</span>' : ' <span class="c-err" title="Директория НЕ найдена!">✗</span>';
+                }
+                h += '<div class="cfg-row"><div class="cfg-key">'+A.esc(p.k)+pathBadge+'</div>';
                 if (isPrompt) h += '<div class="cfg-val cfg-prompt"><pre>'+A.esc(p.v)+'</pre></div>';
                 else h += '<div class="cfg-val">'+A.esc(p.v)+'</div>';
                 h += '<div class="cfg-desc">'+A.esc(p.d)+'</div></div>';
