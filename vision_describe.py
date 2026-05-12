@@ -378,17 +378,10 @@ def save_description(db, photo_path, parsed):
             db.sqlite.execute("UPDATE photos SET embedded = 0 WHERE photo_id = ?", (photo["photo_id"],))
             db.sqlite.commit()
             db.update_catalog_file_by_path(path_str, described=1, faces_done=int(parsed["has_faces"]))
-            verify = db.sqlite.execute("SELECT description FROM photos WHERE photo_id = ?", (photo["photo_id"],)).fetchone()
-            if verify and verify[0]:
-                log(f"    DB OK: description saved ({len(verify[0])} chars)")
-            else:
-                log(f"    DB FAIL: description NOT saved after commit!")
         else:
-            log(f"    [WARN] Photo not in DB, skipping: {path_str}")
+            print(f"[WARN] Photo not in DB, skipping: {path_str}", flush=True)
     except Exception as e:
-        log(f"    [WARN] DB save failed for {path_str}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[WARN] DB save failed for {path_str}: {e}", flush=True)
 
 
 def process_single(photo_path):

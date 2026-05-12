@@ -66,48 +66,22 @@ class DatabaseManager:
         self.lancedb_path.mkdir(parents=True, exist_ok=True)
         self.vectordb = lancedb.connect(str(self.lancedb_path))
 
-        self._create_tables_or_wait()
+        self._create_tables()
         self._open_vector_tables()
 
         logger.info(f"Database initialized: SQLite={self.db_path}, LanceDB={self.lancedb_path}")
 
-    def _schema_is_current(self):
-        try:
-            self.sqlite.execute("SELECT 1 FROM photos LIMIT 1")
-            cols = {r[1] for r in self.sqlite.execute("PRAGMA table_info(photos)").fetchall()}
-            required = {"photo_id","path","description","faces_present","exif_checked","embedded","has_issues","issue_type","photo_type","media_type","deleted","rich_description","manual_date","manual_gps","root_id"}
-            if not required.issubset(cols):
-                return False
-            cols = {r[1] for r in self.sqlite.execute("PRAGMA table_info(catalog_files)").fetchall()}
-            required_cf = {"content_hash","is_canonical","deleted","deleted_type"}
-            if not required_cf.issubset(cols):
-                return False
-            cols = {r[1] for r in self.sqlite.execute("PRAGMA table_info(faces)").fetchall()}
-            if "content_hash" not in cols:
-                return False
-            for t in ("personas","catalog_roots","changes","settings"):
-                self.sqlite.execute(f"SELECT 1 FROM {t} LIMIT 1")
-            return True
-        except sqlite3.OperationalError:
-            return False
-
-    def _create_tables_or_wait(self):
-        if self._schema_is_current():
-            return
-        import time as _time
-        for attempt in range(10):
-            try:
-                self._create_tables()
-                return
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < 9:
-                    logger.warning(f"database locked on _create_tables, retry {attempt+1}/10 in {3*(attempt+1)}s")
-                    _time.sleep(3 * (attempt + 1))
-                else:
-                    raise
+    SCHEMA_VERSION = 2
 
     def _create_tables(self):
         cur = self.sqlite.cursor()
+        try:
+            v = cur.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
+            if v and int(v[0]) >= self.SCHEMA_VERSION:
+                return
+        except sqlite3.OperationalError:
+            pass
+
         cur.executescript("""
             CREATE TABLE IF NOT EXISTS photos (
                 photo_id TEXT PRIMARY KEY,
@@ -344,6 +318,10 @@ class DatabaseManager:
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts ON system_metrics(timestamp)")
             self.sqlite.commit()
+
+        cur.execute("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT)")
+        cur.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)", (str(self.SCHEMA_VERSION),))
+        self.sqlite.commit()
 
     def _open_vector_tables(self):
         if "photo_embeddings" not in self.vectordb.list_tables().tables:
