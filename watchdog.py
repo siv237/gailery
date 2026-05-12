@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL = 10
 NO_RESTART_FLAG = FLAG_DIR / "no_restart"
 PIPELINE_IDLE_FLAG = FLAG_DIR / "pipeline_idle"
-PIPELINE_SERVICE = "gailray-pipeline"
+PIPELINE_SERVICE = "gailery-pipeline"
 
 MEMORY_WARN_PCT = 85
 MEMORY_CRIT_PCT = 93
