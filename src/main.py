@@ -818,6 +818,41 @@ async def control_reset(body: dict):
     return {"ok": True, "step": step, "affected": affected}
 
 
+@app.post("/api/control/update")
+async def control_update():
+    import subprocess
+    install_dir = str(PROJECT_ROOT)
+    _lf = str(LOG_FILE)
+    from datetime import datetime
+    try:
+        before = subprocess.run(
+            ["git", "-C", install_dir, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+        subprocess.run(["git", "-C", install_dir, "fetch", "origin"], capture_output=True, text=True, timeout=60)
+        subprocess.run(["git", "-C", install_dir, "reset", "--hard", "origin/main"], capture_output=True, text=True, timeout=30)
+        subprocess.run(["git", "-C", install_dir, "clean", "-fd"], capture_output=True, text=True, timeout=30)
+        after = subprocess.run(
+            ["git", "-C", install_dir, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+        if before != after:
+            subprocess.run(["systemctl", "restart", "gailery"], capture_output=True, text=True, timeout=15)
+            subprocess.run(["systemctl", "restart", "gailery-pipeline"], capture_output=True, text=True, timeout=15)
+            subprocess.run(["systemctl", "restart", "gailery-watchdog"], capture_output=True, text=True, timeout=15)
+            with open(_lf, "a") as f:
+                f.write(f"[{datetime.now().isoformat()}] [CONTROL] UPDATE: {before} → {after}, services restarted\n")
+            return {"ok": True, "updated": True, "before": before[:8], "after": after[:8]}
+        else:
+            with open(_lf, "a") as f:
+                f.write(f"[{datetime.now().isoformat()}] [CONTROL] UPDATE: already up-to-date ({before[:8]})\n")
+            return {"ok": True, "updated": False, "commit": before[:8]}
+    except Exception as e:
+        with open(_lf, "a") as f:
+            f.write(f"[{datetime.now().isoformat()}] [CONTROL] UPDATE FAILED: {e}\n")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/changes")
 async def get_changes(limit: int = 100):
     from database import DatabaseManager, get_db

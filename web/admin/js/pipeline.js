@@ -225,9 +225,11 @@ function renderCtrlInto(cid, blockCid) {
         '<label style="margin-left:8px">Источник:</label><select id="'+pfx+'chainRoot" class="ctrl-select"></select>'+
         '<button class="btn btn-go" id="'+pfx+'btnStart" '+(run?'disabled':'')+'>Запустить цепочку</button>'+
         '<button class="btn btn-stop" id="'+pfx+'btnStop" '+(run?'':'disabled')+'>Остановить всё</button>'+
+        '<button class="btn btn-sec" id="'+pfx+'btnUpdate">Обновить</button>'+
         '<span class="c-dim" style="font-size:11px" id="'+pfx+'chainInfo"></span></div>';
     document.getElementById(pfx+'btnStart').addEventListener('click', function() { runChainBlock(blockCid); });
     document.getElementById(pfx+'btnStop').addEventListener('click', function() { stopAllBlock(blockCid); });
+    document.getElementById(pfx+'btnUpdate').addEventListener('click', function() { doUpdate(blockCid); });
     loadRootsBlock(blockCid);
 }
 
@@ -266,6 +268,24 @@ function stopAllBlock(blockCid) {
             if (taskState[t.id].status==='run') taskState[t.id] = {status:'idle',started:taskState[t.id].started,stopped:new Date(),baseCount:0};
         });
         if (infoEl) infoEl.textContent = 'Остановлено '+new Date().toLocaleTimeString();
+    });
+}
+
+function doUpdate(blockCid) {
+    var pfx = 'ps_'+blockCid+'_';
+    var infoEl = document.getElementById(pfx+'chainInfo');
+    if (infoEl) infoEl.textContent = '⏳ Обновление...';
+    A.post('/api/control/update', null, function(d) {
+        if (d.ok) {
+            if (d.updated) {
+                if (infoEl) infoEl.textContent = '✅ Обновлено: '+d.before+' → '+d.after+' (перезапуск)';
+                setTimeout(function() { location.reload(); }, 3000);
+            } else {
+                if (infoEl) infoEl.textContent = '✅ Актуально: '+d.commit;
+            }
+        } else {
+            if (infoEl) infoEl.textContent = '❌ Ошибка: '+(d.error||'');
+        }
     });
 }
 
