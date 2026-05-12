@@ -78,6 +78,7 @@ class DatabaseManager:
                 return
             except sqlite3.OperationalError as e:
                 if "locked" in str(e) and attempt < 9:
+                    logger.warning(f"database locked on _create_tables, retry {attempt+1}/10 in {3*(attempt+1)}s")
                     _time.sleep(3 * (attempt + 1))
                 else:
                     raise
