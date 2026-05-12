@@ -154,6 +154,7 @@ class DatabaseManager:
         self._apply_migrations(cur)
 
     def _apply_migrations(self, cur):
+        cur.execute("PRAGMA table_info(catalog_files)")
         cf_columns = [row[1] for row in cur.fetchall()]
         if 'content_hash' not in cf_columns:
             cur.execute("ALTER TABLE catalog_files ADD COLUMN content_hash TEXT")

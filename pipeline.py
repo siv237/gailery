@@ -130,10 +130,21 @@ def get_progress(root_id=None):
     }
 
 
+def _close_db():
+    global _db
+    if _db is not None:
+        try:
+            _db.sqlite.close()
+        except Exception:
+            pass
+        _db = None
+
+
 def run_step(name, cmd):
     if stopped():
         return -1
     log(f"  START: {name}")
+    _close_db()
     t0 = time.time()
     try:
         result = subprocess.run(cmd, capture_output=False, text=True, env=os.environ.copy())
