@@ -65,10 +65,22 @@ class DatabaseManager:
         self.lancedb_path.mkdir(parents=True, exist_ok=True)
         self.vectordb = lancedb.connect(str(self.lancedb_path))
 
-        self._create_tables()
+        self._create_tables_or_wait()
         self._open_vector_tables()
 
         logger.info(f"Database initialized: SQLite={self.db_path}, LanceDB={self.lancedb_path}")
+
+    def _create_tables_or_wait(self):
+        import time as _time
+        for attempt in range(10):
+            try:
+                self._create_tables()
+                return
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < 9:
+                    _time.sleep(3 * (attempt + 1))
+                else:
+                    raise
 
     def _create_tables(self):
         cur = self.sqlite.cursor()
