@@ -473,6 +473,7 @@ WorkingDirectory=/opt/gailery/src
 Environment=\"PATH=/opt/gailery/venv/bin:/usr/bin:/bin\"
 Environment=\"PYTHONPATH=/opt/gailery/src\"
 ExecStart=/opt/gailery/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+LimitNOFILE=524288
 Restart=always
 RestartSec=10
 StandardOutput=append:/opt/gailery/logs/gailery.log
@@ -545,7 +546,7 @@ else
 fi
 
 systemctl daemon-reload
-systemctl enable gailery
+systemctl enable gailery gailery-pipeline gailery-watchdog
 log_info "Systemd сервисы созданы и включены (gailery, gailery-pipeline, gailery-watchdog)"
 
 # =============================================================================
