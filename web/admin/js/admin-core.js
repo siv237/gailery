@@ -222,23 +222,23 @@ document.addEventListener('DOMContentLoaded', function() {
     var vi = document.getElementById('versionInfo');
     if (vi) {
         A.ajax('/api/status', function(d) {
-            var commit = (d.git_commit || d.commit || '').substring(0,8);
-            var date = d.server_time ? d.server_time.substring(0,10) : '';
-            vi.innerHTML = 'Gailery '+commit+' · '+date+'<br><a href="#" style="color:var(--c-accent,#58a6ff)" id="checkUpdate">Проверить обновления</a>';
+            var c = (d.git_commit || '').substring(0,7);
+            var dt = d.git_date || '';
+            vi.innerHTML = '<div class="ver">Gailery · '+c+' · '+dt+'<br><a href="#" id="checkUpdate">Проверить обновления</a></div>';
             document.getElementById('checkUpdate').addEventListener('click', function(e) {
                 e.preventDefault();
-                this.textContent = 'Проверяем...';
                 var self = this;
+                self.textContent = 'Проверяем…';
                 A.post('/api/control/update', null, function(r) {
                     if (r && r.ok) {
                         if (r.updated) {
-                            self.textContent = 'Обновлено, перезапуск...';
+                            self.textContent = 'Обновлено → перезапуск';
                             setTimeout(function() { location.reload(); }, 3000);
                         } else {
-                            self.textContent = 'Актуально';
+                            self.textContent = 'Уже актуально';
                         }
                     } else {
-                        self.textContent = 'Ошибка: '+(r.error||'');
+                        self.textContent = 'Ошибка';
                     }
                 });
             });
