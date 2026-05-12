@@ -213,6 +213,14 @@ function renderWorkerCards(containerId, workers) {
         if (s.gpu_held) h += '<div class="wcard-row wcard-gpu">GPU</div>';
         h += '</div>';
     }
+    var p = workers.pipeline || {};
+    var dbAlive = p.alive || false;
+    var dbDotCls = dbAlive ? 'alive' : 'idle';
+    h += '<div class="wcard">';
+    h += '<div class="wcard-name"><span>🗄 Запись в БД</span><span class="wcard-dot '+dbDotCls+'"></span></div>';
+    h += '<div class="wcard-row">Подписка: <b class="'+(dbAlive?'c-ok':'c-warn')+'">gailray/db/cmd</b></div>';
+    h += '<div class="wcard-row">'+(dbAlive?'<b class="c-ok">Подписан</b> (pipeline PID '+p.pid+')':'<b class="c-warn">Нет подписчика</b>')+'</div>';
+    h += '</div>';
     el.innerHTML = h;
 }
 
