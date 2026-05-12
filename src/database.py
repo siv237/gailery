@@ -72,13 +72,13 @@ class DatabaseManager:
         logger.info(f"Database initialized: SQLite={self.db_path}, LanceDB={self.lancedb_path}")
 
     def _create_tables_or_wait(self):
-        cur = self.sqlite.cursor()
+        import time as _time
+        tables_exist = False
         try:
-            cur.execute("SELECT 1 FROM photos LIMIT 1")
-            return
+            self.sqlite.execute("SELECT 1 FROM photos LIMIT 1")
+            tables_exist = True
         except sqlite3.OperationalError:
             pass
-        import time as _time
         for attempt in range(10):
             try:
                 self._create_tables()
