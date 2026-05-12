@@ -217,4 +217,26 @@ function renderWorkerCards(containerId, workers) {
 }
 
 window.Admin = A;
+
+document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('btnTopUpdate');
+    if (btn) btn.addEventListener('click', function() {
+        btn.disabled = true;
+        btn.textContent = '⏳ Обновление...';
+        A.post('/api/control/update', null, function(d) {
+            if (d && d.ok) {
+                if (d.updated) {
+                    btn.textContent = '✅ Перезапуск...';
+                    setTimeout(function() { location.reload(); }, 3000);
+                } else {
+                    btn.textContent = '✅ Актуально';
+                    setTimeout(function() { btn.disabled = false; btn.textContent = '⬆ Обновить'; }, 2000);
+                }
+            } else {
+                btn.textContent = '❌ Ошибка';
+                setTimeout(function() { btn.disabled = false; btn.textContent = '⬆ Обновить'; }, 2000);
+            }
+        });
+    });
+});
 })();
