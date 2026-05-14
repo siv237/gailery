@@ -213,7 +213,7 @@ fi
 
 source "$VENV_DIR/bin/activate"
 
-if python3 -c "import torch, fastapi, lancedb, insightface, onnxruntime, llama_cpp, paho.mqtt, psutil, xxhash, pandas" 2>/dev/null; then
+if python3 -c "import torch, fastapi, lancedb, insightface, onnxruntime, paho.mqtt, psutil, xxhash, pandas" 2>/dev/null; then
     log_info "Все Python-зависимости установлены"
 else
     log_info "Установка недостающих Python-зависимостей..."
@@ -234,12 +234,6 @@ CONEOF
 
     pip install paho-mqtt psutil xxhash pandas
     pip install python-multipart
-
-    if ! python3 -c "import llama_cpp" 2>/dev/null; then
-        log_info "Сборка llama-cpp-python с CUDA..."
-        CMAKE_ARGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCH -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc -DCMAKE_PREFIX_PATH=/usr/local/cuda-12.6" \
-            pip install llama-cpp-python --no-cache-dir
-    fi
 fi
 
 log_info "Проверка CUDA в PyTorch..."
@@ -327,10 +321,20 @@ else
 fi
 
 # =============================================================================
-# 6b. llama-cpp-python — установлен в шаге 4
+# 6b. llama-cpp-python (требует CUDA Toolkit из шага 5)
 # =============================================================================
 
-# (интегрировано в шаг 4 для ускорения update-режима)
+source "$INSTALL_DIR/venv/bin/activate"
+
+if ! python3 -c "import llama_cpp" 2>/dev/null; then
+    log_info "Сборка llama-cpp-python с CUDA..."
+    CMAKE_ARGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCH -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc -DCMAKE_PREFIX_PATH=/usr/local/cuda-12.6" \
+        pip install llama-cpp-python --no-cache-dir
+else
+    log_info "llama-cpp-python уже установлен"
+fi
+
+deactivate
 
 # =============================================================================
 # 7. Скачивание GGUF моделей
