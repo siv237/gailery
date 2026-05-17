@@ -19,18 +19,21 @@
 Этап 1: Подготовка к перестановке (каждый шаг обратно совместим)
   1.1  faces.py — скан ВСЕХ фото (faces_done=0)
   1.2  Счётчики прогресса для Faces
-  1.3  describe.py — контекст лиц в промпте
+  1.3  describe.py — контекст лиц в промпте (+ img_width из PIL)
   1.4  describe — не перезаписывать faces_present
-  1.5  Каскад инвалидации при изменении персон
+  1.5  Каскад инвалидации при изменении персон (+ update_face_persona)
   1.6  exif.py — SQL JOIN вместо N+1
+  1.7  Исправить control_reset (describe/faces)
 
 Этап 2: Перестановка (ключевой шаг)
   2.1  pipeline.py — новый порядок шагов
+  2.2  Миграция существующих описаний (одноразовый скрипт)
 
 Этап 3: Доводка
   3.1  Watchdog — убийство сирот llama-server
   3.2  Очистка мёртвого кода (верхнерегистровые расширения)
-  3.3  Документация (AGENTS.md + PIPELINE.md)
+  3.3  control_reset faces — чистка LanceDB face_vectors + каскад на описания
+  3.4  Документация (AGENTS.md + PIPELINE.md)
 ```
 
 ---
@@ -166,9 +169,15 @@ def bbox_to_position(bbox, img_width):
     else: return "в центре"
 ```
 
+**Откуда img_width:** В vision_describe.py изображение уже загружено через `PIL.Image.open()` для base64-кодирования (строка 191-219, `prepare_image()`). После `img = Image.open(path)` доступно `img.size` → `(width, height)`. Передавать ширину в `_get_face_context()` вместе с content_hash.
+
+В describe.py Ollama-режиме — `_prepare_ollama_image()` (строка 70-83) тоже открывает PIL Image. Можно получить размер до base64-кодирования.
+
+В базе: `photos.img_width` (заполняется exif.py или thumbnails.py), но PIL при открытии надёжнее (EXIF может отсутствовать).
+
 **Обратная совместимость:** В текущем порядке (Describe до Faces) — лицо-данных ещё нет, промпт без изменений. После перестановки — данные будут.
 
-**Файлы:** `vision_describe.py:155-184` (describe_one), `describe.py:86-111` (_describe_ollama_request)
+**Файлы:** `vision_describe.py:155-184` (describe_one), `vision_describe.py:191-219` (prepare_image), `describe.py:70-83` (_prepare_ollama_image), `describe.py:86-111` (_describe_ollama_request)
 
 ---
 
@@ -210,7 +219,18 @@ def bbox_to_position(bbox, img_width):
   - Для `update_persona`: добавить вызов `invalidate_for_persona()` (сейчас не вызывается!)
   - Для `merge_personas`: уже вызывается, расширить метод
 
-**Файлы:** `src/database.py:1086-1102`, `pipeline.py:308-330`, `src/api/persons.py:32-51`
+**update_face_persona() — покрыть каскадом:**
+`database.py:715` — `update_face_persona(face_id, persona_id)` меняет привязку лица к персоне. Метод определён, но **не вызывается ни из одного API-эндпоинта** (проверено). Однако если UI начнёт его использовать — каскад не сработает.
+
+**Решение:** Добавить каскад прямо в метод `update_face_persona()`:
+```python
+def update_face_persona(self, face_id, persona_id):
+    self.sqlite.execute("UPDATE faces SET persona_id = ? WHERE face_id = ?", (persona_id, face_id))
+    self.sqlite.commit()
+    self.invalidate_for_persona(persona_id)
+```
+
+**Файлы:** `src/database.py:715-720` (update_face_persona), `src/database.py:1086-1102` (invalidate_for_persona), `pipeline.py:308-330`, `src/api/persons.py:32-51`
 
 ---
 
@@ -234,6 +254,49 @@ need_exif = [{"photo_id": r[0], "path": r[1]} for r in rows]
 ```
 
 **Файл:** `exif.py:298-301`
+
+---
+
+### 1.7 Исправить control_reset (describe/faces)
+
+**Зачем:** После редизайна faces.py ставит faces_present, а не describe. Текущий reset описания уничтожает результат InsightFace; reset лиц не сбрасывает faces_present.
+
+**P1: control_reset("describe") сбрасывает faces_present=0** — `pipeline.py:191`
+```python
+"describe": [
+    "UPDATE photos SET description=NULL, faces_present=0, embedded=0, rich_description=NULL WHERE deleted=0",
+```
+После редизайна faces_present ставит InsightFace. Reset describe не должен его трогать.
+
+**Исправление:** Убрать `faces_present=0` из reset describe:
+```python
+"describe": [
+    "UPDATE photos SET description=NULL, embedded=0, rich_description=NULL WHERE deleted=0",
+    "UPDATE catalog_files SET described=0 WHERE is_canonical=1 AND deleted=0",
+],
+```
+
+**P2: control_reset("faces") НЕ сбрасывает faces_present** — `pipeline.py:194-198`
+```python
+"faces": [
+    "DELETE FROM faces",
+    "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
+    "DELETE FROM personas",
+],
+```
+После редизайна faces.py СТАВИТ faces_present. Reset faces должен его сбросить.
+
+**Исправление:** Добавить сброс faces_present:
+```python
+"faces": [
+    "DELETE FROM faces",
+    "UPDATE photos SET faces_present=0 WHERE deleted=0",
+    "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
+    "DELETE FROM personas",
+],
+```
+
+**Файл:** `pipeline.py:189-207`
 
 ---
 
@@ -295,6 +358,39 @@ if progress["embed"][2] < 100:
 
 ---
 
+### 2.2 Миграция существующих описаний (одноразовый скрипт)
+
+**Зачем:** После деплоя все изменения — тысячи фото уже описаны БЕЗ имён лиц (старый порядок: describe до faces). Они не будут переописаны автоматически, потому что `described=1`.
+
+**Проблема:** Фото с `description IS NOT NULL` + `faces_done=1` + есть именованные персоны → описание устарело (без имён), но describe его не тронет.
+
+**Решение:** Одноразовая SQL-команда миграции (запустить вручную после деплоя или через новую кнопку UI):
+
+```sql
+-- Сбросить описания для фото с именованными лицами (чтобы pipeline переописал с именами)
+UPDATE photos SET description=NULL, embedded=0
+WHERE path IN (
+    SELECT DISTINCT cf.abs_path FROM catalog_files cf
+    JOIN faces f ON f.content_hash = cf.content_hash
+    JOIN personas p ON p.persona_id = f.persona_id
+    WHERE p.display_name IS NOT NULL AND cf.is_canonical=1
+);
+UPDATE catalog_files SET described=0, embedded=0
+WHERE content_hash IN (
+    SELECT DISTINCT f.content_hash FROM faces f
+    JOIN personas p ON p.persona_id = f.persona_id
+    WHERE p.display_name IS NOT NULL
+) AND is_canonical=1;
+```
+
+**Альтернатива:** Добавить кнопку «Reset Describe (only with named faces)» в UI — вызывает новую команду `control_reset` с шагом `describe_with_faces`.
+
+**Важно:** После миграции pipeline переопишет только фото с именованными лицами. Фото без лиц или без имён останутся как есть.
+
+**Файл:** новый скрипт `migrate_add_face_names.py` или расширение `pipeline.py _execute_db_cmd()`
+
+---
+
 ## Этап 3: Доводка
 
 ### 3.1 Watchdog — убийство сирот llama-server
@@ -323,7 +419,38 @@ if progress["embed"][2] < 100:
 
 ---
 
-### 3.3 Документация
+### 3.3 control_reset faces — чистка LanceDB face_vectors + каскад на описания
+
+**P4: LanceDB face_vectors не чистится при reset.** `DELETE FROM faces` (pipeline.py:195) убирает записи из SQLite, но таблица `face_vectors` в LanceDB остаётся — мусорные вектора.
+
+**Исправление:** Добавить в reset faces:
+```python
+"faces": [
+    "DELETE FROM faces",
+    "UPDATE photos SET faces_present=0 WHERE deleted=0",
+    "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
+    "DELETE FROM personas",
+],
+```
+И после SQL — очистить LanceDB:
+```python
+# После выполнения SQL-команд reset faces:
+db = get_db()
+try:
+    db.face_vectors.delete("face_id != ''")  # удалить все записи
+except Exception:
+    pass
+```
+
+**P6: Reset faces должен каскадно сбросить описания с именами.** По новой логике: лица → описание → embed. Если сбросили лица, описания с именами устарели. Но это деструктивно — пользователь может не ожидать что reset лиц уничтожит описания.
+
+**Решение:** Не сбрасывать описания автоматически, но **предупредить** в UI: «Reset лиц сделает описания с именами устаревшими. Рекомендуем также сбросить описания (Describe).» Либо добавить каскад с подтверждением.
+
+**Файл:** `pipeline.py:194-207`
+
+---
+
+### 3.4 Документация
 
 **Зачем:** Синхронизировать AGENTS.md с PIPELINE.md (рецензия 05_идеальный_PIPELINE.md).
 
@@ -346,28 +473,33 @@ if progress["embed"][2] < 100:
   0.3  scan_catalog.py — stale LanceDB                   [15мин]
   0.4  config.py — единый VIDEO_EXTS                     [30мин]
 
-ЭТАП 1 — Подготовка (строго по порядку, ~8-12ч):
+ЭТАП 1 — Подготовка (строго по порядку, ~9-13ч):
   1.1  faces.py — faces_done=0 вместо faces_present=1    [2-4ч]
   1.2  Счётчики прогресса для Faces                      [30мин]
-  1.3  describe — контекст лиц в промпте                 [3-5ч]
+  1.3  describe — контекст лиц в промпте (+ img_width)    [3-5ч]
   1.4  describe — не перетирать faces_present             [30мин]
-  1.5  Каскад инвалидации персон                          [2-3ч]
+  1.5  Каскад инвалидации персон (+ update_face_persona)  [2-3ч]
   1.6  exif.py — SQL JOIN вместо N+1                      [15мин]
+  1.7  control_reset — describe/faces faces_present       [15мин]
 
 ЭТАП 2 — Перестановка (зависит от этапа 1):
   2.1  pipeline.py — новый порядок шагов                  [30мин]
+  2.2  Миграция существующих описаний                     [30мин]
 
-ЭТАП 3 — Доводка (любой порядок, ~30мин):
+ЭТАП 3 — Доводка (любой порядок, ~45мин):
   3.1  Watchdog — сироты llama-server                     [15мин]
   3.2  Очистка мёртвого кода                              [10мин]
-  3.3  Документация                                       [15мин]
+  3.3  control_reset faces — LanceDB face_vectors + каскад [15мин]
+  3.4  Документация                                       [15мин]
 
-ИТОГО: ~10-14 часов
+ИТОГО: ~11-15 часов
 ```
 
 ---
 
 ## Верификация утверждений рецензии
+
+### Оригинальная рецензия (Cascade AI)
 
 | # | Утверждение рецензии | Результат проверки | Детали |
 |---|---|---|---|
@@ -380,3 +512,15 @@ if progress["embed"][2] < 100:
 | 7 | faces.py зависит от faces_present | **ПОДТВЕРЖДЕНО** | `get_undetected_photos()` фильтрует `p.faces_present = 1` (строка 58) |
 | 8 | describe без контекста лиц | **ПОДТВЕРЖДЕНО** | Ни describe.py, ни vision_describe.py не запрашивают faces/personas |
 | 9 | Нет каскада при rename | **ПОДТВЕРЖДЕНО** | `update_persona` в persons.py:32-43 — НЕ вызывает инвалидацию; merge — вызывает только для embed |
+
+### Вторая рецензия (7 дополнительных пунктов)
+
+| # | Утверждение | Результат проверки | Покрыто в плане |
+|---|---|---|---|
+| P1 | control_reset("describe") сбрасывает faces_present=0 | **ПОДТВЕРЖДЕНО** — pipeline.py:191 | Шаг 1.7 |
+| P2 | control_reset("faces") НЕ сбрасывает faces_present | **ПОДТВЕРЖДЕНО** — pipeline.py:194-198 | Шаг 1.7 |
+| P3 | Нет плана миграции уже описанных фото | **ПОДТВЕРЖДЕНО** — described=1 не будет переописан | Шаг 2.2 |
+| P4 | control_reset("faces") не чистит LanceDB face_vectors | **ПОДТВЕРЖДЕНО** — DELETE FROM faces только SQLite | Шаг 3.3 |
+| P5 | update_face_persona() не покрыт каскадом | **ПОДТВЕРЖДЕНО** — database.py:715, не вызывается из API, но метод есть | Шаг 1.5 (дополнен) |
+| P6 | control_reset("faces") должен каскадно сбросить описания | **ПОДТВЕРЖДЕНО** — описания с именами устареют | Шаг 3.3 (с предупреждением) |
+| P7 | Откуда img_width для bbox_to_position | **ПОДТВЕРЖДЕНО** — PIL Image.open уже есть | Шаг 1.3 (дополнен) |
