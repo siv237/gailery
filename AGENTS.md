@@ -3,6 +3,9 @@
 ## Что это
 Фото-галерея, Python/FastAPI/SQLite+LanceDB, веб-фронтенд. GPU NVIDIA (проверено на P104-100, Pascal SM 6.1, 8GB VRAM).
 
+## Спецификация пайплайна
+**См. [PIPELINE.md](PIPELINE.md)** — полная документация логики, шагов, батчей, MQTT, счётчиков.
+
 ---
 
 ## FUNDAMENTAL: Двухконтурная архитектура (dual-circuit)
