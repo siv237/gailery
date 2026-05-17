@@ -640,14 +640,15 @@ async def watchdog_crashes():
     loop = asyncio.get_event_loop()
     crashes = await loop.run_in_executor(None, _read_crashes)
     no_restart = (FLAG_DIR / "no_restart").exists()
-    mq = _get_api_mqtt()
-    mqtt_mode = mq.get_watchdog_mode() if mq else None
-    if mqtt_mode:
-        mode = mqtt_mode
-    elif no_restart:
+    if no_restart:
         mode = "sleeping"
     else:
-        mode = "active"
+        mq = _get_api_mqtt()
+        mqtt_mode = mq.get_watchdog_mode() if mq else None
+        if mqtt_mode == "sleeping":
+            mode = "sleeping"
+        else:
+            mode = "active"
     return {"crashes": crashes[:50], "no_restart": no_restart, "mode": mode}
 
 
