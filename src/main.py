@@ -651,6 +651,65 @@ async def watchdog_crashes():
     return {"crashes": crashes[:50], "no_restart": no_restart, "mode": mode}
 
 
+_SVC_LIST = None
+
+
+def _get_svc_list():
+    global _SVC_LIST
+    if _SVC_LIST is not None:
+        return _SVC_LIST
+    from config import SERVICE_NAME
+    _SVC_LIST = [
+        {"id": SERVICE_NAME, "label": "API (веб-сервер)", "group": "gailery"},
+        {"id": f"{SERVICE_NAME}-pipeline", "label": "Пайплайн", "group": "gailery"},
+        {"id": f"{SERVICE_NAME}-watchdog", "label": "Сторожевой пёс", "group": "gailery"},
+        {"id": "mosquitto", "label": "MQTT брокер", "group": "system"},
+    ]
+    return _SVC_LIST
+
+
+async def _svc_status_async(name):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "is-active", name,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        out = await proc.stdout.read()
+        status = out.decode().strip()
+    except Exception:
+        status = "unknown"
+    try:
+        proc2 = await asyncio.create_subprocess_exec(
+            "systemctl", "is-enabled", name,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        out2 = await proc2.stdout.read()
+        enabled = out2.decode().strip()
+    except Exception:
+        enabled = "unknown"
+    return {"status": status, "enabled": enabled}
+
+
+@app.get("/api/services")
+async def get_services():
+    svcs = _get_svc_list()
+    results = []
+    for s in svcs:
+        info = await _svc_status_async(s["id"])
+        results.append({**s, **info})
+    return {"services": results}
+
+
+@app.post("/api/services/{name}/restart")
+async def restart_service(name: str):
+    valid = [s["id"] for s in _get_svc_list()]
+    if name not in valid:
+        return {"ok": False, "error": f"unknown service: {name}"}
+    proc = await asyncio.create_subprocess_exec("systemctl", "restart", name, stderr=asyncio.subprocess.DEVNULL)
+    await proc.wait()
+    return {"ok": True, "service": name, "returncode": proc.returncode}
+
+
 @app.get("/api/proxy/ollama_check")
 async def ollama_check(url: str = ""):
     url = _fix_ollama_url(url)

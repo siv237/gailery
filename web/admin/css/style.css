@@ -534,3 +534,13 @@ a { color: inherit; text-decoration: none; }
 }
 @media (min-width: 769px) { .topbar .burger { display: none; } }
 @media (max-width: 480px) { .summary { grid-template-columns: repeat(2, 1fr); } .cy-step { min-width: calc(50% - 4px); } }
+.svc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.svc-table th { text-align: left; padding: 6px 10px; color: var(--c-text-muted); border-bottom: 1px solid var(--c-border-strong); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+.svc-table td { padding: 8px 10px; border-bottom: 1px solid var(--c-border-default); vertical-align: middle; }
+.svc-table tr:last-child td { border-bottom: none; }
+.svc-name { font-weight: 600; }
+.svc-status, .svc-enabled { white-space: nowrap; }
+.svc-action { text-align: right; white-space: nowrap; }
+.svc-restart-st { font-size: 11px; margin-left: 6px; }
+.light-theme .svc-table th { border-bottom-color: var(--c-border-default); }
+.light-theme .svc-table td { border-bottom-color: #f0f0f0; }

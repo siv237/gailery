@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/admin/css/style.css?v=47"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=47"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/admin/css/style.css?v=51"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=51"></head>
 <body>
 <div class="topbar">
     <button class="burger">☰</button>
@@ -19,7 +19,9 @@
 <nav class="sidebar" id="sidebar">
     <div class="sidebar-scroll">
     <div class="section"><div class="section-title">Главное</div>
-        <a href="#" data-page="dashboard" class="active"><span class="ico">📊</span> Дашборд</a></div>
+        <a href="#" data-page="dashboard" class="active"><span class="ico">📊</span> Дашборд</a>
+        <a href="#" data-page="watchdog"><span class="ico">🐶</span> Сторожевой пёс</a>
+        <a href="#" data-page="services"><span class="ico">🔌</span> Службы</a></div>
     <div class="section"><div class="section-title">Пайплайн</div>
         <a href="#" data-page="pipeline"><span class="ico">🔄</span> Управление</a>
         <a href="#" data-page="tasks"><span class="ico">📋</span> Индивидуальные задачи</a></div>
@@ -53,20 +55,22 @@
 <div class="page" id="page-maint"></div>
 <div class="page" id="page-logs"></div>
 <div class="page" id="page-watchdog"></div>
+<div class="page" id="page-services"></div>
 <div class="page" id="page-workers"></div>
 <div class="page" id="page-monitoring"></div>
 </main>
-<script src="/admin/js/admin-core.js?v=49"></script>
-<script src="/admin/js/dashboard.js?v=49"></script>
-<script src="/admin/js/pipeline.js?v=49"></script>
-<script src="/admin/js/watchdog.js?v=49"></script>
-<script src="/admin/js/workers.js?v=49"></script>
-<script src="/admin/js/logs.js?v=49"></script>
-<script src="/admin/js/tools.js?v=49"></script>
-<script src="/admin/js/config.js?v=49"></script>
-<script src="/admin/js/ollama.js?v=49"></script>
-<script src="/admin/js/routing.js?v=49"></script>
-<script src="/admin/js/uplot.min.js?v=49"></script>
-<script src="/admin/js/monitoring.js?v=49"></script>
+<script src="/admin/js/admin-core.js?v=51"></script>
+<script src="/admin/js/dashboard.js?v=51"></script>
+<script src="/admin/js/pipeline.js?v=51"></script>
+<script src="/admin/js/watchdog.js?v=51"></script>
+<script src="/admin/js/services.js?v=51"></script>
+<script src="/admin/js/workers.js?v=51"></script>
+<script src="/admin/js/logs.js?v=51"></script>
+<script src="/admin/js/tools.js?v=51"></script>
+<script src="/admin/js/config.js?v=51"></script>
+<script src="/admin/js/ollama.js?v=51"></script>
+<script src="/admin/js/routing.js?v=51"></script>
+<script src="/admin/js/uplot.min.js?v=51"></script>
+<script src="/admin/js/monitoring.js?v=51"></script>
 </body>
 </html>
