@@ -192,6 +192,7 @@ a { color: inherit; text-decoration: none; }
 .btn-stop:disabled { background: #21262d; color: #484f58; cursor: default; }
 .btn-warn { background: #9e6a03; color: #fff; }
 .btn-warn:hover { background: #bb8009; }
+.btn-warn:disabled { background: #21262d !important; color: #484f58 !important; cursor: default; }
 
 /* === FROM control.html — task cards === */
 .tasks { margin-bottom: 20px; }
@@ -402,6 +403,7 @@ a { color: inherit; text-decoration: none; }
 .light-theme .btn-stop:hover { background: #a40e26; }
 .light-theme .btn-stop:disabled { background: #eaeef2; color: #8c949e; }
 .light-theme .btn-warn { background: #9a6700; }
+.light-theme .btn-warn:disabled { background: #eaeef2 !important; color: #8c949e !important; }
 .light-theme .btn-warn:hover { background: #7c5000; }
 .light-theme .tasks { background: #f6f8fa; }
 .light-theme .task { background: #ffffff; border-color: #d0d7de; }
