@@ -9,7 +9,7 @@ import logging
 import subprocess
 import tempfile
 
-from config import THUMBNAILS_DIR, PHOTO_SHARE_PATH
+from config import THUMBNAILS_DIR, PHOTO_SHARE_PATH, VIDEO_EXTS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,12 +24,9 @@ FORMATS = ["webp", "jpg"]
 
 RAW_EXTENSIONS = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
 
-VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.wmv',
-                    '.MP4', '.MOV', '.AVI', '.MKV', '.WEBM', '.3GP', '.WMV'}
-
 
 def _is_video(path):
-    return Path(path).suffix in VIDEO_EXTENSIONS
+    return Path(path).suffix.lower() in VIDEO_EXTS
 
 
 def _is_raw(path):

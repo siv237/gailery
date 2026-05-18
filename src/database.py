@@ -713,12 +713,16 @@ deleted=None, deleted_only=None,
         return _rows_to_dicts(rows)
 
     def update_face_persona(self, face_id, persona_id):
+        old_row = self.sqlite.execute("SELECT persona_id FROM faces WHERE face_id = ?", (face_id,)).fetchone()
+        old_persona_id = old_row[0] if old_row else None
         self.sqlite.execute(
             "UPDATE faces SET persona_id = ? WHERE face_id = ?",
             (persona_id, face_id)
         )
         self.sqlite.commit()
-        if persona_id:
+        if old_persona_id:
+            self.invalidate_for_persona(old_persona_id)
+        if persona_id and persona_id != old_persona_id:
             self.invalidate_for_persona(persona_id)
 
     def get_face_embedding(self, face_id):
@@ -804,6 +808,8 @@ deleted=None, deleted_only=None,
         return self.get_persona(persona_id)
 
     def delete_persona(self, persona_id):
+        self.invalidate_for_persona(persona_id)
+        self.sqlite.execute("UPDATE faces SET persona_id = NULL WHERE persona_id = ?", (persona_id,))
         self.sqlite.execute("DELETE FROM personas WHERE persona_id = ?", (persona_id,))
         self.sqlite.commit()
 

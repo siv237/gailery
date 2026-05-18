@@ -84,43 +84,47 @@ def get_progress(root_id=None):
     root_where = " AND cf.root_id = ?" if root_id else ""
     root_params = [root_id] if root_id else []
 
-    base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND p.deleted = 0{root_where}"
+    base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND p.deleted = 0{root_where}"
     photo_where = base + " AND (p.media_type IS NULL OR p.media_type != 'video')"
 
-    cat_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]
+    cat_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL{root_where}", root_params).fetchone()[0]
 
     ingested = cur.execute(f"SELECT COUNT(*) {base}", root_params).fetchone()[0]
     ingested_photos = cur.execute(f"SELECT COUNT(*) {photo_where}", root_params).fetchone()[0]
     described = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.description IS NOT NULL", root_params).fetchone()[0]
-    exif_checked = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.exif_checked = 1", root_params).fetchone()[0]
-    faces_done_count = cur.execute(f"SELECT COUNT(*) {photo_where} AND cf.faces_done = 1", root_params).fetchone()[0]
+    exif_checked = cur.execute(f"SELECT COUNT(*) {base} AND p.exif_checked = 1", root_params).fetchone()[0]
+    faces_done_count = cur.execute(f"SELECT COUNT(*) {base} AND cf.faces_done = 1", root_params).fetchone()[0]
     embedded = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.embedded = 1", root_params).fetchone()[0]
 
     video_where = base + " AND p.media_type = 'video'"
-    videos_catalog = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}){root_where}", root_params).fetchone()[0]
+    videos_catalog = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND cf.ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}){root_where}", root_params).fetchone()[0]
     videos_ingested = cur.execute(f"SELECT COUNT(*) {video_where}", root_params).fetchone()[0]
     videos_exif = cur.execute(f"SELECT COUNT(*) {video_where} AND p.exif_checked = 1", root_params).fetchone()[0]
+    videos_described = cur.execute(f"SELECT COUNT(*) {video_where} AND p.description IS NOT NULL", root_params).fetchone()[0]
     p_videos_ingest = videos_ingested / max(videos_catalog, 1) * 100 if videos_catalog > 0 else 0
     p_videos_exif = videos_exif / max(videos_ingested, 1) * 100 if videos_ingested > 0 else 0
+    p_videos_describe = videos_described / max(videos_ingested, 1) * 100 if videos_ingested > 0 else 0
 
     p_ingest = ingested / max(cat_total, 1) * 100
     p_describe = described / max(ingested_photos, 1) * 100
-    p_exif = exif_checked / max(ingested_photos, 1) * 100
-    p_faces = faces_done_count / max(ingested_photos, 1) * 100
+    p_exif = exif_checked / max(ingested, 1) * 100
+    p_faces = faces_done_count / max(ingested, 1) * 100
     p_embed = embedded / max(ingested_photos, 1) * 100
 
     return {
         "ingest": (ingested, cat_total, p_ingest),
         "describe": (described, ingested_photos, p_describe),
-        "exif": (exif_checked, ingested_photos, p_exif),
-        "faces": (faces_done_count, ingested_photos, p_faces),
+        "exif": (exif_checked, ingested, p_exif),
+        "faces": (faces_done_count, ingested, p_faces),
         "embed": (embedded, ingested_photos, p_embed),
         "videos": {
             "catalog": videos_catalog,
             "ingested": videos_ingested,
             "exif": videos_exif,
+            "described": videos_described,
             "p_ingest": p_videos_ingest,
             "p_exif": p_videos_exif,
+            "p_describe": p_videos_describe,
         },
     }
 
@@ -335,6 +339,16 @@ def _execute_db_cmd(cmd, params):
                 return {"ok": True}
             return {"ok": False, "error": "Failed to merge"}
 
+        elif cmd == "delete_persona":
+            persona_id = params.get("persona_id")
+            if not persona_id:
+                return {"ok": False, "error": "persona_id required"}
+            persona = db.get_persona(persona_id)
+            if not persona:
+                return {"ok": False, "error": "Person not found"}
+            db.delete_persona(persona_id)
+            return {"ok": True}
+
         elif cmd == "add_catalog_root":
             import uuid
             root_id = str(uuid.uuid4())
@@ -545,7 +559,7 @@ def main():
                 db = get_db()
                 _cur = db.sqlite.execute("UPDATE photos SET description='[видео]' WHERE media_type='video' AND (description IS NULL OR description='') AND deleted=0")
                 if _cur.rowcount > 0:
-                    db.sqlite.execute("UPDATE catalog_files SET described=1 WHERE abs_path IN (SELECT path FROM photos WHERE media_type='video' AND description='[видео]') AND is_canonical=1")
+                    db.sqlite.execute("UPDATE catalog_files SET described=1, faces_done=1 WHERE abs_path IN (SELECT path FROM photos WHERE media_type='video' AND description='[видео]') AND is_canonical=1")
                     db.sqlite.commit()
                     log(f"MIGRATE: set description='[видео]' for {_cur.rowcount} videos")
                 kill_orphan_llama_servers()

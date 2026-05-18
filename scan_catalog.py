@@ -297,7 +297,7 @@ def _ingest_new_canonical(db, root_id):
     file_ids = []
     for abs_path, rid in rows:
         ext = os.path.splitext(abs_path)[1].lower()
-        is_video = ext in {".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp", ".wmv", ".mpg", ".mpeg", ".m4v", ".flv", ".vob", ".ts"}
+        is_video = ext in VIDEO_EXTS
         batch.append({
             "photo_id": str(_uuid.uuid4()),
             "path": abs_path,
@@ -322,6 +322,17 @@ def _ingest_new_canonical(db, root_id):
     db.add_photos_batch(batch)
     for fid in file_ids:
         db.update_catalog_file(fid, ingested=1)
+    video_fids = []
+    for abs_path, rid in rows:
+        ext = os.path.splitext(abs_path)[1].lower()
+        if ext in VIDEO_EXTS:
+            fid_row = cur.execute("SELECT file_id FROM catalog_files WHERE abs_path = ? AND is_canonical = 1 AND deleted = 0", (abs_path,)).fetchone()
+            if fid_row:
+                video_fids.append(fid_row[0])
+    if video_fids:
+        cur.executemany("UPDATE catalog_files SET faces_done = 1 WHERE file_id = ?", [(fid,) for fid in video_fids])
+        db.sqlite.commit()
+        log(f"Set faces_done=1 for {len(video_fids)} video files (N/A for video)")
 
     log(f"Ingested {len(batch)} new canonical files into photos")
 

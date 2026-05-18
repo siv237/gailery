@@ -249,10 +249,20 @@ async def set_models_dir(request: Request):
     try:
         from mqtt_client import create_api_mqtt
         mq = create_api_mqtt()
-        if mq:
-            mq.db_write("set_setting", {"key": "models_dir", "value": str(p)}, timeout=10)
+        if mq and mq.is_worker_alive("pipeline"):
+            result = mq.db_write("set_setting", {"key": "models_dir", "value": str(p)}, timeout=10)
+            if not result.get("ok"):
+                from database import get_db
+                get_db().set_setting("models_dir", str(p))
+        else:
+            from database import get_db
+            get_db().set_setting("models_dir", str(p))
     except Exception:
-        pass
+        from database import get_db
+        try:
+            get_db().set_setting("models_dir", str(p))
+        except Exception:
+            pass
     import config
     config.MODELS_DIR = p
     _models_cache["data"] = None

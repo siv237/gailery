@@ -888,11 +888,12 @@ def _control_reset_direct(step):
     db = get_db()
     reset_map = {
         "describe": [
-            "UPDATE photos SET description=NULL, faces_present=0, embedded=0, rich_description=NULL WHERE deleted=0",
+            "UPDATE photos SET description=NULL, embedded=0, rich_description=NULL WHERE deleted=0",
             "UPDATE catalog_files SET described=0 WHERE is_canonical=1 AND deleted=0",
         ],
         "faces": [
             "DELETE FROM faces",
+            "UPDATE photos SET faces_present=0 WHERE deleted=0",
             "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
             "DELETE FROM personas",
         ],
@@ -904,6 +905,10 @@ def _control_reset_direct(step):
             "UPDATE photos SET embedded=0 WHERE deleted=0",
             "UPDATE catalog_files SET embedded=0 WHERE is_canonical=1 AND deleted=0",
         ],
+        "describe_with_faces": [
+            "UPDATE photos SET description=NULL, embedded=0 WHERE path IN (SELECT DISTINCT cf.abs_path FROM catalog_files cf JOIN faces f ON f.content_hash = cf.content_hash JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL AND cf.is_canonical=1) AND deleted=0",
+            "UPDATE catalog_files SET described=0, embedded=0 WHERE content_hash IN (SELECT DISTINCT f.content_hash FROM faces f JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL) AND is_canonical=1",
+        ],
     }
     sqls = reset_map.get(step)
     if not sqls:
@@ -913,6 +918,11 @@ def _control_reset_direct(step):
         cur = db.sqlite.execute(sql)
         affected += cur.rowcount
     db.sqlite.commit()
+    if step == "faces":
+        try:
+            db.face_vectors.delete("face_id != ''")
+        except Exception:
+            pass
     return {"ok": True, "step": step, "affected": affected}
 
 
@@ -998,11 +1008,10 @@ async def set_setting(key: str, request: Request):
     body = await request.json()
     value = body.get("value", "")
     mq = _get_api_mqtt()
-    if mq:
+    if mq and mq.is_worker_alive("pipeline"):
         result = mq.db_write("set_setting", {"key": key, "value": value}, timeout=10)
         if result.get("ok"):
             return {"key": key, "value": value}
-        return result
     db = get_db()
     db.set_setting(key, value)
     return {"key": key, "value": value}
@@ -1179,8 +1188,10 @@ async def maintenance_stats():
 @app.post("/api/maintenance/vacuum")
 async def maintenance_vacuum():
     mq = _get_api_mqtt()
-    if mq:
-        return mq.db_write("vacuum", {}, timeout=60)
+    if mq and mq.is_worker_alive("pipeline"):
+        result = mq.db_write("vacuum", {}, timeout=60)
+        if result.get("ok"):
+            return result
     import sqlite3
     try:
         db_path = str(DATA_DIR / "gallery.db")
@@ -1197,8 +1208,10 @@ async def maintenance_vacuum():
 @app.post("/api/maintenance/dedup_embeddings")
 async def maintenance_dedup_embeddings():
     mq = _get_api_mqtt()
-    if mq:
-        return mq.db_write("dedup_embeddings", {}, timeout=60)
+    if mq and mq.is_worker_alive("pipeline"):
+        result = mq.db_write("dedup_embeddings", {}, timeout=60)
+        if result.get("ok"):
+            return result
     try:
         from database import DatabaseManager, get_db
         db = get_db()

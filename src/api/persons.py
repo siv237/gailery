@@ -52,6 +52,15 @@ def _db_write_direct(cmd, params):
                 db.invalidate_for_persona(target)
                 return {"ok": True}
             return {"ok": False, "error": "Failed to merge"}
+        elif cmd == "delete_persona":
+            persona_id = params.get("persona_id")
+            if not persona_id:
+                return {"ok": False, "error": "persona_id required"}
+            persona = db.get_persona(persona_id)
+            if not persona:
+                return {"ok": False, "error": "Person not found"}
+            db.delete_persona(persona_id)
+            return {"ok": True}
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
     except Exception as e:
@@ -261,6 +270,16 @@ async def merge_persons(source_persona_id: str, target_persona_id: str):
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to merge persons"))
     return {"success": True, "message": f"Merged {source_persona_id} into {target_persona_id}"}
+
+
+@router.delete("/{persona_id}")
+async def delete_person(persona_id: str):
+    result = _db_write("delete_persona", {"persona_id": persona_id})
+    if not result.get("ok"):
+        if "not found" in result.get("error", "").lower():
+            raise HTTPException(status_code=404, detail="Person not found")
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to delete person"))
+    return {"success": True, "message": f"Deleted persona {persona_id}"}
 
 
 @router.post("/search")
