@@ -98,8 +98,8 @@
         .modal-img-wrap { position: relative; display: inline-block; transform-origin: center center; transition: transform .1s; }
         .modal-content { display: flex; flex-direction: column; align-items: center; max-width: 90svw; max-height: 90svh; }
         .modal-bg.fs .modal-content { max-width: 100svw; max-height: 100svh; }
-        .modal-bg .modal-img-wrap img, .modal-bg .modal-img-wrap video { max-width: 90svw; max-height: 90svh; object-fit: contain; border-radius: 4px; }
-        .modal-bg.fs .modal-img-wrap img, .modal-bg.fs .modal-img-wrap video { width: 100svw; height: 100svh; object-fit: contain; border-radius: 0; }
+        .modal-bg .modal-img-wrap img, .modal-bg .modal-img-wrap video, .modal-bg .modal-img-wrap canvas { max-width: 90svw; max-height: 90svh; object-fit: contain; border-radius: 4px; }
+        .modal-bg.fs .modal-img-wrap img, .modal-bg.fs .modal-img-wrap video, .modal-bg.fs .modal-img-wrap canvas { width: 100svw; height: 100svh; object-fit: contain; border-radius: 0; }
         .modal-bg .modal-img-wrap img.cover, .modal-bg .modal-img-wrap video.cover { max-width: none; max-height: none; width: 90svw; height: 90svh; object-fit: cover; border-radius: 4px; }
         .modal-bg.fs .modal-img-wrap img.cover, .modal-bg.fs .modal-img-wrap video.cover { width: 100svw; height: 100svh; object-fit: cover; border-radius: 0; }
         .modal-bg .modal-img-wrap.cover-wrap { display: block; width: 90svw; height: 90svh; }
@@ -177,9 +177,21 @@
         .detail-panel .dp-close { position: absolute; top: 10px; right: 14px; cursor: pointer; color: #6e7681; font-size: 18px; }
         .detail-panel .dp-close:hover { color: #c9d1d9; }
         .detail-panel .dp-img { width: 100%; max-width: 100%; height: auto; border-radius: 4px; margin-bottom: 4px; display: block; }
-        .dp-img-bar { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 12px; }
+        .dp-img-bar { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 4px; }
         .dp-img-bar button { padding: 4px 10px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; cursor: pointer; font-size: 14px; font-family: monospace; }
         .dp-img-bar button:hover { background: #1f6feb; border-color: #58a6ff; }
+        .flir-mode-bar { display: flex; gap: 0; margin-bottom: 12px; border: 1px solid #30363d; border-radius: 4px; overflow: hidden; }
+        .flir-mode-bar button { flex: 1; padding: 4px 6px; background: #21262d; color: #8b949e; border: none; cursor: pointer; font-size: 10px; font-family: monospace; text-align: center; transition: all .15s; }
+        .flir-mode-bar button:not(:last-child) { border-right: 1px solid #30363d; }
+        .flir-mode-bar button.active { background: #da3633; color: #fff; }
+        .flir-mode-bar button:hover:not(.active) { background: #30363d; color: #c9d1d9; }
+        .modal-topbar .flir-mbtn { padding: 2px 6px; background: transparent; color: #8b949e; border: 1px solid transparent; border-radius: 3px; cursor: pointer; font-size: 14px; margin: 0 1px; }
+        .modal-topbar .flir-mbtn:hover { color: #c9d1d9; border-color: #30363d; }
+        .modal-topbar .flir-mbtn.active { color: #da3633; border-color: #da3633; }
+        .light-theme .modal-topbar .flir-mbtn { color: #57606a; }
+        .light-theme .modal-topbar .flir-mbtn:hover { color: #24292f; border-color: #d0d7de; }
+        .light-theme .modal-topbar .flir-mbtn.active { color: #cf222e; border-color: #cf222e; }
+        #flirOverlayControls input[type=range] { background: transparent; cursor: pointer; vertical-align: middle; }
         .detail-panel .dp-desc { color: #c9d1d9; margin-bottom: 12px; line-height: 1.5; }
         .detail-panel .dp-desc.rich { color: #d29922; border-left: 3px solid #d29922; padding-left: 8px; }
         .detail-panel .dp-meta { color: #8b949e; font-size: 11px; margin-bottom: 4px; }
@@ -326,6 +338,10 @@
         .light-theme .detail-panel .dp-desc.rich { color: #9a6700; border-left-color: #9a6700; }
         .light-theme .dp-img-bar button { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
         .light-theme .dp-img-bar button:hover { background: #0969da; color: #fff; border-color: #0969da; }
+        .light-theme .flir-mode-bar { border-color: #d0d7de; }
+        .light-theme .flir-mode-bar button { background: #f6f8fa; color: #57606a; }
+        .light-theme .flir-mode-bar button.active { background: #cf222e; color: #fff; }
+        .light-theme .flir-mode-bar button:hover:not(.active) { background: #eaeef2; color: #24292f; }
         .light-theme .detail-panel .dp-meta { color: #24292f; }
         .light-theme .detail-panel .manual-date-badge { background: rgba(207,34,46,.85); }
         .light-theme .detail-panel .dp-date-btn { color: #57606a; }
@@ -720,6 +736,7 @@
         <div class="modal-content" id="modalContent">
             <div class="modal-img-wrap" id="modalImgWrap" style="cursor:grab">
                 <img id="photoModalImg" src="" onclick="event.stopPropagation()">
+                <canvas id="photoModalCanvas" style="display:none;max-width:100%;max-height:100%;object-fit:contain" onclick="event.stopPropagation()"></canvas>
                 <video id="photoModalVideo" src="" controls preload="metadata" onclick="event.stopPropagation()" style="display:none"></video>
                 <div class="face-overlays" id="faceOverlays"></div>
             </div>
@@ -734,6 +751,16 @@
         <div class="modal-topbar" id="modalTopbar">
             <span id="modalDate"></span>
             <span class="sep">|</span>
+            <span id="modalFlirBar" style="display:none">
+                <button class="flir-mbtn active" onclick="setModalFlir('thermal')" title="Тепловизор">&#127777;</button>
+                <button class="flir-mbtn" onclick="setModalFlir('visual')" title="Видимый свет">&#128247;</button>
+                <button class="flir-mbtn" onclick="setModalFlir('overlay')" title="Наложение">&#128270;</button>
+                <span class="sep" style="margin:0 2px">|</span>
+                <span id="flirOverlayControls" style="display:none;font-size:11px;gap:6px;align-items:center">
+                    A <input type="range" id="flirA" min="0.1" max="0.9" step="0.05" value="0.50" style="width:50px;vertical-align:middle" oninput="drawFlirOverlay()">
+                    <span id="flirAv" style="color:#0f0;width:30px;display:inline-block;text-align:right">0.50</span>
+                </span>
+            </span>
             <button class="modal-del" id="modalDelBtn" onclick="markDeleted(_viewIdx !== null ? currentPhotos[_viewIdx].photo_id : '')" title="Удалить">&#128465;</button>
             <span class="sep">|</span>
             <span id="modalLoc"></span>
@@ -2072,7 +2099,9 @@ function selectYear(year) {
      var p = currentPhotos[idx];
      if (!p) return;
      _dpRot = 0;
+     _dpIdx = idx;
      _dpHash = p.content_hash || '';
+     _flirMode = 'thermal';
       var photoUrl = p.photo_id ? (API + '/photos/?path=' + encodeURIComponent(p.photo_id)) : '';
       var thumbUrl = p.photo_id ? (API + '/photos/thumbnail?path=' + encodeURIComponent(p.photo_id)) : '';
       var vidUrl = videoSrc(p);
@@ -2083,6 +2112,13 @@ function selectYear(year) {
      } else {
          html = '<img class="dp-img" id="dpImg" src="' + thumbUrl + '" loading="lazy" onerror="this.style.display=\'none\'">';
          html += '<div class="dp-img-bar"><button onclick="rotateDetail(-90)">&#8634;</button><button onclick="rotateDetail(90)">&#8635;</button></div>';
+         if (p.is_flir) {
+             html += '<div class="flir-mode-bar" id="flirModeBar">';
+             html += '<button class="active" onclick="setFlirMode(\'thermal\')">Тепловизор</button>';
+             html += '<button onclick="setFlirMode(\'visual\')">Видимый</button>';
+             html += '<button onclick="setFlirMode(\'overlay\')">Наложение</button>';
+             html += '</div>';
+         }
      }
      if (_dpHash) {
          fetch(API + '/photos/edits/' + encodeURIComponent(_dpHash)).then(function(r){return r.json()}).then(function(d){
@@ -2400,7 +2436,10 @@ function rotatePhoto(deg) {
 }
 
 var _dpRot = 0;
+var _dpIdx = -1;
 var _dpHash = '';
+var _flirMode = 'thermal';
+var _mFlirMode = 'thermal';
 
 function rotateDetail(deg) {
     _dpRot = _dpRot + deg;
@@ -2408,6 +2447,135 @@ function rotateDetail(deg) {
     if (img) img.style.transform = 'rotate(' + _dpRot + 'deg)';
     var saveAngle = ((_dpRot % 360) + 360) % 360;
     saveRotate(_dpHash, saveAngle);
+}
+
+function setFlirMode(mode) {
+    _flirMode = mode;
+    var img = document.getElementById('dpImg');
+    if (!img) return;
+    var p = currentPhotos[_dpIdx];
+    if (!p || !p.is_flir) return;
+    var pid = encodeURIComponent(p.photo_id);
+    if (mode === 'thermal') {
+        img.src = API + '/photos/?path=' + pid;
+    } else if (mode === 'visual') {
+        img.src = API + '/photos/flir_visual?path=' + pid;
+    } else if (mode === 'overlay') {
+        img.src = API + '/photos/flir_overlay?path=' + pid + '&alpha=0.55';
+    }
+    var btns = document.querySelectorAll('#flirModeBar button');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+    if (mode === 'thermal') btns[0].classList.add('active');
+    else if (mode === 'visual') btns[1].classList.add('active');
+    else btns[2].classList.add('active');
+}
+
+var _flirVisImg = new Image();
+var _flirThImg = new Image();
+var _flirOX = 219, _flirOY = 141;
+var _flirScale = 1.5;
+var _flirDrag = false, _flirDX = 0, _flirDY = 0;
+var _flirStartX = 0, _flirStartY = 0;
+var _flirScaleCorner = null;
+var _flirToken = 0;
+var _flirProbes = [];
+
+function setModalFlir(mode) {
+    _mFlirMode = mode;
+    var p = currentPhotos[_mIdx];
+    if (!p || !p.is_flir) return;
+    var pid = encodeURIComponent(p.photo_id);
+    var img = document.getElementById('photoModalImg');
+    var cvs = document.getElementById('photoModalCanvas');
+    var flirCtrl = document.getElementById('flirOverlayControls');
+    if (!img || !cvs) return;
+    if (mode === 'overlay') {
+        img.style.display = 'none';
+        cvs.style.display = 'block';
+        flirCtrl.style.display = 'inline-flex';
+        _flirToken++;
+        var tok = _flirToken;
+        _flirVisImg.onload = function() {
+            if (tok !== _flirToken) return;
+            if (_flirThImg.complete && _flirThImg.naturalWidth > 0) drawFlirOverlay();
+            else _flirThImg.onload = function() { if (tok === _flirToken) drawFlirOverlay(); };
+        };
+        var ts = Date.now();
+        _flirVisImg.src = API + '/photos/flir_visual?path=' + pid + '&_t=' + ts;
+        _flirThImg.src = API + '/photos/flir_raw_palette?path=' + pid + '&_t=' + ts;
+    } else {
+        img.style.display = 'block';
+        cvs.style.display = 'none';
+        flirCtrl.style.display = 'none';
+        _flirToken++;
+        if (mode === 'thermal') {
+            img.src = API + '/photos/?path=' + pid;
+        } else if (mode === 'visual') {
+            img.src = API + '/photos/flir_visual?path=' + pid;
+        }
+    }
+    var flirBar = document.getElementById('modalFlirBar');
+    var btns = flirBar.querySelectorAll('.flir-mbtn');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+    if (mode === 'thermal') btns[0].classList.add('active');
+    else if (mode === 'visual') btns[1].classList.add('active');
+    else btns[2].classList.add('active');
+}
+
+function drawFlirOverlay() {
+    var cvs = document.getElementById('photoModalCanvas');
+    var wrap = document.getElementById('modalImgWrap');
+    if (!cvs || !_flirVisImg.complete || !_flirThImg.complete) return;
+    var alpha = parseFloat(document.getElementById('flirA').value) || 0.5;
+    document.getElementById('flirAv').textContent = alpha.toFixed(2);
+    var vw = _flirVisImg.naturalWidth || 1440;
+    var vh = _flirVisImg.naturalHeight || 1080;
+    var tw = _flirThImg.naturalWidth || 640;
+    var th = _flirThImg.naturalHeight || 480;
+    cvs.width = vw;
+    cvs.height = vh;
+    var ctx = cvs.getContext('2d');
+    ctx.clearRect(0, 0, vw, vh);
+    ctx.drawImage(_flirVisImg, 0, 0, vw, vh);
+    var sw = Math.round(tw * _flirScale);
+    var sh = Math.round(th * _flirScale);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(_flirThImg, _flirOX, _flirOY, sw, sh);
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(_flirOX, _flirOY, sw, sh);
+    var hs = 6;
+    ctx.fillStyle = '#0f0';
+    [
+        [_flirOX, _flirOY],
+        [_flirOX + sw, _flirOY],
+        [_flirOX, _flirOY + sh],
+        [_flirOX + sw, _flirOY + sh]
+    ].forEach(function(p) {
+        ctx.fillRect(p[0] - hs/2, p[1] - hs/2, hs, hs);
+    });
+    cvs.style.width = '100%';
+    cvs.style.height = '100%';
+    // draw probes
+    ctx.font = '12px monospace';
+    ctx.lineWidth = 2;
+    for (var i = 0; i < _flirProbes.length; i++) {
+        var pr = _flirProbes[i];
+        var px = _flirOX + pr.tx * _flirScale;
+        var py = _flirOY + pr.ty * _flirScale;
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, 2*Math.PI);
+        ctx.fill();
+        var txt = pr.temp + '\u00B0C';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.strokeText(txt, px + 8, py + 4);
+        ctx.fillStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.fillText(txt, px + 8, py + 4);
+    }
 }
 
 function slideshowToggle(dir) {
@@ -2504,6 +2672,14 @@ function openViewer(idx) {
 
     // Clean previous video ended handler
     vid.onended = null;
+    // Hide FLIR canvas when opening new photo
+    document.getElementById('photoModalCanvas').style.display = 'none';
+    document.getElementById('flirOverlayControls').style.display = 'none';
+    _mFlirMode = null;
+    _flirVisImg.src = '';
+    _flirThImg.src = '';
+    _flirDrag = false;
+    _flirProbes = [];
 
     if (isVideo) {
         img.style.display = 'none';
@@ -2556,8 +2732,18 @@ function openViewer(idx) {
      var txt = formatDate(p.date);
      if (p.is_raw) txt += '<span class="modal-raw">RAW</span>';
      if (p.camera_make || p.camera_model) txt += '<span class="modal-cam">' + esc((p.camera_make || '') + ' ' + (p.camera_model || '')) + '</span>';
-     document.getElementById('modalDate').innerHTML = txt;
-     updateModalGps(p);
+      document.getElementById('modalDate').innerHTML = txt;
+      var flirBar = document.getElementById('modalFlirBar');
+      if (p.is_flir) {
+          flirBar.style.display = '';
+          _mFlirMode = 'thermal';
+          var flirBtns = flirBar.querySelectorAll('.flir-mbtn');
+          for (var fi = 0; fi < flirBtns.length; fi++) flirBtns[fi].classList.remove('active');
+          if (flirBtns[0]) flirBtns[0].classList.add('active');
+      } else {
+          flirBar.style.display = 'none';
+      }
+      updateModalGps(p);
      var delBtn = document.getElementById('modalDelBtn');
      if (p.deleted) {
          delBtn.innerHTML = '&#8634;';
@@ -2586,10 +2772,56 @@ function openViewer(idx) {
         overlays.style.display = 'block';
         _drawFaceBoxes(p, img);
     }
+    // FLIR overlay canvas drag/scale/probe
+    var cvs = document.getElementById('photoModalCanvas');
+    cvs.onmousedown = function(e) {
+        if (_mFlirMode !== 'overlay') return;
+        var r = cvs.getBoundingClientRect();
+        var px = (e.clientX - r.left) * (cvs.width / r.width);
+        var py = (e.clientY - r.top) * (cvs.height / r.height);
+        var tw = _flirThImg.naturalWidth || 640;
+        var th = _flirThImg.naturalHeight || 480;
+        var sw = Math.round(tw * _flirScale);
+        var sh = Math.round(th * _flirScale);
+        var hit = 15;
+        var corners = [
+            {cx:_flirOX, cy:_flirOY, corner:'tl'},
+            {cx:_flirOX+sw, cy:_flirOY, corner:'tr'},
+            {cx:_flirOX, cy:_flirOY+sh, corner:'bl'},
+            {cx:_flirOX+sw, cy:_flirOY+sh, corner:'br'}
+        ];
+        _flirScaleCorner = null;
+        for (var i = 0; i < corners.length; i++) {
+            if (Math.abs(px - corners[i].cx) < hit && Math.abs(py - corners[i].cy) < hit) {
+                _flirScaleCorner = corners[i].corner;
+                break;
+            }
+        }
+        _flirDrag = true;
+        _flirDX = e.clientX;
+        _flirDY = e.clientY;
+        _flirStartX = e.clientX;
+        _flirStartY = e.clientY;
+        if (_flirScaleCorner) {
+            cvs.style.cursor = 'nwse-resize';
+        } else {
+            cvs.style.cursor = 'grabbing';
+        }
+    };
+    cvs.onmouseup = function(e) {
+        if (_mFlirMode !== 'overlay') return;
+        var dist = Math.abs(e.clientX - _flirStartX) + Math.abs(e.clientY - _flirStartY);
+        if (dist < 5 && !_flirScaleCorner) {
+            _flirProbeClick(e);
+        }
+    };
 
     _cacheImg(idx + 1);
     _cacheImg(idx - 1);
     _cacheImg(idx + 2);
+    // FLIR overlay canvas drag move/up
+    window.onmousemove = _flirOnMove;
+    window.onmouseup = _flirOnUp;
 
     if (isVideo) {
         // Always autoplay video
@@ -3259,6 +3491,73 @@ function updateModalDel(p) {
     }
 }
 
+function _flirOnMove(e) {
+    if (!_flirDrag) return;
+    var cvs = document.getElementById('photoModalCanvas');
+    if (!cvs || _mFlirMode !== 'overlay') return;
+    var r = cvs.getBoundingClientRect();
+    var px = (e.clientX - r.left) * (cvs.width / r.width);
+    var py = (e.clientY - r.top) * (cvs.height / r.height);
+    var tw = _flirThImg.naturalWidth || 640;
+    var th = _flirThImg.naturalHeight || 480;
+    if (_flirScaleCorner) {
+        var oppX, oppY;
+        switch (_flirScaleCorner) {
+            case 'tl': oppX = _flirOX + Math.round(tw * _flirScale); oppY = _flirOY + Math.round(th * _flirScale); break;
+            case 'tr': oppX = _flirOX; oppY = _flirOY + Math.round(th * _flirScale); break;
+            case 'bl': oppX = _flirOX + Math.round(tw * _flirScale); oppY = _flirOY; break;
+            case 'br': oppX = _flirOX; oppY = _flirOY; break;
+        }
+        var origDist = Math.sqrt(tw*tw + th*th) * _flirScale;
+        var newDist = Math.sqrt((px - oppX)*(px - oppX) + (py - oppY)*(py - oppY));
+        _flirScale = Math.max(0.3, Math.min(5.0, newDist / (Math.sqrt(tw*tw + th*th))));
+        switch (_flirScaleCorner) {
+            case 'tl': _flirOX = oppX - Math.round(tw * _flirScale); _flirOY = oppY - Math.round(th * _flirScale); break;
+            case 'tr': _flirOY = oppY - Math.round(th * _flirScale); break;
+            case 'bl': _flirOX = oppX - Math.round(tw * _flirScale); break;
+            case 'br': break;
+        }
+    } else {
+        var dx = (e.clientX - _flirDX) * (cvs.width / r.width);
+        var dy = (e.clientY - _flirDY) * (cvs.height / r.height);
+        _flirOX += Math.round(dx);
+        _flirOY += Math.round(dy);
+    }
+    _flirDX = e.clientX;
+    _flirDY = e.clientY;
+    drawFlirOverlay();
+}
+function _flirOnUp() {
+    _flirDrag = false;
+    _flirScaleCorner = null;
+    var cvs = document.getElementById('photoModalCanvas');
+    if (cvs) cvs.style.cursor = 'grab';
+}
+function _flirProbeClick(e) {
+    var cvs = document.getElementById('photoModalCanvas');
+    if (!cvs || _mFlirMode !== 'overlay') return;
+    var r = cvs.getBoundingClientRect();
+    var px = (e.clientX - r.left) * (cvs.width / r.width);
+    var py = (e.clientY - r.top) * (cvs.height / r.height);
+    var tw = _flirThImg.naturalWidth || 640;
+    var th = _flirThImg.naturalHeight || 480;
+    var tx = (px - _flirOX) / _flirScale;
+    var ty = (py - _flirOY) / _flirScale;
+    if (tx < 0 || ty < 0 || tx >= tw || ty >= th) return;
+    var p = currentPhotos[_mIdx];
+    if (!p) return;
+    var pid = encodeURIComponent(p.photo_id);
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + '/photos/flir_temperature?path=' + pid + '&x=' + Math.round(tx) + '&y=' + Math.round(ty), true);
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            var data = JSON.parse(xhr.responseText);
+            _flirProbes.push({tx: Math.round(tx), ty: Math.round(ty), temp: data.temp_c});
+            drawFlirOverlay();
+        }
+    };
+    xhr.send();
+}
 function closePhotoModal() {
     document.getElementById('photoModal').classList.remove('show');
     var img = document.getElementById('photoModalImg');
@@ -3280,6 +3579,18 @@ function closePhotoModal() {
      document.getElementById('modalTopbar').classList.remove('playing');
       if (lastPid) { var c = document.querySelector('.card[data-photo-id="' + CSS.escape(lastPid) + '"]'); if (c) { c.scrollIntoView({block:'center'}); } }
      _modalOpen = false;
+    // FLIR cleanup
+    window.onmousemove = null;
+    window.onmouseup = null;
+    _flirDrag = false;
+    _flirScaleCorner = null;
+    _flirOX = 219; _flirOY = 141; _flirScale = 1.5;
+    _flirProbes = [];
+    document.getElementById('flirOverlayControls').style.display = 'none';
+    var cvs = document.getElementById('photoModalCanvas');
+    if (cvs) { cvs.style.display = 'none'; cvs.onmousedown = null; }
+    _flirVisImg.src = '';
+    _flirThImg.src = '';
 }
 
 function goToTimeline() {
