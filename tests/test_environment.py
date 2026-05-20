@@ -73,22 +73,20 @@ def test_onnxruntime_gpu_pinned():
     _check_version("onnxruntime-gpu", "==1.18.0")
 
 
-def test_opencv_python_below_4_11():
-    """Проверяет что opencv-python < 4.11.
-
-    Почему нельзя >=4.11:
-    - opencv >=4.11 требует numpy>=2
-    - При numpy<2 (нужно для onnxruntime) opencv>=4.11 не импортируется
-    """
-    _check_version("opencv-python", "<4.11")
+def test_opencv_python_works():
+    """Проверяет что opencv-python совместим с текущим numpy."""
+    import importlib.metadata, numpy
+    v = importlib.metadata.version("opencv-python")
+    import cv2
+    assert cv2.__version__ == v, f"opencv-python {v} импортируется, numpy {numpy.__version__}"
 
 
-def test_opencv_headless_below_4_11():
-    """Проверяет что opencv-python-headless < 4.11.
-
-    Та же причина что и opencv-python:
-    - >=4.11 требует numpy>=2, конфликтует с onnxruntime 1.18.0
-    """
+def test_opencv_headless_works():
+    """Проверяет что opencv-python-headless совместим с текущим numpy."""
+    import importlib.metadata, numpy
+    v = importlib.metadata.version("opencv-python-headless")
+    import cv2
+    assert cv2.__version__ == v, f"opencv-python-headless {v} импортируется, numpy {numpy.__version__}"
     _check_version("opencv-python-headless", "<4.11")
 
 
