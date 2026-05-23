@@ -873,9 +873,13 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
         change_times = {r[0]: r[1] for r in recent_rows}
         photos = []
         for pid in recent_pids:
-            row = db.sqlite.execute("SELECT * FROM photos WHERE photo_id=?", (pid,)).fetchone()
+            row = db.sqlite.execute(
+                "SELECT p.*, cf.content_hash FROM photos p "
+                "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+                "WHERE p.photo_id=?", (pid,)
+            ).fetchone()
             if row:
-                cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
+                cols = [d[0] for d in db.sqlite.execute("SELECT p.photo_id FROM photos p LIMIT 0").description] + ["content_hash"]
                 photos.append(dict(zip(cols, row)))
         total = db.count_photos()
 
