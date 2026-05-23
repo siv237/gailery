@@ -63,6 +63,11 @@ trap 'on_error $LINENO $?' ERR
 #
 # 15. Пакет nvidia-cudnn-cu12 (не nvidia.cudnn) — правильное имя для pip.
 #     Версия 8.9.7.29 для Pascal; torch хочет 9.x, но 8.x работает с onnxruntime.
+#
+# 16. libimage-exiftool-perl — системный пакет, даёт exiftool CLI.
+#     Нужен для FLIR-тепловизионного анализа: извлечение RawThermalImage,
+#     EmbeddedImage, Planck-параметров, палитры. Без него FLIR-эндпоинты
+#     возвращают 500.
 # =============================================================================
 
 RED='\033[0;31m'
@@ -142,7 +147,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-upgrade \
     build-essential cmake python3-venv python3-dev \
     libvips-dev mosquitto mosquitto-clients ffmpeg \
     libgl1-mesa-dev libglib2.0-0 xxhash wget git unzip \
-    g++-12 gcc-12
+    g++-12 gcc-12 libimage-exiftool-perl
 
 log_info "Системные пакеты проверены"
 
