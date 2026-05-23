@@ -468,7 +468,7 @@ def main():
     parser.add_argument("--ingest", type=int, default=0, help="Override ingest batch size (0=use --batch)")
     parser.add_argument("--describe", type=int, default=0, help="Override describe batch size (0=use --batch)")
     parser.add_argument("--batch-size", type=int, default=6, help="VLM batch size for describe")
-    parser.add_argument("--hash-limit", type=int, default=500, help="Files to hash per batch (0=all)")
+    parser.add_argument("--hash-limit", type=int, default=50, help="Files to hash per batch (0=all)")
     parser.add_argument("--root", type=str, default="", help="Only process files from this root_id")
     args = parser.parse_args()
 
@@ -546,36 +546,36 @@ def main():
             filling_done = progress["ingest"][2] >= 100 and progress["exif"][2] >= 100 and progress["unhashed"] == 0
 
             if not filling_done:
-                log(">>> ЭТАП 1: НАПОЛНЕНИЕ — СКАН → ХЕШ → ДЕДУП+INGEST → EXIF")
-
-                run_step("Фаза A: СКАН (пути)", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"])
+                run_step("СКАН (пути)", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"])
                 if stopped():
                     break
 
-                db = get_db()
-                unhashed = db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NULL AND size > 0 AND deleted = 0").fetchone()[0]
-                if unhashed > 0:
-                    hash_args = [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--hash", "--limit", str(hash_limit)]
-                    run_step(f"Фаза B: ХЕШ ({min(hash_limit, unhashed)} из {unhashed})", hash_args)
-                    if stopped():
-                        break
-
-                run_step("Фаза C: ДЕДУП+INGEST", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--dedup-ingest"])
-                if stopped():
-                    break
-                progress = get_progress(root_id=args.root or None)
-
-                if progress["exif"][2] < 100 and progress["ingest"][2] >= 100:
-                    run_step("EXIF", [VENV_PYTHON, f"{SCRIPTS_DIR}/exif.py", "--all"])
-                    if stopped():
-                        break
+                while True:
                     progress = get_progress(root_id=args.root or None)
+                    unhashed = progress["unhashed"]
+                    if unhashed == 0 and progress["exif"][2] >= 100:
+                        break
+                    if stopped():
+                        break
 
-                if progress["ingest"][2] >= 100 and progress["exif"][2] >= 100:
-                    log(">>> НАПОЛНЕНИЕ 100% — переходим к AI-шагам")
-                else:
-                    log(f">>> НАПОЛНЕНИЕ: ingest={progress['ingest'][2]:.1f}%, exif={progress['exif'][2]:.1f}% — цикл")
-                    continue
+                    if unhashed > 0:
+                        run_step(f"ХЕШ {min(hash_limit, unhashed)} из {unhashed}", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--hash", "--limit", str(hash_limit)])
+                        if stopped():
+                            break
+
+                        run_step("ДЕДУП+INGEST", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--dedup-ingest"])
+                        if stopped():
+                            break
+
+                    progress = get_progress(root_id=args.root or None)
+                    if progress["exif"][2] < 100 and progress["ingest"][2] > 0:
+                        run_step("EXIF", [VENV_PYTHON, f"{SCRIPTS_DIR}/exif.py", "--all"])
+                        if stopped():
+                            break
+
+                if stopped():
+                    break
+                log(">>> НАПОЛНЕНИЕ 100% — переходим к AI-шагам")
 
             log(">>> ЭТАП 2: AI-обработка (faces → describe → embed)")
 
