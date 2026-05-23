@@ -98,7 +98,7 @@ def _get_face_context(content_hash, img_width, db):
         return ""
     try:
         rows = db.sqlite.execute(
-            "SELECT f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, p.display_name "
+            "SELECT f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, p.display_name, p.comment "
             "FROM faces f LEFT JOIN personas p ON f.persona_id = p.persona_id "
             "WHERE f.content_hash = ?",
             (content_hash,)
@@ -114,8 +114,12 @@ def _get_face_context(content_hash, img_width, db):
         bbox = [r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0]
         pos = _bbox_to_position(bbox, img_width)
         name = r[4]
+        comment = r[5]
         if name:
-            parts.append(f"{name} ({pos})")
+            entry = f"{name} ({pos})"
+            if comment:
+                entry += f", {comment}"
+            parts.append(entry)
             named_count += 1
         else:
             unnamed_count += 1
@@ -127,6 +131,31 @@ def _get_face_context(content_hash, img_width, db):
     if lines:
         lines.append("Используй имена в описании если они подходят к людям на фото.")
     return " ".join(lines)
+
+
+def _get_photo_context(photo_path, db):
+    if not db:
+        return ""
+    parts = []
+    try:
+        row = db.sqlite.execute(
+            "SELECT p.manual_date, p.date, cr.alias "
+            "FROM photos p "
+            "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+            "LEFT JOIN catalog_roots cr ON cf.root_id = cr.root_id "
+            "WHERE p.path = ? AND p.deleted = 0",
+            (photo_path,)
+        ).fetchone()
+        if row:
+            date_val = row[0] or row[1]
+            if date_val:
+                date_str = str(date_val)[:10]
+                parts.append(f"Дата съёмки: {date_str}.")
+            if row[2]:
+                parts.append(f"Папка: {row[2]}.")
+    except Exception:
+        pass
+    return " ".join(parts)
 
 
 def _describe_ollama_request(img_b64, ollama_url, ollama_model, face_context=""):
@@ -309,7 +338,9 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
             if ch_row:
                 content_hash = ch_row[0]
             fc = _get_face_context(content_hash, img_w, db)
-            prepared.append((pid, p, img_b64, fc))
+            pc = _get_photo_context(p, db)
+            ctx = " ".join(filter(None, [fc, pc]))
+            prepared.append((pid, p, img_b64, ctx))
         except Exception as e:
             log(f"  SKIP (image error): {Path(p).name}: {e}")
 

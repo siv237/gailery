@@ -59,11 +59,12 @@ else:
 **Все счётчики — по уникальным файлам** (`catalog_files.is_canonical=1`, `deleted=0`). Дубли (`is_canonical=0`) хранятся в `catalog_files` только справочно для путей и контроля дублей, **никогда не обрабатываются** и не участвуют в подсчёте прогресса.
 
 Каждая карточка прогресса = `сделано / всего` по canonical:
-- Наполнение: canonical в photos (deleted=0) / canonical в catalog
-- Описание: canonical с description / canonical всего
+- Наполнение: canonical в photos (deleted=0) / canonical в catalog (с хешем и без)
+- unhashed: canonical без хеша (отдельный счётчик)
+- EXIF: canonical с exif_checked=1 / canonical с хешем
 - Лица: canonical (не видео) с faces_done=1 / canonical (не видео, deleted=0)
-- EXIF: canonical с exif_checked=1 / canonical всего
-- Семантическая индексация: canonical с embedded=1 / canonical всего
+- Описание: canonical с description / canonical (не видео)
+- Семантическая индексация: canonical с embedded=1 / canonical с описанием
 
 ### Таблицы и связи
 ```
@@ -97,7 +98,7 @@ personas: persona_id, display_name, comment
 
 1. **NEVER два GPU-процесса одновременно.** Ни при каких обстоятельствах. Если на GPU уже кто-то — второй ЖДЁТ или ОТКАЗЫВАЕТ, но никогда не лезет поверх.
 
-2. **Фоновые задачи взаимно исключают друг друга через pipeline.** Pipeline запускает describe→faces→embed ПОСЛЕДОВАТЕЛЬНО (subprocess.run, блокирующий). Между шагами pipeline убивает orphan llama-server. Два фоновых воркера никогда не работают параллельно.
+2. **Фоновые задачи взаимно исключают друг друга через pipeline.** Pipeline запускает faces→describe→embed ПОСЛЕДОВАТЕЛЬНО батчами (subprocess.run, блокирующий). Между шагами pipeline убивает orphan llama-server. Два фоновых воркера никогда не работают параллельно.
 
 3. **Временные задачи используют MQTT GPU lock.** Перед запуском llama-server/API-воркера:
    - `request_gpu_gentle()` для поиска — ждёт до 120с, отказывает если GPU занят, НЕ убивает ничьи процессы
@@ -165,9 +166,9 @@ personas: persona_id, display_name, comment
 ### Корневые пути сканирования
 Пути берутся из таблицы `catalog_roots` (где `enabled=1`). Регистрируются вручную через `scan_catalog.py --add <путь>`. Каждый root имеет `root_id`, `root_path`, `alias`, `scanned_at`.
 
-### Шаг 1: Скан + Наполнение (scan + ingest = один процесс)
+### Шаг 1: Наполнение (3 фазы: scan → hash → dedup-ingest)
 
-Это единый процесс. Не два отдельных.
+**Фаза A: СКАН** (`scan_catalog.py --scan`) — сбор путей без хешей, ~1с
 
 1. **Читаем `catalog_roots`** (enabled=1), для каждого root:
    - **Быстрый обход директорий**: сравниваем `dir.mtime` с `catalog_roots.scanned_at`
@@ -175,7 +176,7 @@ personas: persona_id, display_name, comment
    - Если `mtime >= scanned_at` — заходим внутрь, сканируем файлы
 
 2. **Обработка файлов**:
-   - **Новый файл** (rel_path не в catalog_files): вычисляем xxh128, добавляем в `catalog_files`, после скана — `mark_canonical_duplicates()` определяет `is_canonical`
+   - **Новый файл** (rel_path не в catalog_files): добавляем в `catalog_files` без хеша, после скана — `mark_canonical_duplicates()` определяет `is_canonical`
    - **Существующий файл, mtime/size изменились**: пересчитываем xxh128, обновляем запись. Если `content_hash` изменился — помечаем все зависимые шаги как устаревшие (см. раздел "Устаревание результатов")
    - **Существующий файл, не изменился**: пропускаем
 
@@ -197,44 +198,63 @@ personas: persona_id, display_name, comment
 
 6. Обновить `catalog_roots.scanned_at`
 
+**Фаза B: ХЕШИРОВАНИЕ** (`scan_catalog.py --hash --limit N`) — батчами по 200 файлов
+
+1. Выбираем canonical файлы без хеша (content_hash IS NULL, deleted=0)
+2. Считаем xxh128 для N файлов (по умолчанию 200, ~8 файлов/с)
+3. Записываем хеш в БД
+
+**Фаза C: ДЕДУП+INGEST** (`scan_catalog.py --dedup-ingest`)
+
+1. `mark_canonical_duplicates()` — определяет is_canonical по content_hash
+2. Canonical с `ingested=0` → добавляем в `photos`
+3. Пометить `ingested=1`
+
+**Цикл наполнения в pipeline.py**: СКАН → ХЕШ(200) → ДЕДУП+INGEST → EXIF → повтор пока unhashed>0
+**Наполнение 100%** только когда unhashed=0 (все canonical файлы имеют хеш)
+
 ### Шаг 2: EXIF
 
 1. Найти canonical photos с `exif_checked=0` и `deleted=0` (JOIN с catalog_files)
 2. Читаем EXIF (фото через exifread) / видео (через ffprobe)
 3. Записываем дату/GPS/камеру/длительность/кодек
-4. Счётчик: canonical photos с `exif_checked=1` / все canonical photos (deleted=0)
+4. Всегда `--all` — сколько в photos, столько и обработаем
+5. Счётчик: canonical photos с `exif_checked=1` / все canonical photos (deleted=0)
 
-### Шаг 3: Лица (faces)
+### Шаг 3: Лица (faces) — ВЫПОЛНЯЕТСЯ ПЕРЕД ОПИСАНИЕМ
 
 1. Найти canonical photos с `faces_done=0` и `deleted=0` (исключая видео)
 2. InsightFace GPU: детекция, векторные представления, кластеризация в персоны (DBSCAN на GPU)
 3. Запись в `faces` — **обязательно с `content_hash`** из `catalog_files`
 4. Для ВСЕХ обработанных фото: `catalog_files.faces_done=1`; с лицами: `photos.faces_present=1`; без лиц: `photos.faces_present=0`
-5. Счётчик: canonical photos (не видео) с `cf.faces_done=1` / canonical photos (не видео, deleted=0)
+5. Батч: `faces.py --limit 60`
+6. Счётчик: canonical photos (не видео) с `cf.faces_done=1` / canonical photos (не видео, deleted=0)
 
 ### Шаг 4: Описание (describe)
 
 1. Найти canonical photos с `description IS NULL` и `deleted=0`
-2. VLM (llama-server + Qwen3.5-4B-Q4_K_M.gguf + mmproj) генерирует описание
+2. VLM (Ollama + Qwen3.5-4B) генерирует описание
 3. Если `faces_done=1` (InsightFace уже отработал) — VLM НЕ перетирает `faces_present`
-4. Контекст лиц в промпте: если есть именованные персоны — VLM получает имена + позиции
-5. Счётчик: canonical photos с `description IS NOT NULL` / все canonical photos (deleted=0)
+4. Контекст в промпте: имена лиц + позиции + комментарии персон + дата съёмки + папка (alias)
+5. Батч: `describe.py --limit 60 --batch-size 6`
+6. Счётчик: canonical photos с `description IS NOT NULL` / все canonical photos (deleted=0)
 
 ### Шаг 5: Семантическая индексация (embed)
 
 1. Найти canonical photos с `embedded=0, deleted=0` (только с `description IS NOT NULL`)
 2. Собираем текст из описания + имена лиц + папка + дата
-3. Генерируем семантические индексы (llama-server + Qwen3-Embedding-0.6B-F16.gguf), храним в LanceDB
-4. Счётчик: canonical photos с `embedded=1` / все canonical photos (deleted=0)
-5. Важно: НЕ использовать delete_photo_embedding() — только embedded=0 в SQLite
+3. Генерируем семантические индексы, храним в LanceDB
+4. Батч: `embed.py --limit 60`
+5. Счётчик: canonical photos с `embedded=1` / все canonical photos (deleted=0)
+6. Важно: НЕ использовать delete_photo_embedding() — только embedded=0 в SQLite
 
 ### Цикл pipeline
 
-1. Запускается шаг 1 (scan+ingest)
-2. Считаем прогресс каждого шага (только по canonical unique файлам, deleted=0)
-3. Запускаем незавершённые шаги по порядку: exif → faces → describe → embed
+1. **Этап 1 — Наполнение**: СКАН(пути) → цикл {ХЕШ(200)→ДЕДУП+INGEST→EXIF(all)} пока unhashed=0 и exif=100%
+2. **Этап 2 — AI батчевый цикл**: faces(60) → describe(60,батч6) → embed(60) → повтор пока все не 100%
+3. Считаем прогресс каждого шага (только по canonical unique файлам, deleted=0)
 4. Каждый шаг проверяет `content_hash` для привязки результатов
-5. Все 100% → засыпаем, watchdog разбудит при изменениях
+5. Все 100% → засыпаем 30с, watchdog разбудит при изменениях
 
 ### Каскад инвалидации при изменении персон
 
