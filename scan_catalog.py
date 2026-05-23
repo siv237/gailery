@@ -147,6 +147,9 @@ def scan_root(db, root_id):
                     log(progress_msg)
                     print(progress_msg, flush=True)
 
+                if scanned % 50 == 0:
+                    db.sqlite.commit()
+
                 try:
                     stat = os.stat(abs_path)
                     file_size = stat.st_size
