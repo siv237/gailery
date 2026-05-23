@@ -70,15 +70,24 @@
         .card .overlay .faces { display: flex; gap: 3px; margin-top: 3px; }
         .card .face-thumb { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 1px solid #30363d; pointer-events: auto; cursor: pointer; }
         .card .face-thumb.named { border-color: #3fb950; }
+        .card .top-badges { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; z-index: 2; }
+        .card .top-badges .tb { background: rgba(0,0,0,.8); color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; letter-spacing: .3px; white-space: nowrap; }
+        .card .top-badges .tb.gps { background: rgba(88,166,255,.85); cursor: pointer; }
+        .card .top-badges .tb.gps:hover { background: rgba(88,166,255,1); }
+        .card .top-badges .tb.raw { background: #f0883e; }
+        .card .top-badges .tb.dur { background: rgba(0,0,0,.8); }
+        .light-theme .card .top-badges .tb { background: rgba(0,0,0,.7); }
+        .light-theme .card .top-badges .tb.gps { background: rgba(9,105,218,.8); }
+        .light-theme .card .top-badges .tb.gps:hover { background: rgba(9,105,218,1); }
+        .light-theme .card .top-badges .tb.raw { background: #f0883e; }
         .card .badge { position: absolute; left: 4px; background: rgba(0,0,0,.7); color: #3fb950; font-size: 9px; padding: 2px 5px; border-radius: 3px; }
         .card .badge.badge-rel { top: 4px; }
         .card .badge.badge-faces { top: 22px; }
         .card .badge.badge-only { top: 4px; }
-        .card .video-dur-badge { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.8); color: #fff; font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 600; z-index: 2; letter-spacing: .5px; }
         .card .video-play-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.3); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 1; }
         .card:hover .video-play-overlay { opacity: 1; }
         .card .video-play-overlay span { font-size: 36px; color: #fff; text-shadow: 0 0 8px rgba(0,0,0,.5); }
-        .light-theme .card .video-dur-badge { background: rgba(0,0,0,.7); }
+
         .card .del-mark { position: absolute; bottom: 4px; right: 4px; width: 22px; height: 22px; background: none; color: #c9d1d9; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; z-index: 3; opacity: 0; transition: opacity .15s; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000; }
         .card:hover .del-mark { opacity: 1; }
         .card .del-mark:hover { color: #f85149; }
@@ -167,9 +176,7 @@
         .card .goto-btn { position: absolute; top: 36px; right: 4px; background: rgba(0,0,0,.6); color: #c9d1d9; border: none; border-radius: 3px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s; }
         .card:hover .goto-btn { opacity: .8; }
         .card .goto-btn:hover { opacity: 1; background: rgba(0,0,0,.8); }
-        .gps-badge { position: absolute; bottom: 4px; right: 4px; background: rgba(88,166,255,.8); color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 2px; font-weight: 700; cursor: pointer; z-index: 2; }
-        .raw-badge { position: absolute; top: 4px; left: 4px; background: #f0883e; color: #fff; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; letter-spacing: 0.5px; z-index: 2; }
-        .gps-badge:hover { background: rgba(88,166,255,1); }
+
 
         .detail-panel { display: none; position: fixed; top: 0; right: 0; width: 380px; height: 100%; background: #161b22; border-left: 1px solid #30363d; z-index: 1000; overflow-y: auto; overflow-x: hidden; padding: 20px; color: #c9d1d9; font-size: 13px; box-sizing: border-box; }
         .detail-panel.show { display: block; }
@@ -399,8 +406,7 @@
         .light-theme .modal-add-gps:hover { background: rgba(31,136,61,1); }
         .light-theme .modal-clear-gps { background: rgba(207,34,46,.8); color: #fff; }
         .light-theme .modal-clear-gps:hover { background: rgba(207,34,46,1); }
-        .light-theme .gps-badge { background: rgba(9,105,218,.8); color: #fff; }
-        .light-theme .gps-badge:hover { background: rgba(9,105,218,1); }
+
         .light-theme .card .expand-btn { background: rgba(0,0,0,.5); color: #c9d1d9; }
         .light-theme .card .expand-btn:hover { background: rgba(0,0,0,.8); }
         .light-theme .card .goto-btn { background: rgba(0,0,0,.5); color: #c9d1d9; }
@@ -1434,9 +1440,7 @@ function buildCardHtml(p, idx) {
         if (dp.length === 3) dateStr = dp[2] + '.' + dp[1] + '.' + dp[0];
         else dateStr = p.date.substring(0, 10);
     }
-    var gpsIcon = '';
-    if (p.gps_lat && p.gps_lon) gpsIcon = '<div class="gps-badge" onclick="event.stopPropagation();window.open(\'/map#\' + ' + p.gps_lat + ' + \',\' + ' + p.gps_lon + ', \'_blank\')">GPS</div>';
-    var facesHtml = '';
+     var facesHtml = '';
     if (p.personas && p.personas.length > 0) {
         var sorted = p.personas.slice().sort(function(a,b){ return (b.total_face_count||0) - (a.total_face_count||0); });
         facesHtml = '<div class="faces">';
@@ -1473,17 +1477,21 @@ function buildCardHtml(p, idx) {
         if (p.edits) { var _re = p.edits.find(function(e){return e.action==='rotate'}); if (_re) _rot = ' style="transform:rotate('+((_re.params.angle % 360 + 360) % 360)+'deg)"'; }
         html += '<img' + _rot + ' fetchpriority="high" src="' + thumbBase + '&size=sm" srcset="' + thumbBase + '&size=sm 400w, ' + thumbBase + '&size=md 800w" sizes="400px" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">';
     }
-     if (p.is_raw) html += '<div class="raw-badge">RAW</div>';
-     html += gpsIcon;
      html += badge;
     html += relBadge;
-     if (p.media_type === 'video' && p.duration_seconds) {
-         var mins = Math.floor(p.duration_seconds / 60);
-         var secs = Math.floor(p.duration_seconds % 60);
-         var durStr = mins + ':' + (secs < 10 ? '0' : '') + secs;
-         html += '<div class="video-dur-badge">' + durStr + '</div>';
-         html += '<div class="video-play-overlay"><span>&#9654;</span></div>';
-     }
+      var topBadges = '';
+      if (p.is_raw) topBadges += '<div class="tb raw">RAW</div>';
+      if (p.gps_lat && p.gps_lon) topBadges += '<div class="tb gps" onclick="event.stopPropagation();window.open(\'/map#\' + ' + p.gps_lat + ' + \',\' + ' + p.gps_lon + ', \'_blank\')">GPS</div>';
+      if (p.media_type === 'video' && p.duration_seconds) {
+          var mins = Math.floor(p.duration_seconds / 60);
+          var secs = Math.floor(p.duration_seconds % 60);
+          var durStr = mins + ':' + (secs < 10 ? '0' : '') + secs;
+          topBadges += '<div class="tb dur">' + durStr + '</div>';
+      }
+      if (topBadges) html += '<div class="top-badges">' + topBadges + '</div>';
+      if (p.media_type === 'video' && p.duration_seconds) {
+          html += '<div class="video-play-overlay"><span>&#9654;</span></div>';
+      }
     if (!p.deleted) html += '<div class="del-mark" onclick="event.stopPropagation();markDeleted(\'' + esc(p.photo_id || '') + '\')" title="Удалить">&#128465;</div>';
     html += '<div class="overlay">';
     if (dateStr) html += '<div class="date">' + esc(dateStr) + '</div>';
