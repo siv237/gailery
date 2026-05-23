@@ -91,7 +91,13 @@ function restoreOpenTasks() {
 
 function stepPct(id) {
     if (!st || (!st.photos_total && id!=='ingest')) return 0;
-    if (id==='ingest') return st.pct_ingested||0;
+    if (id==='ingest') {
+        if (st.current_step === 'scan_catalog' && A.workers && A.workers.scan_catalog && A.workers.scan_catalog.progress) {
+            var p = A.workers.scan_catalog.progress;
+            return Math.min(p.pct || 0, 100);
+        }
+        return st.pct_ingested||0;
+    }
     if (id==='describe') return st.pct_described||0;
     if (id==='faces') return st.pct_faces||0;
     if (id==='exif') return st.pct_exif||0;
@@ -101,7 +107,13 @@ function stepPct(id) {
 function stepCount(id) {
     if (!st) return {done:0,total:0};
     var ct = st.catalog_total||0, ci = st.catalog_ingested||0, ff = st.faces_flagged_in_db||0;
-    if (id==='ingest') return {done:ci,total:ct};
+    if (id==='ingest') {
+        if (st.current_step === 'scan_catalog' && A.workers && A.workers.scan_catalog && A.workers.scan_catalog.progress) {
+            var p = A.workers.scan_catalog.progress;
+            return {done:p.done||0, total:0};
+        }
+        return {done:ci,total:ct};
+    }
     if (id==='describe') return {done:st.catalog_described||0,total:ci||ct};
     if (id==='faces') return {done:st.catalog_faces_done||0,total:ff||ci||ct};
     if (id==='exif') return {done:st.catalog_exif_done||0,total:ci||ct};
@@ -597,6 +609,10 @@ function loadStatus() {
         }
         renderSummary(); renderCyclo(); renderTasks();
         renderMQTT();
+    });
+    A.ajax('/api/mqtt/workers', function(d) {
+        A.workers = d.workers || {};
+        renderTasks();
     });
 }
 

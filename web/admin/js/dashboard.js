@@ -150,6 +150,7 @@ function loadStatus() {
     });
     A.ajax('/api/mqtt/workers', function(d) {
         _lastWorkers = d;
+        A.workers = d.workers || {};
         if (_lastStatus) refreshBlocks(_lastStatus);
     });
 }
