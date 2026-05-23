@@ -65,7 +65,7 @@ def add_root(db, root_path, alias=""):
     return root_id
 
 
-def scan_root(db, root_id):
+def scan_root(db, root_id, mq=None):
     root = db.get_catalog_root(root_id)
     if not root:
         log(f"Root not found: {root_id}")
@@ -146,6 +146,9 @@ def scan_root(db, root_id):
                     progress_msg = f"Scanned {scanned} files, new={len(new_files)}, changed={changed_count}, restored={restored_count}, dirs_skipped={skipped_dirs}, elapsed={elapsed:.1f}s"
                     log(progress_msg)
                     print(progress_msg, flush=True)
+                    if mq:
+                        try: mq.publish_progress(scanned, 0, {"new": len(new_files), "changed": changed_count, "restored": restored_count, "elapsed": round(elapsed, 1)})
+                        except: pass
 
                 if scanned % 50 == 0:
                     db.sqlite.commit()
@@ -500,7 +503,7 @@ def main():
 
     if args.add:
         root_id = add_root(db, args.add, args.alias)
-        scan_root(db, root_id)
+        scan_root(db, root_id, mq)
         if mq:
             mq.shutdown()
         return
@@ -511,7 +514,7 @@ def main():
             print("No roots registered. Use --add <path> first.")
         else:
             for root in roots:
-                scan_root(db, root["root_id"])
+                scan_root(db, root["root_id"], mq)
         if mq:
             mq.shutdown()
         return
