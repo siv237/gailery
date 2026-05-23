@@ -1481,7 +1481,7 @@ function buildCardHtml(p, idx) {
     html += relBadge;
       var topBadges = '';
       if (p.is_raw) topBadges += '<div class="tb raw">RAW</div>';
-      if (p.gps_lat && p.gps_lon) topBadges += '<div class="tb gps" onclick="event.stopPropagation();window.open(\'/map#\' + ' + p.gps_lat + ' + \',\' + ' + p.gps_lon + ', \'_blank\')">GPS</div>';
+      if (p.gps_lat && p.gps_lon) topBadges += '<div class="tb gps" onclick="event.stopPropagation();window.open(\'/map#locate/\'+this.dataset.loc,\'_blank\')" data-loc="' + p.gps_lat + ',' + p.gps_lon + ',' + encodeURIComponent(p.photo_id || '') + '">GPS</div>';
       if (p.media_type === 'video' && p.duration_seconds) {
           var mins = Math.floor(p.duration_seconds / 60);
           var secs = Math.floor(p.duration_seconds % 60);

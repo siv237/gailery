@@ -504,7 +504,16 @@
 
             if (photos.length > 0) {
                 var hash = window.location.hash.substring(1);
-                if (hash && hash.indexOf(',') > 0) {
+                var locatePhotoId = null;
+                if (hash.indexOf('locate/') === 0) {
+                    var locParts = hash.substring(7).split(',');
+                    var lat = parseFloat(locParts[0]);
+                    var lon = parseFloat(locParts[1]);
+                    if (locParts.length > 2) locatePhotoId = decodeURIComponent(locParts.slice(2).join(','));
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        map.setView([lat, lon], 18);
+                    }
+                } else if (hash && hash.indexOf(',') > 0) {
                     var parts = hash.split(',');
                     var lat = parseFloat(parts[0]);
                     var lon = parseFloat(parts[1]);
@@ -517,6 +526,26 @@
                 } else {
                     var bounds = markers.getBounds();
                     if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
+                }
+
+                if (locatePhotoId) {
+                    setTimeout(function() {
+                        markers.eachLayer(function(layer) {
+                            if (layer._photoIdx === undefined) return;
+                            var mp = mapPhotos[layer._photoIdx];
+                            if (mp && (mp.photo_id === locatePhotoId || mp.rel_path === locatePhotoId || mp.path === locatePhotoId)) {
+                                markers.zoomToShowLayer(layer, function() {
+                                    layer.openPopup();
+                                    var zoom = map.getZoom();
+                                    if (zoom >= THUMB_ZOOM) {
+                                        var td = thumbDims(mp);
+                                        layer.setIcon(makeThumbIcon(thumbUrl(mp), zoom, td.w, td.h));
+                                        layer._iconZoom = zoom >= 15 ? 15 : 12;
+                                    }
+                                });
+                            }
+                        });
+                    }, 500);
                 }
             }
 
