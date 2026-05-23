@@ -168,17 +168,6 @@ async def monitor_page():
     return {"error": "Page not found"}
 
 
-@app.get("/log")
-async def pipeline_log():
-    from pathlib import Path
-    from fastapi.responses import HTMLResponse
-    log_html = Path(__file__).parent.parent / "web" / "log.html"
-    if log_html.exists():
-        with open(log_html) as f:
-            return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
-    return {"error": "Page not found"}
-
-
 @app.get("/admin")
 async def admin_page():
     from pathlib import Path

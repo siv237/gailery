@@ -112,7 +112,20 @@ git clone https://github.com/siv237/gailery.git /opt/gailery
 cd /opt/gailery
 ```
 
-### 3. Переменные окружения
+### 3. Системные пакеты
+
+```bash
+apt-get update
+apt-get install -y build-essential cmake python3-venv python3-dev \
+    libvips-dev mosquitto mosquitto-clients ffmpeg \
+    libgl1-mesa-dev libglib2.0-0 xxhash wget git unzip \
+    libimage-exiftool-perl
+```
+
+> `libimage-exiftool-perl` нужен для FLIR-тепловизионного анализа.
+> `mosquitto` нужен для GPU-арбитража (MQTT lock между воркерами).
+
+### 4. Переменные окружения
 
 ```bash
 cp .env.example .env
@@ -129,7 +142,7 @@ LLAMA_CPP_DIR=/opt/llama.cpp                # Папка куда собран l
 GALLERY_VENV_PYTHON=/opt/gailery/venv/bin/python3
 ```
 
-### 4. Python-окружение
+### 5. Python-окружение
 
 ```bash
 python3 -m venv /opt/gailery/venv
@@ -139,9 +152,9 @@ pip install -r requirements.txt
 ```
 
 > **Важно для Pascal (SM 6.1)**: onnxruntime-gpu требует cuDNN 8.x. cuDNN 9.x не работает.
-> Пакет `nvidia.cudnn` версии 8 ставится через pip (см. ниже). Для SM 70+ (Turing/Ampere) этот шаг не нужен.
+> Пакет `nvidia-cudnn-cu12` версии 8 ставится через pip (см. ниже). Для SM 70+ (Turing/Ampere) этот шаг не нужен.
 
-### 5. Сборка llama.cpp
+### 6. Сборка llama.cpp
 
 llama-server используется для VLM описаний, обогащения текстов и семантической индексации поиска.
 
@@ -156,7 +169,7 @@ cmake --build build --config Release -j$(nproc)
 
 После сборки бинарник: `/opt/llama.cpp/build/bin/llama-server`
 
-### 6. Скачивание моделей
+### 7. Скачивание моделей
 
 Все GGUF-модели кладутся в `/opt/gailery/gguf/`:
 
@@ -209,25 +222,25 @@ wget https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l
 unzip buffalo_l.zip && rm buffalo_l.zip
 ```
 
-### 7. cuDNN 8 для onnxruntime-gpu (только Pascal SM 6.1)
+### 8. cuDNN 8 для onnxruntime-gpu (только Pascal SM 6.1)
 
 На Turing (SM 75+) и новее этот шаг **не нужен** — cuDNN 9 работает.
 
 ```bash
-pip install nvidia.cudnn==8.9.7.29
+pip install nvidia-cudnn-cu12==8.9.7.29
 
 echo "/opt/gailery/venv/lib/python3.12/site-packages/nvidia/cudnn/lib" > /etc/ld.so.conf.d/gailery-cudnn.conf
 echo "/opt/gailery/venv/lib/python3.12/site-packages/nvidia/cublas/lib" >> /etc/ld.so.conf.d/gailery-cudnn.conf
 ldconfig
 ```
 
-### 8. Создание директорий
+### 9. Создание директорий
 
 ```bash
 mkdir -p /opt/gailery/{data,thumbnails,logs}
 ```
 
-### 9. systemd сервис
+### 10. systemd сервис
 
 ```bash
 cat > /etc/systemd/system/gailery.service << 'EOF'
@@ -257,7 +270,7 @@ systemctl enable gailery
 systemctl start gailery
 ```
 
-### 10. Первый запуск
+### 11. Первый запуск
 
 ```bash
 source /opt/gailery/venv/bin/activate

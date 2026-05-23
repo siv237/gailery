@@ -218,7 +218,7 @@ fi
 
 source "$VENV_DIR/bin/activate"
 
-if python3 -c "import torch, fastapi, lancedb, insightface, onnxruntime, paho.mqtt, psutil, xxhash, pandas" 2>/dev/null; then
+if python3 -c "import torch, fastapi, lancedb, insightface, onnxruntime, paho.mqtt, psutil, xxhash, cv2, rawpy, requests" 2>/dev/null; then
     log_info "Все Python-зависимости установлены"
 else
     log_info "Установка недостающих Python-зависимостей..."
@@ -236,9 +236,6 @@ numpy<2.0
 CONEOF
     pip install -r /tmp/gailery-req-notorch.txt -c /tmp/gailery-constraints.txt
     rm -f /tmp/gailery-req-notorch.txt /tmp/gailery-constraints.txt
-
-    pip install paho-mqtt psutil xxhash pandas
-    pip install python-multipart
 fi
 
 log_info "Проверка CUDA в PyTorch..."
