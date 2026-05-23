@@ -7,8 +7,8 @@ var STEPS = [
     {id:'ingest', name:'Наполнение', icon:'📂', cls:'c-text'},
     {id:'exif', name:'EXIF', icon:'📷', cls:'c-exif'},
     {id:'_sep', name:'AI', icon:'🤖', cls:'c-ai-sep', sep:true},
-    {id:'describe', name:'Описание', icon:'🖼️', cls:'c-info'},
     {id:'faces', name:'Лица', icon:'👤', cls:'c-warn'},
+    {id:'describe', name:'Описание', icon:'🖼️', cls:'c-info'},
     {id:'embed', name:'Индексация', icon:'🔍', cls:'c-embed'},
 ];
 
@@ -17,9 +17,9 @@ var TASKS = [
     {id:'hash', name:'Хеширование', icon:'🔗', desc:'Вычисление xxh128 хешей батчами, дедупликация, добавление в photos',
      params:[{k:'hash_limit',l:'Файлов за раз',v:200,t:'n'}]},
     {id:'exif', name:'Чтение EXIF', icon:'📷', desc:'Дата, GPS, камера из метаданных фото', params:[]},
-    {id:'describe', name:'Описание фото', icon:'🖼️', desc:'VLM (Qwen3.5-4B) генерирует описание и флаг лиц',
-     params:[{k:'desc_limit',l:'Лимит описаний (0=все)',v:60,t:'n'},{k:'batch_size',l:'Размер батча ВЛМ',v:6,t:'n'}]},
     {id:'faces', name:'Поиск лиц', icon:'👤', desc:'InsightFace: детекция, векторные представления, кластеризация в персоны', params:[]},
+    {id:'describe', name:'Описание фото', icon:'🖼️', desc:'VLM (Qwen3.5-4B) генерирует описание с именами лиц',
+     params:[{k:'desc_limit',l:'Лимит описаний (0=все)',v:60,t:'n'},{k:'batch_size',l:'Размер батча ВЛМ',v:6,t:'n'}]},
     {id:'embed', name:'Семантическая индексация', icon:'🔍', desc:'Qwen3-Embedding: векторный индекс для смыслового поиска', params:[]},
 ];
 
@@ -158,8 +158,8 @@ function buildSummaryHtml() {
     h += '<div class="sbox"><div class="sv">'+ci+'</div><div class="sl">Внесено из '+ct+'</div></div>';
     h += '<div class="sbox"><div class="sv">'+(st.catalog_exif_done||0)+'</div><div class="sl">EXIF из '+ci+'</div></div>';
     h += '<div class="sbox sep"></div>';
-    h += '<div class="sbox"><div class="sv">'+(st.catalog_described||0)+'</div><div class="sl">Описано из '+ci+'</div></div>';
     h += '<div class="sbox"><div class="sv">'+(st.catalog_faces_done||0)+'</div><div class="sl">Лица из '+(st.faces_flagged_in_db||0)+'</div></div>';
+    h += '<div class="sbox"><div class="sv">'+(st.catalog_described||0)+'</div><div class="sl">Описано из '+ci+'</div></div>';
     h += '<div class="sbox"><div class="sv">'+(st.photos_embedded||0)+'</div><div class="sl">Индекс из '+(st.photos_total||0)+'</div></div>';
     if (st.videos && st.videos.catalog) {
         h += '<div class="sbox"><div class="sv">'+st.videos.ingested+'</div><div class="sl">Видео из '+st.videos.catalog+'</div></div>';
