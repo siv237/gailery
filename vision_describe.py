@@ -544,7 +544,7 @@ def save_description(db, photo_path, parsed):
             )
             db.sqlite.execute("UPDATE photos SET embedded = 0 WHERE photo_id = ?", (photo["photo_id"],))
             db.sqlite.commit()
-            db.update_catalog_file_by_path(path_str, described=1, faces_done=max(faces_done, int(parsed["has_faces"])))
+            db.update_catalog_file_by_path(path_str, described=1)
         else:
             print(f"[WARN] Photo not in DB, skipping: {path_str}", flush=True)
     except Exception as e:
