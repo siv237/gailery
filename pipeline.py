@@ -580,10 +580,11 @@ def main():
             log(">>> ЭТАП 2: AI-обработка (faces → describe → embed) батчами")
 
             ai_batch = describe_n
+            faces_batch = min(ai_batch * 10, 600)
 
             if progress["faces"][2] < 100:
                 kill_orphan_llama_servers()
-                run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py", "--limit", str(ai_batch)])
+                run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py", "--limit", str(faces_batch)])
                 if stopped():
                     break
                 progress = get_progress(root_id=args.root or None)

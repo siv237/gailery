@@ -17,7 +17,7 @@ var TASKS = [
     {id:'hash', name:'Хеширование', icon:'🔗', desc:'Вычисление xxh128 хешей батчами, дедупликация, добавление в photos',
      params:[{k:'hash_limit',l:'Файлов за раз',v:200,t:'n'}]},
     {id:'exif', name:'Чтение EXIF', icon:'📷', desc:'Дата, GPS, камера из метаданных фото', params:[]},
-    {id:'faces', name:'Поиск лиц', icon:'👤', desc:'InsightFace: детекция, векторные представления, кластеризация в персоны', params:[]},
+    {id:'faces', name:'Поиск лиц', icon:'👤', desc:'InsightFace: детекция, векторные представления, кластеризация в персоны', params:[{k:'faces_limit',l:'Лиц за раз',v:600,t:'n'}]},
     {id:'describe', name:'Описание фото', icon:'🖼️', desc:'VLM (Qwen3.5-4B) генерирует описание с именами лиц',
      params:[{k:'desc_limit',l:'Лимит описаний (0=все)',v:60,t:'n'},{k:'batch_size',l:'Размер батча ВЛМ',v:6,t:'n'}]},
     {id:'embed', name:'Семантическая индексация', icon:'🔍', desc:'Qwen3-Embedding: векторный индекс для смыслового поиска', params:[]},

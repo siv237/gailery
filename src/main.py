@@ -796,7 +796,8 @@ async def control_start(body: dict):
                 pass
         cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/describe.py --limit {n} --batch-size {bs} {root_dir} >> {_lf} 2>&1 &"
     elif step == "faces":
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/faces.py >> {_lf} 2>&1 &"
+        n = body.get("faces_limit", 600)
+        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/faces.py --limit {n} >> {_lf} 2>&1 &"
     elif step == "exif":
         cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/exif.py --all >> {_lf} 2>&1 &"
     elif step == "embed":
