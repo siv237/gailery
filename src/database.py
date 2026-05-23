@@ -805,6 +805,7 @@ deleted=None, deleted_only=None,
                 (comment, persona_id)
             )
         self.sqlite.commit()
+        self.invalidate_for_persona(persona_id)
         return self.get_persona(persona_id)
 
     def delete_persona(self, persona_id):

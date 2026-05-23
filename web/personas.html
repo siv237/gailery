@@ -66,6 +66,8 @@
         .light-theme .pm-edit label { color: #57606a; }
         .light-theme .pm-edit input[type=text] { background: #ffffff; color: #24292f; border-color: #d0d7de; }
         .light-theme .pm-edit input[type=text]:focus { border-color: #0969da; }
+        .light-theme .pm-edit textarea { background: #ffffff; color: #24292f; border-color: #d0d7de; }
+        .light-theme .pm-edit textarea:focus { border-color: #0969da; }
         .light-theme .pm-faces-title { color: #57606a; }
         .light-theme .pm-cluster-title { color: #57606a; border-color: #d0d7de; }
         .light-theme .pm-body .face-preview { background: #f6f8fa; }
@@ -152,6 +154,8 @@
         .pm-edit label { display: block; color: #8b949e; font-size: 11px; margin-bottom: 4px; }
         .pm-edit input[type="text"] { width: 100%; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; font-family: monospace; font-size: 14px; }
         .pm-edit input[type="text"]:focus { outline: none; border-color: #58a6ff; }
+        .pm-comment-input { width: 100%; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; font-family: monospace; font-size: 13px; resize: vertical; }
+        .pm-comment-input:focus { outline: none; border-color: #58a6ff; }
         .pm-edit .btn-row { margin-top: 6px; display: flex; gap: 6px; }
         .pm-edit button { border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .pm-faces-title { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
@@ -228,6 +232,7 @@
     .pm-body .faces-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
     .pm-edit .btn-row button { min-height: 44px; font-size: 14px; padding: 10px 18px; }
     .pm-edit input[type="text"] { font-size: 16px; padding: 10px; }
+    .pm-comment-input { font-size: 16px; padding: 10px; }
     .rename-dialog .rd-box { max-width: 90vw; }
     .rename-dialog .rd-box button { min-height: 44px; font-size: 14px; padding: 10px 18px; }
     .mm-edge { display: block; }
@@ -376,9 +381,10 @@ function applyFilter() {
         var p = filtered[i];
         if (p.display_name) {
             var key = p.display_name;
-            if (!groups[key]) groups[key] = { display_name: key, face_count: 0, face_id: null, persona_ids: [], cluster_ids: [] };
+            if (!groups[key]) groups[key] = { display_name: key, face_count: 0, face_id: null, persona_ids: [], cluster_ids: [], comment: null };
             groups[key].face_count += (p.face_count || 0);
             if (!groups[key].face_id && p.face_id) groups[key].face_id = p.face_id;
+            if (!groups[key].comment && p.comment) groups[key].comment = p.comment;
             groups[key].persona_ids.push(p.persona_id);
             groups[key].cluster_ids.push(p.persona_id);
         } else {
@@ -448,7 +454,7 @@ function createNamedCard(group) {
     bottom.appendChild(thumb);
     bottom.appendChild(countDiv);
 
-    top.onclick = function() { openPersonaModal(group.display_name, group.face_id, group.face_count, group.cluster_ids, true); };
+    top.onclick = function() { openPersonaModal(group.display_name, group.face_id, group.face_count, group.cluster_ids, true, null, group.comment); };
     bottom.onclick = top.onclick;
 
     card.appendChild(top);
@@ -494,10 +500,10 @@ function toggleNamedExpand(card, group) {
 }
 
 function toggleUnnamedExpand(card, persona) {
-    openPersonaModal(persona.name || persona.persona_id, persona.face_id, persona.face_count || 0, [persona.persona_id], false, persona.persona_id);
+    openPersonaModal(persona.name || persona.persona_id, persona.face_id, persona.face_count || 0, [persona.persona_id], false, persona.persona_id, persona.comment);
 }
 
-function openPersonaModal(name, faceId, faceCount, clusterIds, isGroup, singlePid) {
+function openPersonaModal(name, faceId, faceCount, clusterIds, isGroup, singlePid, comment) {
     _pmClusterIds = clusterIds;
     var modal = document.getElementById('personaModal');
     var overlay = document.getElementById('pmOverlay');
@@ -524,6 +530,8 @@ function openPersonaModal(name, faceId, faceCount, clusterIds, isGroup, singlePi
     bodyHtml += '<input type="text" id="pmNameInput" value="' + esc(isGroup ? name : '') + '" oninput="pmAcSearch()" onfocus="pmAcSearch()" onblur="pmAcHideDelayed()">';
     bodyHtml += '<div class="ac-list" id="pmAcList"></div>';
     bodyHtml += '</div>';
+    bodyHtml += '<label style="margin-top:8px">Комментарий</label>';
+    bodyHtml += '<textarea id="pmCommentInput" rows="2" class="pm-comment-input" placeholder="Мама, бабушка, друг семьи...">' + esc(comment || '') + '</textarea>';
     bodyHtml += '<div class="btn-row">';
     bodyHtml += '<button class="btn-save" onclick="pmSaveName(\'' + esc(pid) + '\')">Сохранить</button>';
     bodyHtml += '</div></div>';
@@ -571,7 +579,7 @@ function pmAcSearch() {
         for (var ai = 0; ai < Math.min(acNames.length, 15); ai++) {
             var am = acNames[ai];
             var ag = _allGroups[am] || null;
-            allHtml += '<div class="ac-item" onmousedown="document.getElementById(\'pmNameInput\').value=\'' + esc(am) + '\'">';
+            allHtml += '<div class="ac-item" onmousedown="pmAcSelect(\'' + esc(am) + '\')">';
             if (ag && ag.face_id) allHtml += '<img class="ac-face" src="' + API + '/photos/face/' + ag.face_id + '?margin=0.15">';
             allHtml += '<span class="ac-name">' + esc(am) + '</span>';
             if (ag) allHtml += '<span class="ac-cnt">' + ag.face_count + ' л.</span>';
@@ -590,7 +598,7 @@ function pmAcSearch() {
         for (var g in _allGroups) {
             if (g === m) { group = _allGroups[g]; break; }
         }
-        html += '<div class="ac-item" onmousedown="document.getElementById(\'pmNameInput\').value=\'' + esc(m) + '\'">';
+        html += '<div class="ac-item" onmousedown="pmAcSelect(\'' + esc(m) + '\')">';
         if (group && group.face_id) {
             html += '<img class="ac-face" src="' + API + '/photos/face/' + group.face_id + '?margin=0.15">';
         }
@@ -600,6 +608,16 @@ function pmAcSearch() {
     }
     list.innerHTML = html;
     list.classList.add('show');
+}
+
+function pmAcSelect(name) {
+    var inp = document.getElementById('pmNameInput');
+    var commentInput = document.getElementById('pmCommentInput');
+    if (inp) inp.value = name;
+    if (commentInput) {
+        var g = _allGroups[name];
+        commentInput.value = (g && g.comment) ? g.comment : '';
+    }
 }
 
 function pmAcHideDelayed() {
@@ -614,6 +632,8 @@ function pmSaveName(pid) {
     if (!inp) return;
     var newName = inp.value.trim();
     if (!newName) return;
+    var commentInput = document.getElementById('pmCommentInput');
+    var newComment = commentInput ? commentInput.value.trim() : '';
 
     var clustersToSave = _pmClusterIds;
     var saved = 0;
@@ -621,7 +641,7 @@ function pmSaveName(pid) {
         fetch(API + '/persons/' + clustersToSave[i], {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ display_name: newName, comment: null }),
+            body: JSON.stringify({ display_name: newName, comment: newComment || null }),
         }).then(function(r) { return r.json(); }).then(function() {
             saved++;
             if (saved === clustersToSave.length) {
@@ -757,7 +777,7 @@ function doSaveOne(overridePid, overrideName) {
     fetch(API + '/persons/' + pid, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name, comment: null }),
+        body: JSON.stringify({ display_name: name }),
     }).then(function(r) { return r.json(); }).then(function() {
         showSaved(pid);
         loadPersonas();
@@ -774,7 +794,7 @@ function doSaveAll() {
     fetch(API + '/persons/batch/by_name?old_name=' + encodeURIComponent(oldName), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: pendingName, comment: null }),
+        body: JSON.stringify({ display_name: pendingName }),
     }).then(function(r) { return r.json(); }).then(function() {
         showSaved(editingPid);
         loadPersonas();
