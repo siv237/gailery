@@ -93,7 +93,7 @@ def get_progress(root_id=None):
 
     ingested = cur.execute(f"SELECT COUNT(*) {base}", root_params).fetchone()[0]
     ingested_photos = cur.execute(f"SELECT COUNT(*) {photo_where}", root_params).fetchone()[0]
-    described = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.description IS NOT NULL", root_params).fetchone()[0]
+    described = cur.execute(f"SELECT COUNT(*) {photo_where} AND cf.described = 1", root_params).fetchone()[0]
     exif_checked = cur.execute(f"SELECT COUNT(*) {base} AND p.exif_checked = 1", root_params).fetchone()[0]
     faces_done_count = cur.execute(f"SELECT COUNT(*) {photo_where} AND cf.faces_done = 1", root_params).fetchone()[0]
     embedded = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.embedded = 1", root_params).fetchone()[0]
