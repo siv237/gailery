@@ -55,40 +55,10 @@ LD_LIBRARY_PATH = ":".join([
     str(LLAMA_CPP_DIR / "build" / "bin"),
 ])
 
-SYSTEM_PROMPT = """Ты — автоматический анализатор фотографий. Анализируй изображение и вызови функцию describe_photo с результатами.
-
-Обрати внимание:
-- description: описание фотографии. Пиши на русском. Сначала опиши что происходит и где, затем кто запечатлён, что делает, во что одет, затем окружение и детали.
-- photo_type: классификация изображения. photo = обычная фотография, screenshot = скриншот экрана, document = документ/квитанция/скан/чек/сертификат/объявление, meme = мем/карточка с текстом, icon = иконка/аватарка, other = всё остальное
-- has_faces: true если видны лица людей (даже частично), false если нет людей или лица не видны
-- has_issues: true если фото с проблемой — размыто, битое, пересвет, слишком тёмное
-- issue_type: укажи тип проблемы только если has_issues=true
-
-ИМЕНА ЛЮДЕЙ — ГЛАВНОЕ ПРАВИЛО:
-Если в списке лиц указаны имена — ОБЯЗАТЕЛЬНО подставляй имена ВМЕСТО слов "девушка", "женщина", "мужчина", "мальчик", "девочка", "ребёнок".
-НЕ пиши "девушка Мария" — пиши имя как в списке лиц.
-Имена указывай ПОЛНОСТЬЮ как в списке лиц, не сокращай.
-
-Лица БЕЗ имени в списке — описывай обычными словами: "девушка", "женщина", "мужчина", "ребёнок".
-ЗАПРЕЩЕНО: "без имени", "безымянная", "неизвестная".
-ПРАВИЛЬНО: "справа девушка в длинном чёрном платье".
-НЕПРАВИЛЬНО: "справа девушка без имени".
-
-ВОЗРАСТ — ТОЛЬКО ДЕТИ до 18 лет:
-Если в списке лиц указан возраст ребёнка — ОБЯЗАТЕЛЬНО включи его рядом с именем.
-Взрослым возраст НЕ указывай. Если в комментарии указан год рождения взрослого — игнорируй, не вычисляй возраст.
-
-ФОРМАТ description — ПРОСТОЙ ТЕКСТ:
-Пиши описание обычным текстом, без квадратных скобок, без фигурных скобок, без JSON.
-НЕ пиши: [Лаборатория]. Алиса, 13 лет...
-НЕ пиши: {"description": "На фото..."}
-ПРАВИЛЬНО: На фотографии запечатлены три горшка с растениями на подоконнике...
-
-Если photo_type=document или на фото виден документ/чек/квитанция/сертификат/объявление/расписание:
-- В description полностью перепиши весь распознанный текст с документа, сохраняя структуру.
-- Укажи тип документа.
-- Если есть суммы, даты, номера, имена — все обязательно перепиши точно.
-- Если текст частично не виден или размыт — укажи что именно не удалось разобрать."""
+SYSTEM_PROMPT = """Ты описываешь фото в два предложения.
+Первое — кратко: кто (имена, возраст, связь) и где.
+Второе — детально: одежда, позы, окружение, детали.
+Без "вероятно", без эмоций. Имена вместо "девушка/женщина"."""
 
 _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT
 
@@ -184,12 +154,10 @@ def stop_llama_server(proc):
     log("llama-server stopped")
 
 
-def describe_one(img_b64, photo_path, face_context="", photo_context=""):
-    user_text = "Проанализируй эту фотографию."
-    if photo_context:
-        user_text += " " + photo_context
-    if face_context:
-        user_text += " " + face_context
+def describe_one(img_b64, photo_path, agent_context=""):
+    user_text = "Опиши двумя предложениями: (1) кратко кто и где (2) детали одежды и окружения."
+    if agent_context:
+        user_text += "\n\n" + agent_context
     data = {
         "messages": [
             {"role": "system", "content": get_system_prompt()},
@@ -225,7 +193,7 @@ VLM_MAX_SIZE = 1280
 VLM_JPEG_QUALITY = 85
 
 
-def _bbox_to_position(bbox, img_width):
+def _bbox_to_position(bbox, img_width=3000):
     x_center = (bbox[0] + bbox[2]) / 2 / max(img_width, 1)
     if x_center < 0.33:
         return "слева"
@@ -373,13 +341,79 @@ def prepare_image(path):
     return img_b64, None, w
 
 
+def _build_agent_context(photo_path, db):
+    if not db:
+        return ""
+    parts = []
+    try:
+        ch_row = db.sqlite.execute(
+            "SELECT content_hash FROM catalog_files WHERE abs_path=? AND content_hash IS NOT NULL AND is_canonical=1 LIMIT 1",
+            (photo_path,)).fetchone()
+        if not ch_row:
+            return ""
+        content_hash = ch_row[0]
+        photo = db.sqlite.execute(
+            "SELECT COALESCE(manual_date, date) FROM photos WHERE path=? AND deleted=0 LIMIT 1",
+            (photo_path,)).fetchone()
+        photo_date = str(photo[0])[:10] if photo and photo[0] else None
+
+        rows = db.sqlite.execute(
+            "SELECT f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, per.display_name, per.comment, per.persona_id "
+            "FROM faces f LEFT JOIN personas per ON f.persona_id=per.persona_id WHERE f.content_hash=?",
+            (content_hash,)).fetchall()
+
+        named = []
+        unnamed = 0
+        for r in rows:
+            name = r[4]
+            comment = r[5] or ""
+            pid = r[6]
+            pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0])
+            pcnt = 0
+            if pid:
+                pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
+                pcnt = pc[0] if pc else 0
+            age_str = _calc_age(comment, photo_date) if name and comment else None
+            if name:
+                line = name
+                if pos: line += f" ({pos})"
+                if age_str: line += f", {age_str}"
+                if comment: line += f" [{comment}]"
+                if pcnt: line += f" [{pcnt} фото]"
+                named.append(line)
+            else:
+                unnamed += 1
+
+        if named:
+            parts.append("Люди: " + "; ".join(named))
+        if unnamed:
+            parts.append(f"Ещё {unnamed} чел.")
+
+        ff = db.get_setting("family_facts")
+        if ff:
+            parts.append("Семья:")
+            for line in ff.strip().split("\n"):
+                if line.strip():
+                    parts.append(line.strip())
+
+        alias_row = db.sqlite.execute(
+            "SELECT cr.alias FROM catalog_roots cr JOIN catalog_files cf ON cf.root_id=cr.root_id WHERE cf.abs_path=? AND cf.is_canonical=1 LIMIT 1",
+            (photo_path,)).fetchone()
+        if alias_row and alias_row[0]:
+            parts.append(f"Папка: {alias_row[0]}")
+        if photo_date:
+            parts.append(f"Дата: {photo_date}")
+
+    except Exception:
+        pass
+    return "\n".join(parts)
+
+
 def describe_batch(image_paths, db=None):
     images_b64 = []
     valid_paths = []
     invalid_paths = []
-    face_contexts = []
-    photo_contexts = []
-    img_widths = []
+    agent_contexts = []
     for p in image_paths:
         try:
             fsize = os.path.getsize(p)
@@ -392,29 +426,10 @@ def describe_batch(image_paths, db=None):
                 log(f"  Skip {p}: not an image ({err})")
                 invalid_paths.append(p)
                 continue
-            content_hash = None
-            photo_date = None
-            pc = ""
-            if db:
-                ch_row = db.sqlite.execute(
-                    "SELECT content_hash FROM catalog_files WHERE abs_path = ? AND content_hash IS NOT NULL LIMIT 1",
-                    (str(p),)
-                ).fetchone()
-                if ch_row:
-                    content_hash = ch_row[0]
-                date_row = db.sqlite.execute(
-                    "SELECT COALESCE(manual_date, date) FROM photos WHERE path = ? AND deleted = 0 LIMIT 1",
-                    (str(p),)
-                ).fetchone()
-                if date_row and date_row[0]:
-                    photo_date = str(date_row[0])[:10]
-                pc = _get_photo_context(str(p), db)
-            fc = _get_face_context(content_hash, img_w, db, photo_date=photo_date) if content_hash else ""
+            ac = _build_agent_context(str(p), db) if db else ""
             images_b64.append(img_b64)
             valid_paths.append(p)
-            face_contexts.append(fc)
-            photo_contexts.append(pc)
-            img_widths.append(img_w)
+            agent_contexts.append(ac)
         except Exception as e:
             log(f"  Cannot read {p}: {e}")
             invalid_paths.append(p)
@@ -423,30 +438,23 @@ def describe_batch(image_paths, db=None):
     for p in invalid_paths:
         results.append((p, {
             "description": "[не изображение: файл повреждён или не является фото]",
-            "photo_type": "other",
-            "has_faces": False,
-            "has_issues": True,
-            "issue_type": "corrupted",
+            "photo_type": "other", "has_faces": False, "has_issues": True, "issue_type": "corrupted",
         }))
 
     if not valid_paths:
         return results
     with ThreadPoolExecutor(max_workers=NP_SLOTS) as pool:
-        futs = {pool.submit(describe_one, images_b64[i], valid_paths[i], face_contexts[i], photo_contexts[i]): i for i in range(len(valid_paths))}
+        futs = {pool.submit(describe_one, images_b64[i], valid_paths[i], agent_contexts[i]): i for i in range(len(valid_paths))}
         for fut in as_completed(futs):
             path, parsed, elapsed, pps, err = fut.result()
             if err:
                 log(f"  API error for {path}: {err}")
                 results.append((path, {
-                    "description": f"[VLM error: {err}]",
-                    "photo_type": "other",
-                    "has_faces": False,
-                    "has_issues": True,
-                    "issue_type": "other",
+                    "description": f"[VLM error: {err}]", "photo_type": "other",
+                    "has_faces": False, "has_issues": True, "issue_type": "other",
                 }))
             else:
                 results.append((path, parsed))
-
     return results
 
 
