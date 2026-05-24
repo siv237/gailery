@@ -95,7 +95,7 @@ def get_progress(root_id=None):
     ingested_photos = cur.execute(f"SELECT COUNT(*) {photo_where}", root_params).fetchone()[0]
     described = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.description IS NOT NULL", root_params).fetchone()[0]
     exif_checked = cur.execute(f"SELECT COUNT(*) {base} AND p.exif_checked = 1", root_params).fetchone()[0]
-    faces_done_count = cur.execute(f"SELECT COUNT(*) {base} AND cf.faces_done = 1", root_params).fetchone()[0]
+    faces_done_count = cur.execute(f"SELECT COUNT(*) {photo_where} AND cf.faces_done = 1", root_params).fetchone()[0]
     embedded = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.embedded = 1", root_params).fetchone()[0]
 
     video_where = base + " AND p.media_type = 'video'"
@@ -110,7 +110,7 @@ def get_progress(root_id=None):
     p_ingest = ingested / max(canonical_total, 1) * 100
     p_describe = described / max(ingested_photos, 1) * 100
     p_exif = exif_checked / max(ingested, 1) * 100
-    p_faces = faces_done_count / max(ingested, 1) * 100
+    p_faces = faces_done_count / max(ingested_photos, 1) * 100
     p_embed = embedded / max(ingested_photos, 1) * 100
 
     return {
@@ -118,7 +118,7 @@ def get_progress(root_id=None):
         "unhashed": unhashed,
         "describe": (described, ingested_photos, p_describe),
         "exif": (exif_checked, ingested, p_exif),
-        "faces": (faces_done_count, ingested, p_faces),
+        "faces": (faces_done_count, ingested_photos, p_faces),
         "embed": (embedded, ingested_photos, p_embed),
         "videos": {
             "catalog": videos_catalog,
