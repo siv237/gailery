@@ -87,6 +87,7 @@ def get_progress(root_id=None):
     canonical_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]
     canonical_hashed = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL{root_where}", root_params).fetchone()[0]
     unhashed = canonical_total - canonical_hashed
+    unhashed_nonempty = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NULL AND cf.size > 0{root_where}", root_params).fetchone()[0]
 
     base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND p.deleted = 0{root_where}"
     photo_where = base + " AND (p.media_type IS NULL OR p.media_type != 'video')"
@@ -115,7 +116,7 @@ def get_progress(root_id=None):
 
     return {
         "ingest": (ingested, canonical_total, p_ingest),
-        "unhashed": unhashed,
+        "unhashed": unhashed_nonempty,
         "describe": (described, ingested_photos, p_describe),
         "exif": (exif_checked, ingested, p_exif),
         "faces": (faces_done_count, ingested_photos, p_faces),

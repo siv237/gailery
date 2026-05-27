@@ -162,11 +162,22 @@ def scan_root(db, root_id, mq=None):
 
                 mtime_str = str(mtime)
 
+                if file_size == 0:
+                    if rel_path in existing_map:
+                        old = existing_map[rel_path]
+                        if not old.get("deleted"):
+                            db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_empty')
+                    continue
+
                 if rel_path in existing_map:
                     old = existing_map[rel_path]
                     if old.get("deleted"):
-                        db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
-                        restored_count += 1
+                        if old.get("deleted_type") == 'auto_empty' and file_size > 0:
+                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
+                            restored_count += 1
+                        else:
+                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
+                            restored_count += 1
                     elif str(old.get("modified", "")) != mtime_str or old.get("size", 0) != file_size:
                         db.update_catalog_file(old["file_id"], abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=None)
                         changed_count += 1
