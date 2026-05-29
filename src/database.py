@@ -1139,14 +1139,15 @@ deleted=None, deleted_only=None,
 
     # ─── Status helpers ─────────────────────────────────
 
-    def get_status(self):
+    def get_status(self, _thread_conn=None):
+        conn = _thread_conn or self.sqlite
         enabled_roots = [r for r in self.get_catalog_roots() if r.get("enabled", 1)]
         enabled_ids = [r["root_id"] for r in enabled_roots]
 
         if enabled_ids:
             rid_ph = ",".join("?" * len(enabled_ids))
 
-            photos_row = self.sqlite.execute(
+            photos_row = conn.execute(
                 f"SELECT "
                 f"COUNT(*),"
                 f"SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
@@ -1172,12 +1173,12 @@ deleted=None, deleted_only=None,
             videos_exif = photos_row[8] or 0
             photos_deleted = photos_row[9] or 0
 
-            catalog_total = self.sqlite.execute(
+            catalog_total = conn.execute(
                 f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
 
-            faces_done_count = self.sqlite.execute(
+            faces_done_count = conn.execute(
                 f"SELECT COUNT(DISTINCT cf.abs_path) FROM catalog_files cf "
                 f"JOIN photos p ON p.path = cf.abs_path "
                 f"WHERE cf.is_canonical=1 AND cf.deleted=0 AND cf.faces_done=1 AND p.deleted=0 "
@@ -1185,7 +1186,7 @@ deleted=None, deleted_only=None,
                 enabled_ids
             ).fetchone()[0]
 
-            videos_catalog = self.sqlite.execute(
+            videos_catalog = conn.execute(
                 f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 "
                 f"AND ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}) AND root_id IN ({rid_ph})",
                 enabled_ids
@@ -1195,25 +1196,26 @@ deleted=None, deleted_only=None,
             described = faces_flagged = faces_done_count = exif_done = embedded = 0
             videos_exif = videos_catalog = photos_deleted = 0
 
-        personas_total = self.sqlite.execute("SELECT COUNT(*) FROM personas").fetchone()[0]
-        faces_total = self.count_faces()
-        with_persona = self.count_faces("persona_id IS NOT NULL")
-        no_cluster = self.count_faces("persona_id IS NULL")
+        personas_total = conn.execute("SELECT COUNT(*) FROM personas").fetchone()[0]
+        faces_total = conn.execute("SELECT COUNT(*) FROM faces").fetchone()[0]
+        with_persona = conn.execute("SELECT COUNT(*) FROM faces WHERE persona_id IS NOT NULL").fetchone()[0]
+        no_cluster = conn.execute("SELECT COUNT(*) FROM faces WHERE persona_id IS NULL").fetchone()[0]
 
         per_root = []
         for r in enabled_roots:
             rid = r["root_id"]
-            rr = self.sqlite.execute(
+            rr = conn.execute(
                 "SELECT "
                 "SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
                 "SUM(CASE WHEN deleted=0 AND description IS NOT NULL AND description!='' THEN 1 ELSE 0 END),"
+                "SUM(CASE WHEN deleted=0 AND faces_present=1 THEN 1 ELSE 0 END),"
                 "SUM(CASE WHEN deleted=0 AND exif_checked=1 THEN 1 ELSE 0 END),"
                 "SUM(CASE WHEN deleted=0 AND embedded=1 THEN 1 ELSE 0 END),"
                 "SUM(CASE WHEN deleted=0 AND media_type='video' THEN 1 ELSE 0 END) "
                 "FROM photos WHERE root_id = ?",
                 (rid,)
             ).fetchone()
-            r_cat = self.sqlite.execute(
+            r_cat = conn.execute(
                 "SELECT COUNT(*) FROM catalog_files WHERE root_id=? AND is_canonical=1 AND deleted=0",
                 (rid,)
             ).fetchone()[0]

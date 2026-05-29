@@ -258,7 +258,13 @@ async def get_status():
 
     def _compute_status():
         db = get_db()
-        return db.get_status()
+        import sqlite3
+        conn = sqlite3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = sqlite3.Row
+        try:
+            return db.get_status(_thread_conn=conn)
+        finally:
+            conn.close()
 
     loop = asyncio.get_event_loop()
     status = await loop.run_in_executor(None, _compute_status)
