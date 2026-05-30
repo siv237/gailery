@@ -93,14 +93,24 @@
         .card .del-mark:hover { color: #f85149; }
         .card .undo-mark { position: absolute; bottom: 4px; right: 4px; padding: 2px 8px; background: rgba(35,134,54,.9); color: #fff; border-radius: 12px; font-size: 10px; font-weight: 600; cursor: pointer; z-index: 2; font-family: monospace; }
         .card .undo-mark:hover { background: rgba(35,134,54,1); }
-        .placeholder-card { background: #161b22; border-radius: 4px; overflow: hidden; }
-        .placeholder-card .ph-thumb { width: 100%; aspect-ratio: 1; background: #21262d; animation: phPulse 1.5s ease-in-out infinite; }
-        .placeholder-card .ph-line { height: 8px; width: 60%; background: #21262d; border-radius: 4px; margin-top: 4px; }
-        @keyframes phPulse { 0%,100% { opacity: .6; } 50% { opacity: .3; } }
         .card.deleted-card img { opacity: .45; filter: grayscale(.5); }
 
         .loading { text-align: center; padding: 40px; color: #8b949e; }
         .empty { text-align: center; padding: 60px 20px; color: #6e7681; font-size: 14px; }
+        .scroll-sentinel { height: 2px; width: 100%; position: relative; }
+        .scroll-sentinel .ss-loadbar { display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent 0%, #58a6ff 50%, transparent 100%); background-size: 200% 100%; animation: ssSlide 1.2s ease-in-out infinite; }
+        .scroll-sentinel.loading { height: 3px; margin-bottom: 200px; }
+        .scroll-sentinel.loading .ss-loadbar { display: block; }
+        @keyframes ssSlide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .scroll-sentinel.end { height: 1px; margin-bottom: 0; }
+        .scroll-sentinel.end::after { content: ''; display: block; height: 1px; background: #21262d; margin-top: 40px; }
+
+        .top-sentinel { height: 2px; width: 100%; position: relative; text-align: center; }
+        .top-sentinel .ts-end { display: none; color: #21262d; font-size: 12px; padding: 24px 0 16px; letter-spacing: 2px; text-transform: lowercase; }
+        .top-sentinel .ts-loadbar { display: none; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent 0%, #58a6ff 50%, transparent 100%); background-size: 200% 100%; animation: ssSlide 1.2s ease-in-out infinite; }
+        .top-sentinel.at-end { height: auto; }
+        .top-sentinel.at-end .ts-end { display: block; }
+        .top-sentinel.loading .ts-loadbar { display: block; }
 
         .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 1010; justify-content: center; align-items: center; }
         .modal-bg.show { display: flex; }
@@ -333,10 +343,8 @@
         .light-theme .card .del-mark:hover { background: rgba(207,34,46,.9); color: #fff; }
         .light-theme .card .undo-mark { background: rgba(31,136,61,.9); }
         .light-theme .card .undo-mark:hover { background: rgba(31,136,61,1); }
-        .light-theme .placeholder-card { background: #f6f8fa; }
-        .light-theme .placeholder-card .ph-thumb { background: #eaeef2; }
-        .light-theme .placeholder-card .ph-line { background: #eaeef2; }
         .light-theme .card.deleted-card img { opacity: .45; filter: grayscale(.5); }
+        .light-theme .top-sentinel .ts-end { color: #d0d7de; }
         .light-theme .detail-panel { background: #f6f8fa; border-left: 1px solid #d0d7de; color: #24292f; }
         .light-theme .detail-panel h2 { color: #0969da; }
         .light-theme .detail-panel .dp-close { color: #57606a; }
@@ -767,7 +775,9 @@
         <span id="infoRight"></span>
     </div>
 
+    <div id="top-sentinel" class="top-sentinel"><div class="ts-end">~ начало ~</div><div class="ts-loadbar"></div></div>
     <div class="grid" id="grid"></div>
+    <div id="scroll-sentinel" class="scroll-sentinel"><div class="ss-loadbar"></div></div>
 
     <div class="modal-bg" id="photoModal">
         <div class="modal-nav modal-prev" onclick="modalNav(-1)">&#8249;</div>
@@ -929,7 +939,7 @@ var MONTH_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл
 var _prefetchQueue = [];
 var _prefetching = false;
 var _PREFETCH_AHEAD = 5;
-var _phCount = 0;
+// scroll sentinel / infinite scroll
 var _faceLazyObs = null;
 var _faceLoadEnabled = false;
 setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 1500);
@@ -1032,7 +1042,7 @@ function doSearch() {
     _isLoading = false;
     _prefetchQueue = [];
     _prefetching = false;
-    _phCount = 0;
+    _updateSentinel();
     _firstDate = null;
     _lastDate = null;
     _firstPath = null;
@@ -1057,12 +1067,17 @@ function doSearch() {
     saveFilters();
     if (_restoreNeedleDate && !afterDate) {
         var saved = _restoreNeedleDate;
+        _needleDateISO = saved;
         _restoreNeedleDate = null;
         _needleMode = true;
+        _canLoadPrev = true;
+        _updateSentinel();
         var sortSel = document.getElementById('sortSelect');
         if (sortSel && sortSel.value === 'date_desc') sortSel.value = 'date_asc';
         loadAfter(saved, null, true);
     } else if (savedNeedleDate) {
+        _canLoadPrev = true;
+        _updateSentinel();
         _filterNeedleDate = savedNeedleDate;
         var sortVal = document.getElementById('sortSelect').value;
         if (sortVal === 'date_desc') {
@@ -1072,7 +1087,17 @@ function doSearch() {
         }
     } else {
         _restoreNeedleDate = null;
-        loadAfter(afterDate, null, !!afterDate);
+        _canLoadPrev = !!afterDate;
+        _updateSentinel();
+        if (afterDate) {
+            loadAfter(afterDate, null, true, null, function() {
+                if (_canLoadPrev && _firstDate && currentPhotos.length > 0) {
+                    loadBefore(_firstDate, _firstPath);
+                }
+            });
+        } else {
+            loadAfter(afterDate, null, !!afterDate);
+        }
     }
 }
 
@@ -1127,7 +1152,12 @@ function loadAfter(afterDate, afterPath, useDateFrom, useDateBefore, onComplete)
     var isDesc = sortVal === 'date_desc';
     var urlParams = '';
     if (afterDate) {
-        if (useDateFrom) {
+        if (_tlMonthFrom) {
+            urlParams = '&date_from=' + encodeURIComponent(_tlMonthFrom);
+            if (_tlMonthTo) urlParams += '&date_to=' + encodeURIComponent(_tlMonthTo);
+            _tlMonthFrom = null;
+            _tlMonthTo = null;
+        } else if (useDateFrom) {
             urlParams = '&date_from=' + encodeURIComponent(afterDate);
         } else if (useDateBefore) {
             urlParams = '&date_before=' + encodeURIComponent(afterDate);
@@ -1152,15 +1182,15 @@ function loadAfter(afterDate, afterPath, useDateFrom, useDateBefore, onComplete)
         if (onComplete) onComplete();
     } else {
         _prefetchQueue = [];
-        appendPlaceholders(pageSize);
+        _showLoadBar();
         fetch(API + '/photos/search?' + params).then(function(r) { return r.json(); }).then(function(data) {
-            removePlaceholders();
+            _hideLoadBar();
             _applyBatch(data);
             _isLoading = false;
             _fillPrefetch();
             if (onComplete) onComplete();
         }).catch(function(e) {
-            removePlaceholders();
+            _hideLoadBar();
             if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="empty">Ошибка: ' + esc(e.message) + '</div>';
             _isLoading = false;
             if (onComplete) onComplete();
@@ -1186,6 +1216,7 @@ function _applyBatch(data) {
         }
     }
     if (data.photos.length < pageSize) _canLoadMore = false;
+    _updateSentinel();
     appendGrid(data.photos, startIdx);
     updateInfo();
     saveFilters();
@@ -1233,25 +1264,34 @@ function _applyBatch(data) {
               }
           }
     }
-    if (data.photos.length < totalResults) {
-        _canLoadPrev = true;
-    }
 }
 
-function appendPlaceholders(count) {
-    var grid = document.getElementById('grid');
-    var html = '';
-    for (var i = 0; i < count; i++) {
-        html += '<div class="card placeholder-card"><div class="ph-thumb"></div><div class="overlay"><div class="ph-line"></div></div></div>';
-    }
-    grid.insertAdjacentHTML('beforeend', html);
-    _phCount += count;
+function _showLoadBar() {
+    var el = document.getElementById('scroll-sentinel');
+    if (el) { el.classList.add('loading'); el.classList.remove('end'); }
 }
 
-function removePlaceholders() {
-    var phs = document.querySelectorAll('.placeholder-card');
-    for (var i = phs.length - 1; i >= 0; i--) phs[i].remove();
-    _phCount = 0;
+function _hideLoadBar() {
+    var el = document.getElementById('scroll-sentinel');
+    if (el) el.classList.remove('loading');
+}
+
+function _updateSentinel() {
+    var el = document.getElementById('scroll-sentinel');
+    if (!el) return;
+    el.classList.toggle('end', !_canLoadMore);
+    var top = document.getElementById('top-sentinel');
+    if (top) top.classList.toggle('at-end', !_canLoadPrev);
+}
+
+function _showTopLoadBar() {
+    var el = document.getElementById('top-sentinel');
+    if (el) { el.classList.add('loading'); el.classList.remove('at-end'); }
+}
+
+function _hideTopLoadBar() {
+    var el = document.getElementById('top-sentinel');
+    if (el) el.classList.remove('loading');
 }
 
 function _fillPrefetch() {
@@ -1326,9 +1366,11 @@ function loadBefore(beforeDate, beforePath, onComplete) {
         if (beforePath) params += '&path_before=' + encodeURIComponent(beforePath);
     }
 
+    _showTopLoadBar();
     var oldScrollH = document.documentElement.scrollHeight;
     fetch(API + '/photos/search?' + params).then(function(r) { return r.json(); }).then(function(data) {
         console.log('loadBefore got:', data.photos.length, 'photos');
+        _hideTopLoadBar();
         if (data.photos.length > 0) {
             if (!isDesc) data.photos.reverse();
             _firstDate = data.photos[0].date || null;
@@ -1342,13 +1384,14 @@ function loadBefore(beforeDate, beforePath, onComplete) {
             }
             prependGrid(data.photos, startIdx);
         }
-        if (data.photos.length < pageSize) _canLoadPrev = false;
+        _canLoadPrev = data.photos.length >= pageSize;
+        _updateSentinel();
         var newScrollH = document.documentElement.scrollHeight;
         window.scrollBy(0, newScrollH - oldScrollH);
         _isLoading = false;
         updateInfo();
         if (onComplete) onComplete(data.photos || []);
-    }).catch(function(e) { console.log('loadBefore error:', e); _isLoading = false; if (onComplete) onComplete([]); });
+    }).catch(function(e) { console.log('loadBefore error:', e); _hideTopLoadBar(); _updateSentinel(); _isLoading = false; if (onComplete) onComplete([]); });
 }
 
 function updateInfo() {
@@ -1363,6 +1406,7 @@ function updateInfo() {
 function doSemanticSearch(q) {
     currentPhotos = [];
     _canLoadMore = false;
+    _updateSentinel();
     _isLoading = true;
     isSemanticMode = true;
     document.getElementById('grid').innerHTML = '<div class="loading">Поиск по смыслу... (освобождаем GPU, это может занять до 30с)</div>';
@@ -1379,6 +1423,7 @@ function doSemanticSearch(q) {
         totalResults = data.total;
         currentPhotos = data.photos;
         _canLoadMore = false;
+        _updateSentinel();
         _isLoading = false;
         document.getElementById('grid').innerHTML = '';
         if (data.photos.length === 0) {
@@ -1391,6 +1436,7 @@ function doSemanticSearch(q) {
     }).catch(function(e) {
         clearTimeout(timeoutId);
         document.getElementById('grid').innerHTML = '<div class="empty">Ошибка: ' + esc(e.message || e) + '</div>';
+        _updateSentinel();
         _isLoading = false;
     });
 }
@@ -1596,54 +1642,74 @@ function onCatFilterChange() {
     doSearch();
 }
 
+function _initTimeline() {}
+
+function _applyDateData() {
+    if (!dateData) return;
+    _photoTimes = dateData.photo_times || [];
+    _photoTimeFracs = [];
+    for (var i = 0; i < _photoTimes.length; i++) {
+        _photoTimeFracs.push(_dateToFracRaw(_photoTimes[i]));
+    }
+    var dr = dateData.date_range || {};
+    var minD = dr.min, maxD = dr.max;
+    if (!minD || !maxD) {
+        var years = dateData.years || {};
+        var keys = Object.keys(years).sort();
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i] === 'no_date') continue;
+            var y = parseInt(keys[i]); if (isNaN(y)) continue;
+            var jan1 = y + '-01-01';
+            if (!minD || jan1 < minD) minD = jan1;
+            if (!maxD || jan1 > maxD) maxD = jan1;
+        }
+    }
+    if (!minD) minD = '2020-01-01';
+    if (!maxD) { var _now = new Date(); maxD = _now.getFullYear() + '-12-31'; }
+    _tlMinYear = _dateToFracRaw(minD);
+    _tlMaxYear = _dateToFracRaw(maxD);
+    var span = _tlMaxYear - _tlMinYear;
+    if (span < 0.5) { _tlMinYear -= 0.25; _tlMaxYear += 0.25; span = 0.5; }
+    _tlCanvas = document.getElementById('tlCanvas');
+    _tlCtx = _tlCanvas.getContext('2d');
+    var W = document.getElementById('timeline').clientWidth;
+    var pad = 20;
+    _tlDefaultZoom = (W - 2 * pad) / span;
+    _tlMinZoom = Math.max(1, _tlDefaultZoom * 0.5);
+    _tlMaxZoom = 365.25 * 24 * 6 / span * _tlDefaultZoom;
+    _tlMaxZoom = Math.min(_tlMaxZoom, 365.25 * 24 * 8);
+    _tlZoom = _tlDefaultZoom;
+    _tlOffsetX = pad;
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('gallery-filters')); } catch(e) {}
+    if (saved && saved.tlZoom) { _tlZoom = saved.tlZoom; _tlOffsetX = saved.tlOffsetX || pad; }
+    _clampTlOffset();
+    renderTimeline();
+    if (_needleDateISO) {
+        var nd = document.getElementById('tlNeedle');
+        if (nd) { nd.style.transition = 'none'; nd.style.left = _dateToX(_needleDateISO) + 'px'; updateNeedleFlag(_needleDateISO); }
+    }
+    var tl = document.getElementById('timeline');
+    tl.addEventListener('wheel', _tlOnWheel, { passive: false });
+    tl.addEventListener('mousedown', _tlOnMouseDown);
+    tl.addEventListener('touchstart', _tlOnTouchStart, { passive: false });
+    tl.addEventListener('touchmove', _tlOnTouchMove, { passive: false });
+    tl.addEventListener('touchend', _tlOnTouchEnd);
+}
+
+function _timelineCacheKey() { return 'gallery-dates-v2'; }
+
 function loadTimeline() {
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem(_timelineCacheKey())); } catch(e) {}
+    if (cached && cached.data) {
+        dateData = cached.data;
+        _applyDateData();
+    }
     fetch(API + '/photos/dates').then(function(r) { return r.json(); }).then(function(data) {
         dateData = data;
-        _photoTimes = data.photo_times || [];
-        _photoTimeFracs = [];
-        for (var i = 0; i < _photoTimes.length; i++) {
-            _photoTimeFracs.push(_dateToFracRaw(_photoTimes[i]));
-        }
-        var dr = data.date_range || {};
-        var minD = dr.min, maxD = dr.max;
-        if (!minD || !maxD) {
-            var years = data.years || {};
-            var keys = Object.keys(years).sort();
-            for (var i = 0; i < keys.length; i++) {
-                if (keys[i] === 'no_date') continue;
-                var y = parseInt(keys[i]); if (isNaN(y)) continue;
-                var jan1 = y + '-01-01';
-                if (!minD || jan1 < minD) minD = jan1;
-                if (!maxD || jan1 > maxD) maxD = jan1;
-            }
-        }
-        if (!minD) minD = '2020-01-01';
-        if (!maxD) { var _now = new Date(); maxD = _now.getFullYear() + '-12-31'; }
-        _tlMinYear = _dateToFracRaw(minD);
-        _tlMaxYear = _dateToFracRaw(maxD);
-        var span = _tlMaxYear - _tlMinYear;
-        if (span < 0.5) { _tlMinYear -= 0.25; _tlMaxYear += 0.25; span = 0.5; }
-        _tlCanvas = document.getElementById('tlCanvas');
-        _tlCtx = _tlCanvas.getContext('2d');
-        var W = document.getElementById('timeline').clientWidth;
-        var pad = 20;
-        _tlDefaultZoom = (W - 2 * pad) / span;
-        _tlMinZoom = Math.max(1, _tlDefaultZoom * 0.5);
-        _tlMaxZoom = 365.25 * 24 * 6 / span * _tlDefaultZoom;
-        _tlMaxZoom = Math.min(_tlMaxZoom, 365.25 * 24 * 8);
-        _tlZoom = _tlDefaultZoom;
-        _tlOffsetX = pad;
-        var saved = null;
-        try { saved = JSON.parse(localStorage.getItem('gallery-filters')); } catch(e) {}
-        if (saved && saved.tlZoom) { _tlZoom = saved.tlZoom; _tlOffsetX = saved.tlOffsetX || pad; }
-        _clampTlOffset();
-        renderTimeline();
-        var tl = document.getElementById('timeline');
-        tl.addEventListener('wheel', _tlOnWheel, { passive: false });
-        tl.addEventListener('mousedown', _tlOnMouseDown);
-        tl.addEventListener('touchstart', _tlOnTouchStart, { passive: false });
-        tl.addEventListener('touchmove', _tlOnTouchMove, { passive: false });
-        tl.addEventListener('touchend', _tlOnTouchEnd);
+        try { localStorage.setItem(_timelineCacheKey(), JSON.stringify({data: data, ts: Date.now()})); } catch(e) {}
+        _applyDateData();
     }).catch(function() {});
 }
 
@@ -2076,7 +2142,7 @@ function _tlNavigateAt(clickX) {
     _needleMode = true;
     currentPhotos = [];
     _canLoadMore = true;
-    _canLoadPrev = false;
+    _canLoadPrev = true;
     _isLoading = false;
     _firstDate = null;
     _lastDate = null;
@@ -2088,6 +2154,17 @@ function _tlNavigateAt(clickX) {
     _filterNeedleDate = navDate;
     _filterNeedleFrac = _dateToFracRaw(navDate);
     saveFilters();
+    if (navDate && navDate.length >= 7) {
+        var month = navDate.substring(0, 7);
+        var y = parseInt(month.substring(0, 4), 10);
+        var m = parseInt(month.substring(5, 7), 10);
+        _tlMonthFrom = month + '-01';
+        _tlMonthTo = new Date(y, m, 0).toISOString().substring(0, 10);
+    } else {
+        _tlMonthFrom = null;
+        _tlMonthTo = null;
+    }
+    _updateSentinel();
     loadAfter(navDate, null, true);
 }
 function fracToISO(frac) {
@@ -4073,6 +4150,8 @@ function restoreFilters() {
 
 var _restoreNeedleDate = null;
 var _restorePhotoId = null;
+var _tlMonthFrom = null;
+var _tlMonthTo = null;
 var _needleDateISO = null;
 var _firstVisiblePhotoId = null;
 
@@ -4091,6 +4170,7 @@ document.getElementById('chkCatOther').checked = true;
 updateCatFilterLabel();
 
 restoreFilters();
+_initTimeline();
 doSearch();
 
 window.addEventListener('beforeunload', function() { saveFilters(); });
