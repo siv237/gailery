@@ -15,12 +15,14 @@ Admin.on('navigate', function(page) {
 MonP.loadInto = function(containerId, limit) {
     var el = Admin.$(containerId);
     if (!el) return;
-    var sort = (Admin.$('monpSort') || {}).value || 'changed_desc';
-    Admin.ajax('/api/photos/list?limit=' + (limit || 100) + '&sort=' + sort, function(d) {
-        MonP.photos = d.photos || [];
+    el.innerHTML = '<div class="c-dim" style="padding:20px 0;text-align:center;font-size:12px">Загрузка…</div>';
+    Admin.ajax('/api/photos/monitor_feed?limit=' + (limit || 100), function(d) {
+        MonP.photos = d.changes || [];
         MonP.renderFeedInto(containerId, limit || 100);
         var t = Admin.$('monpTime');
         if (t) t.textContent = new Date().toLocaleTimeString();
+    }, function(e) {
+        el.innerHTML = '<div class="c-dim" style="padding:20px 0;text-align:center;font-size:12px">Ошибка: '+Admin.esc(e.message||'?')+'</div>';
     });
 };
 
@@ -42,39 +44,59 @@ MonP.renderFeedInto = function(containerId, limit) {
     el.innerHTML = h;
 };
 
-MonP.changeLabel = function(p) {
-    var FIELD_LABELS = {
-        description: 'описание обновлено',
-        rich_description: 'обогащено',
-        faces_present: 'лица найдены',
-        exif_raw: 'EXIF извлечён',
-        gps_lat: 'GPS добавлен',
-        gps_lon: 'GPS добавлен',
-        camera_make: 'камера',
-        camera_model: 'камера определена',
-        photo_type: 'тип установлен',
-        has_issues: 'проблема',
-        media_type: 'медиа',
-        img_width: 'размер',
-        img_height: 'размер',
-        duration_seconds: 'длительность',
-        date: 'дата обновлена',
-        date_conflict: 'конфликт дат',
-        persona_update: 'персона изменена',
-        deleted: 'удалено',
+MonP.changeAction = function(p) {
+    var field = p.field || '';
+    var map = {
+        'description': 'описание',
+        'rich_description': 'обогащение',
+        'faces_present': 'поиск лиц',
+        'exif_raw': 'EXIF',
+        'gps_lat': 'GPS',
+        'gps_lon': 'GPS',
+        'camera_make': 'камера',
+        'camera_model': 'модель камеры',
+        'photo_type': 'тип фото',
+        'has_issues': 'проверка',
+        'media_type': 'медиа',
+        'img_width': 'размер',
+        'img_height': 'размер',
+        'duration_seconds': 'длительность',
+        'date': 'дата',
+        'date_conflict': 'дата',
+        'persona_update': 'персона',
+        'deleted': 'удаление',
     };
-    var field = p._last_change_field || '';
-    var value = p._last_change_value || '';
-    if (field && FIELD_LABELS[field]) {
-        var label = FIELD_LABELS[field];
-        if (field === 'faces_present') return value === '1' || value === 'true' ? 'лица найдены' : 'лица: нет';
-        if (field === 'persona_update') {
-            return 'персона: ' + (value || '?').substring(0, 20);
-        }
-        if (field === 'has_issues') return value ? 'проблема' : 'ok';
-        return label;
+    return map[field] || field || 'изменение';
+};
+
+MonP.changeResult = function(p) {
+    var field = p.field || '';
+    var value = p.value || '';
+    if (field === 'faces_present') {
+        if (value === '1' || value === 'true') return 'лица найдены';
+        return 'лиц не найдено';
     }
-    return 'изменено';
+    if (field === 'description' || field === 'rich_description') {
+        if (!value) return 'обновлено';
+        return value.length > 50 ? value.substring(0, 50) + '…' : value;
+    }
+    if (field === 'exif_raw') return 'извлечён';
+    if (field === 'gps_lat' || field === 'gps_lon') return value ? ('координаты ' + value) : 'обнаружен';
+    if (field === 'camera_make' || field === 'camera_model') return value || 'обнаружена';
+    if (field === 'photo_type') return value || 'определён';
+    if (field === 'has_issues') return value === '1' || value === 'true' ? 'найдена проблема' : 'ok';
+    if (field === 'media_type') return value || 'определён';
+    if (field === 'img_width' || field === 'img_height') return 'обновлено';
+    if (field === 'duration_seconds') return value ? (value + ' с') : 'обновлено';
+    if (field === 'date') return value || 'обновлена';
+    if (field === 'date_conflict') return 'конфликт дат';
+    if (field === 'persona_update') return value ? (value.substring(0, 30)) : 'обновлено';
+    if (field === 'deleted') return value === '1' || value === 'true' ? 'удалено' : 'восстановлено';
+    return value || 'обновлено';
+};
+
+MonP.changeLabel = function(p) {
+    return MonP.changeAction(p) + ' — ' + MonP.changeResult(p);
 };
 
 MonP.init = function() {
@@ -86,8 +108,8 @@ MonP.init = function() {
             '<div class="monp-status" id="monpStatus"></div>'+
             '<div class="monp-toolbar" id="monpToolbar">'+
             '<select id="monpSort" onchange="MonP.loadInto(\'monpFeed\',100)">'+
-            '<option value="changed_desc">По свежести</option>'+
-            '<option value="created_desc">По добавлению</option>'+
+            '<option value="date_desc">Сначала новые</option>'+
+            '<option value="date_asc">Сначала старые</option>'+
             '</select>'+
             '<button class="btn" onclick="MonP.loadInto(\'monpFeed\',100)">Обновить</button>'+
             '<span class="c-dim" style="font-size:11px" id="monpTime"></span>'+
@@ -128,7 +150,7 @@ MonP.loadStatus = function() {
 };
 
 MonP.renderCard = function(p, idx, containerId, compact) {
-    var thumb = '/api/photos/thumbnail?path=' + encodeURIComponent(p.photo_id) + '&size=sm';
+    var thumb = p.thumbnail || ('/api/photos/thumbnail?path=' + encodeURIComponent(p.path || p.photo_id) + '&size=sm');
     var desc = p.description || '';
     var isExpanded = !compact && MonP._expanded === idx && MonP._expandedCid === containerId;
 
@@ -147,14 +169,16 @@ MonP.renderCard = function(p, idx, containerId, compact) {
 
     var ago = '';
     if (p.changed_at) ago = MonP.fmtAgo(p.changed_at);
-    var changeLabel = MonP.changeLabel(p);
+    else if (p.date) ago = MonP.fmtAgo(p.date);
+    var action = MonP.changeAction(p);
+    var result = MonP.changeResult(p);
 
     var h = '<div class="mcard'+(isExpanded?' expanded':'')+'" data-idx="'+idx+'" data-cid="'+containerId+'" onclick="MonP.toggleCard('+idx+',\''+containerId+'\')">';
     h += '<div class="mcard-left'+(isExpanded?' expanded':'')+'">';
     h += '<img src="'+thumb+'" loading="lazy" onclick="event.stopPropagation();MonP.openModal('+idx+')" onerror="this.style.display=\'none\'">';
     h += '</div>';
     h += '<div class="mcard-right">';
-    if (ago) h += '<div class="mcard-time">'+changeLabel+' '+ago+'</div>';
+    if (ago) h += '<div class="mcard-time"><span class="mcard-ago">'+Admin.esc(ago)+'</span> — <span class="mcard-action">'+Admin.esc(action)+'</span> — <span class="mcard-result">'+Admin.esc(result)+'</span></div>';
     h += '<div class="mcard-tags">'+tags.join(' ')+'</div>';
     if (!isExpanded && desc) h += '<div class="mcard-desc">'+Admin.esc(desc.substring(0,200))+(desc.length>200?'...':'')+'</div>';
 
@@ -172,7 +196,7 @@ MonP.renderCard = function(p, idx, containerId, compact) {
         h += '</div>';
     }
 
-    h += '<div class="mcard-path">'+Admin.esc((p.photo_id||'').split('/').pop())+'</div>';
+    h += '<div class="mcard-path">'+Admin.esc((p.path || p.photo_id || '').split('/').pop())+'</div>';
 
     if (isExpanded) {
         h += '<div class="mcard-detail">';
@@ -260,8 +284,8 @@ MonP.openModal = function(idx) {
     var body = Admin.$('monpModalBody');
     if (!overlay || !body) return;
 
-    var imgUrl = '/api/photos/?path=' + encodeURIComponent(p.photo_id);
-    title.textContent = (p.photo_id||'').split('/').pop();
+    var imgUrl = '/api/photos/?path=' + encodeURIComponent(p.path || p.photo_id);
+    title.textContent = (p.path || p.photo_id || '').split('/').pop();
 
     var h = '<img src="'+imgUrl+'" style="max-width:100%;max-height:70vh;border-radius:6px" onclick="event.stopPropagation()">';
     if (p.description) h += '<div class="mcard-fulldesc" style="text-align:left;margin-top:12px">'+Admin.esc(p.description)+'</div>';

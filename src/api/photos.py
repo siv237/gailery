@@ -976,6 +976,107 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
     return {"total": total, "photos": enriched[:limit], "server_time": server_time}
 
 
+@router.get("/monitor_feed")
+async def monitor_feed(limit: int = 100):
+    from database import get_db
+    from datetime import datetime
+
+    db = get_db()
+
+    limit = max(1, min(limit, 500))
+
+    NOISE_FIELDS = ("photo_type", "has_issues", "issue_type", "media_type", "img_width", "img_height")
+
+    placeholders = ",".join("?" * len(NOISE_FIELDS))
+    rows = db.sqlite.execute(
+        f"SELECT c.id, c.photo_id, c.field, c.value, c.changed_at, "
+        f"p.path, p.description, p.rich_description, p.faces_present, p.date, "
+        f"p.img_width, p.img_height, p.deleted, "
+        f"cf.content_hash, cf.is_canonical "
+        f"FROM changes c "
+        f"JOIN photos p ON c.photo_id = p.photo_id "
+        f"LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+        f"WHERE p.deleted = 0 AND c.field NOT IN ({placeholders}) "
+        f"ORDER BY c.changed_at DESC LIMIT ?",
+        NOISE_FIELDS + (limit,),
+    ).fetchall()
+
+    persona_ids_needed = set()
+    photo_faces = {}
+    hashes = []
+    for r in rows:
+        ch = r[13]
+        if ch:
+            hashes.append(ch)
+
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
+            f"FROM faces WHERE content_hash IN ({ph})",
+            hashes,
+        ).fetchall()
+        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+        for fr in face_rows:
+            fd = dict(zip(face_cols, fr))
+            ch = fd.get("content_hash") or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append(fd)
+            pid = fd.get("photo_id", "")
+            if pid:
+                photo_faces.setdefault(pid, []).append(fd)
+            if fd.get("persona_id"):
+                persona_ids_needed.add(fd["persona_id"])
+
+    persona_map = {}
+    if persona_ids_needed:
+        pids = list(persona_ids_needed)
+        pid_ph = ",".join("?" * len(pids))
+        for pr in db.sqlite.execute(
+            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids
+        ).fetchall():
+            persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
+
+    changes = []
+    for r in rows:
+        cid, pid, field, value, changed_at, path, desc, rich, faces, date, w, h, deleted, content_hash, is_canonical = r
+        ep = {
+            "id": cid,
+            "photo_id": pid,
+            "path": path,
+            "content_hash": content_hash,
+            "changed_at": changed_at,
+            "field": field,
+            "value": value,
+            "description": desc,
+            "rich_description": rich,
+            "faces_present": bool(faces),
+            "date": date,
+            "img_width": w,
+            "img_height": h,
+            "deleted": bool(deleted),
+            "is_canonical": bool(is_canonical),
+        }
+        if path:
+            ep["thumbnail"] = f"/api/photos/thumbnail?path={path}"
+        face_list = photo_faces.get(content_hash or "") or photo_faces.get(pid or "") or []
+        ep["faces"] = []
+        ep["personas"] = []
+        for fd in face_list:
+            persona = persona_map.get(fd.get("persona_id")) if fd.get("persona_id") else None
+            if persona:
+                ep["personas"].append(persona)
+            ep["faces"].append({
+                "face_id": fd.get("face_id"),
+                "bbox": [fd.get("bbox_x1"), fd.get("bbox_y1"), fd.get("bbox_x2"), fd.get("bbox_y2")],
+                "confidence": fd.get("confidence"),
+            })
+        changes.append(ep)
+
+    server_time = datetime.now().isoformat()
+    return {"changes": changes, "count": len(changes), "limit": limit, "server_time": server_time}
+
+
 @router.get("/description")
 async def get_description(path: str):
     from database import get_db
