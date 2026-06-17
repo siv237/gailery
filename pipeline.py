@@ -509,6 +509,11 @@ def main():
                 last_metrics = now
 
             iteration += 1
+
+            run_step("СКАН (поиск новых)", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"])
+            if stopped():
+                break
+
             progress = get_progress(root_id=args.root or None)
 
             log(f"--- Итерация {iteration} ---")
@@ -536,7 +541,7 @@ def main():
                         break
                     if time.time() - last_metrics >= 60:
                         _collect_metrics()
-                        last_metrics = time.time()
+                        last_metrics = now
                     time.sleep(5)
                 try:
                     _idle_flag.unlink()
@@ -547,10 +552,6 @@ def main():
             filling_done = progress["ingest"][2] >= 100 and progress["exif"][2] >= 100 and progress["unhashed"] == 0
 
             if not filling_done:
-                run_step("СКАН (пути)", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--scan"])
-                if stopped():
-                    break
-
                 while True:
                     progress = get_progress(root_id=args.root or None)
                     unhashed = progress["unhashed"]
