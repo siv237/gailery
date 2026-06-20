@@ -1059,18 +1059,32 @@ async def monitor_feed(limit: int = 100):
         }
         if path:
             ep["thumbnail"] = f"/api/photos/thumbnail?path={path}"
+
         face_list = photo_faces.get(content_hash or "") or photo_faces.get(pid or "") or []
         ep["faces"] = []
         ep["personas"] = []
+        seen_pids = set()
         for fd in face_list:
-            persona = persona_map.get(fd.get("persona_id")) if fd.get("persona_id") else None
-            if persona:
-                ep["personas"].append(persona)
+            pers_id = fd.get("persona_id")
             ep["faces"].append({
                 "face_id": fd.get("face_id"),
+                "persona_id": pers_id,
+                "display_name": (persona_map.get(pers_id, {}).get("display_name")) if pers_id else None,
+                "name": (persona_map.get(pers_id, {}).get("name") or pers_id) if pers_id else None,
                 "bbox": [fd.get("bbox_x1"), fd.get("bbox_y1"), fd.get("bbox_x2"), fd.get("bbox_y2")],
                 "confidence": fd.get("confidence"),
             })
+            if pers_id and pers_id not in seen_pids:
+                seen_pids.add(pers_id)
+                persona = persona_map.get(pers_id, {})
+                ep["personas"].append({
+                    "persona_id": pers_id,
+                    "name": persona.get("name") or pers_id,
+                    "display_name": persona.get("display_name"),
+                    "comment": persona.get("comment"),
+                    "face_count": sum(1 for ff in face_list if ff.get("persona_id") == pers_id),
+                    "face_ids": [ff["face_id"] for ff in face_list if ff.get("persona_id") == pers_id],
+                })
         changes.append(ep)
 
     server_time = datetime.now().isoformat()
