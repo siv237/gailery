@@ -5,7 +5,7 @@ import json
 import logging
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -396,7 +396,6 @@ class DatabaseManager:
         if not kwargs:
             return
         skip_log = {"exif_checked", "embedded", "photo_type", "has_issues", "issue_type", "media_type", "img_width", "img_height"}
-        from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
         cur = self.sqlite.cursor()
         for k, v in kwargs.items():

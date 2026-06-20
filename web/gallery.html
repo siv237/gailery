@@ -102,8 +102,8 @@
         .scroll-sentinel.loading { height: 3px; margin-bottom: 200px; }
         .scroll-sentinel.loading .ss-loadbar { display: block; }
         @keyframes ssSlide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        .scroll-sentinel.end { height: 1px; margin-bottom: 0; }
-        .scroll-sentinel.end::after { content: ''; display: block; height: 1px; background: #21262d; margin-top: 40px; }
+        .scroll-sentinel.end { height: auto; margin-bottom: 0; text-align: center; }
+        .scroll-sentinel.end::after { content: '~ конец ~'; display: block; height: auto; color: #21262d; font-size: 12px; padding: 24px 0 40px; letter-spacing: 2px; text-transform: lowercase; background: none; margin-top: 0; }
 
         .top-sentinel { height: 2px; width: 100%; position: relative; text-align: center; }
         .top-sentinel .ts-end { display: none; color: #21262d; font-size: 12px; padding: 24px 0 16px; letter-spacing: 2px; text-transform: lowercase; }
@@ -345,6 +345,7 @@
         .light-theme .card .undo-mark:hover { background: rgba(31,136,61,1); }
         .light-theme .card.deleted-card img { opacity: .45; filter: grayscale(.5); }
         .light-theme .top-sentinel .ts-end { color: #d0d7de; }
+        .light-theme .scroll-sentinel.end::after { color: #d0d7de; }
         .light-theme .detail-panel { background: #f6f8fa; border-left: 1px solid #d0d7de; color: #24292f; }
         .light-theme .detail-panel h2 { color: #0969da; }
         .light-theme .detail-panel .dp-close { color: #57606a; }
@@ -920,6 +921,7 @@ var _tlCanvas = null;
 var _tlCtx = null;
 var _tlZoom = 0;
 var _tlOffsetX = 20;
+var _tlPad = 50;
 var _tlMinYear = 0;
 var _tlMaxYear = 1;
 var _tlDefaultZoom = 0;
@@ -1152,12 +1154,7 @@ function loadAfter(afterDate, afterPath, useDateFrom, useDateBefore, onComplete)
     var isDesc = sortVal === 'date_desc';
     var urlParams = '';
     if (afterDate) {
-        if (_tlMonthFrom) {
-            urlParams = '&date_from=' + encodeURIComponent(_tlMonthFrom);
-            if (_tlMonthTo) urlParams += '&date_to=' + encodeURIComponent(_tlMonthTo);
-            _tlMonthFrom = null;
-            _tlMonthTo = null;
-        } else if (useDateFrom) {
+        if (useDateFrom) {
             urlParams = '&date_from=' + encodeURIComponent(afterDate);
         } else if (useDateBefore) {
             urlParams = '&date_before=' + encodeURIComponent(afterDate);
@@ -1673,16 +1670,15 @@ function _applyDateData() {
     _tlCanvas = document.getElementById('tlCanvas');
     _tlCtx = _tlCanvas.getContext('2d');
     var W = document.getElementById('timeline').clientWidth;
-    var pad = 20;
-    _tlDefaultZoom = (W - 2 * pad) / span;
+    _tlDefaultZoom = (W - 2 * _tlPad) / span;
     _tlMinZoom = Math.max(1, _tlDefaultZoom * 0.5);
     _tlMaxZoom = 365.25 * 24 * 6 / span * _tlDefaultZoom;
     _tlMaxZoom = Math.min(_tlMaxZoom, 365.25 * 24 * 8);
     _tlZoom = _tlDefaultZoom;
-    _tlOffsetX = pad;
+    _tlOffsetX = _tlPad;
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem('gallery-filters')); } catch(e) {}
-    if (saved && saved.tlZoom) { _tlZoom = saved.tlZoom; _tlOffsetX = saved.tlOffsetX || pad; }
+    if (saved && saved.tlZoom) { _tlZoom = saved.tlZoom; _tlOffsetX = saved.tlOffsetX || _tlPad; }
     _clampTlOffset();
     renderTimeline();
     if (_needleDateISO) {
@@ -1736,11 +1732,10 @@ function _clampTlOffset() {
     var W = _tlCanvas ? _tlCanvas.clientWidth : 0;
     if (!W) return;
     var dataW = (_tlMaxYear - _tlMinYear) * _tlZoom;
-    var pad = 10;
-    if (dataW + 2 * pad <= W) {
+    if (dataW + 2 * _tlPad <= W) {
         _tlOffsetX = (W - dataW) / 2;
     } else {
-        _tlOffsetX = Math.max(W - pad - dataW, Math.min(pad, _tlOffsetX));
+        _tlOffsetX = Math.max(W - _tlPad - dataW, Math.min(_tlPad, _tlOffsetX));
     }
 }
 
@@ -2000,6 +1995,26 @@ function renderTimeline() {
 
     var label = pxD >= 20 ? 'Фото' : pxH >= 10 ? 'Часы' : pxD >= 10 ? 'Дни' : pxM >= 12 ? 'Месяцы' : 'Года';
     ctx.restore();
+
+    var clipLx = Math.max(0, _fracToX(_tlMinYear));
+    var clipRx = Math.min(W, _fracToX(_tlMaxYear));
+    if (clipLx > 2) {
+        ctx.fillStyle = light ? 'rgba(88,166,255,0.08)' : 'rgba(88,166,255,0.06)';
+        ctx.fillRect(0, 0, clipLx, H);
+        ctx.fillStyle = light ? '#57606a' : '#3b424d';
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('◀', clipLx / 2, axisY + 16);
+        ctx.fillText('старые', clipLx / 2, axisY + 28);
+    }
+    if (clipRx < W - 2) {
+        ctx.fillStyle = light ? 'rgba(88,166,255,0.08)' : 'rgba(88,166,255,0.06)';
+        ctx.fillRect(clipRx, 0, W - clipRx, H);
+        ctx.fillStyle = light ? '#57606a' : '#3b424d';
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('▶', (clipRx + W) / 2, axisY + 16);
+        ctx.fillText('свежие', (clipRx + W) / 2, axisY + 28);
+    }
+
     ctx.fillStyle = cScale; ctx.font = '9px monospace'; ctx.textAlign = 'right';
     ctx.fillText(label, W - 6, 10);
 }
@@ -2104,7 +2119,12 @@ function _tlOnTouchMove(e) {
 
 function _tlOnTouchEnd(e) {
     if (e.touches.length === 0 && _tlIsDragging) {
+        var dx = Math.abs((e.changedTouches[0] ? e.changedTouches[0].clientX : _tlDragStartX) - _tlDragStartX);
         _tlIsDragging = false;
+        if (dx < 5) {
+            var tlRect = document.getElementById('timeline').getBoundingClientRect();
+            _tlNavigateAt((e.changedTouches[0] ? e.changedTouches[0].clientX : _tlDragStartX) - tlRect.left);
+        }
         saveFilters();
     }
 }
@@ -2114,21 +2134,33 @@ function _tlNavigateAt(clickX) {
     var needleX = clickX;
     var navDate = null;
 
+    var dataL = _fracToX(_tlMinYear);
+    var dataR = _fracToX(_tlMaxYear);
+
     if (_photoTimeFracs.length > 0) {
-        var lo = 0, hi = _photoTimeFracs.length - 1;
-        while (lo <= hi) {
-            var mid = (lo + hi) >> 1;
-            if (_photoTimeFracs[mid] < clickFrac) lo = mid + 1;
-            else hi = mid - 1;
-        }
-        var bestDist = Infinity, bestIdx = -1;
-        for (var c = Math.max(0, lo - 2); c <= Math.min(_photoTimeFracs.length - 1, lo + 2); c++) {
-            var dist = Math.abs(_photoTimeFracs[c] - clickFrac);
-            if (dist < bestDist) { bestDist = dist; bestIdx = c; }
-        }
-        if (bestIdx >= 0) {
-            navDate = _photoTimes[bestIdx];
-            needleX = _fracToX(_photoTimeFracs[bestIdx]);
+        if (clickX <= dataL) {
+            navDate = _photoTimes[0];
+            needleX = _fracToX(_photoTimeFracs[0]);
+        } else if (clickX >= dataR) {
+            var last = _photoTimeFracs.length - 1;
+            navDate = _photoTimes[last];
+            needleX = _fracToX(_photoTimeFracs[last]);
+        } else {
+            var lo = 0, hi = _photoTimeFracs.length - 1;
+            while (lo <= hi) {
+                var mid = (lo + hi) >> 1;
+                if (_photoTimeFracs[mid] < clickFrac) lo = mid + 1;
+                else hi = mid - 1;
+            }
+            var bestDist = Infinity, bestIdx = -1;
+            for (var c = Math.max(0, lo - 5); c <= Math.min(_photoTimeFracs.length - 1, lo + 5); c++) {
+                var dist = Math.abs(_photoTimeFracs[c] - clickFrac);
+                if (dist < bestDist) { bestDist = dist; bestIdx = c; }
+            }
+            if (bestIdx >= 0) {
+                navDate = _photoTimes[bestIdx];
+                needleX = _fracToX(_photoTimeFracs[bestIdx]);
+            }
         }
     }
 
@@ -2136,36 +2168,78 @@ function _tlNavigateAt(clickX) {
         navDate = fracToISO(clickFrac);
     }
 
+    var isLeftEdge = clickX <= dataL;
+    var isRightEdge = clickX >= dataR;
+
     var needle = document.getElementById('tlNeedle');
     if (needle) { needle.style.transition = 'none'; needle.style.left = needleX + 'px'; updateNeedleFlag(navDate); }
     activeDate = navDate;
     _needleMode = true;
     currentPhotos = [];
-    _canLoadMore = true;
-    _canLoadPrev = true;
     _isLoading = false;
+    _prefetchQueue = [];
+    _prefetching = false;
     _firstDate = null;
     _lastDate = null;
     _firstPath = null;
     _lastPath = null;
     document.getElementById('grid').innerHTML = '';
     var sortSel = document.getElementById('sortSelect');
-    if (sortSel && sortSel.value === 'date_desc') sortSel.value = 'date_asc';
+    var sortMob = document.getElementById('sortSelectMob');
+    if (sortSel) sortSel.value = 'date_asc';
+    if (sortMob) sortMob.value = 'date_asc';
     _filterNeedleDate = navDate;
     _filterNeedleFrac = _dateToFracRaw(navDate);
     saveFilters();
-    if (navDate && navDate.length >= 7) {
-        var month = navDate.substring(0, 7);
-        var y = parseInt(month.substring(0, 4), 10);
-        var m = parseInt(month.substring(5, 7), 10);
-        _tlMonthFrom = month + '-01';
-        _tlMonthTo = new Date(y, m, 0).toISOString().substring(0, 10);
+    _tlMonthFrom = null;
+    _tlMonthTo = null;
+
+    if (isRightEdge) {
+        _canLoadMore = false;
+        _canLoadPrev = true;
+        _isLoading = true;
+        _updateSentinel();
+        var params = getSearchParams();
+        params = params.replace('sort=date_asc', 'sort=date_desc');
+        _showLoadBar();
+        fetch(API + '/photos/search?' + params).then(function(r) { return r.json(); }).then(function(data) {
+            _hideLoadBar();
+            data.photos.reverse();
+            totalResults = data.total;
+            currentPhotos = data.photos;
+            if (data.photos.length > 0) {
+                _firstDate = data.photos[0].date || null;
+                _firstPath = data.photos[0].path || null;
+                _lastDate = data.photos[data.photos.length - 1].date || null;
+                _lastPath = data.photos[data.photos.length - 1].path || null;
+            }
+            _canLoadPrev = data.photos.length >= pageSize;
+            _canLoadMore = false;
+            _updateSentinel();
+            appendGrid(data.photos, 0);
+            updateInfo();
+            _isLoading = false;
+            _needleMode = false;
+            setTimeout(function() {
+                window.scrollTo(0, document.documentElement.scrollHeight);
+                updateTimelinePosition();
+            }, 100);
+        }).catch(function(e) {
+            _hideLoadBar();
+            _isLoading = false;
+            if (currentPhotos.length === 0) document.getElementById('grid').innerHTML = '<div class="empty">Ошибка: ' + esc(e.message) + '</div>';
+        });
+    } else if (isLeftEdge) {
+        _canLoadMore = true;
+        _canLoadPrev = false;
+        _updateSentinel();
+        loadAfter(null, null);
     } else {
-        _tlMonthFrom = null;
-        _tlMonthTo = null;
+        _canLoadMore = true;
+        _canLoadPrev = false;
+        _updateSentinel();
+        loadAfter(navDate, null, true);
     }
-    _updateSentinel();
-    loadAfter(navDate, null, true);
 }
 function fracToISO(frac) {
     var y = Math.floor(frac);
