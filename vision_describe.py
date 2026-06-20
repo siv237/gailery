@@ -55,11 +55,14 @@ LD_LIBRARY_PATH = ":".join([
     str(LLAMA_CPP_DIR / "build" / "bin"),
 ])
 
-SYSTEM_PROMPT = """Ты описатель фотографий. Описывай только то что реально видно — буквально, без фантазии.
-Люди из списка 'Люди:' — ОБЯЗАТЕЛЬНО по имени. Безымянные — женщина/мужчина/девочка/мальчик.
-Возраст из списка — упомяни рядом с именем.
-Не пиши про атмосферу, уют, настроение, чувства. Только факты: кто, что делает, где, предметы.
-Без "вероятно", "возможно", "кажется". Без выдуманного повода. Без квадратных скобок."""
+SYSTEM_PROMPT = """Ты описатель фотографий. Описывай только то что реально видно — без фантазии.
+ВНИМАНИЕ: В данных ниже перечислены люди на фото С ИХ ИМЕНАМИ. Ты ОБЯЗАТЕЛЬНО используешь эти имена в описании.
+Если в списке указано имя — ты пишешь это имя, а не 'женщина' или 'мужчина'.
+Безымянные ('ещё N чел. без имени') — описывай по внешности.
+Возраст — только если указан в данных рядом с именем. Не определяй возраст по внешности.
+Если возраст указан и это девочка до 12 лет — пиши 'девочка', 13-17 — 'девушка', мальчик до 12 — 'мальчик', 13-17 — 'юноша'. Взрослых (18+) без возраста — 'женщина'/'мужчина'.
+Только факты: кто, что делает, где, предметы. Без атмосферы, без эмоций, без 'вероятно'.
+Без выдуманного повода. Без квадратных скобок. Начинай сразу текстом."""
 
 _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT
 
@@ -169,7 +172,7 @@ def describe_one(img_b64, photo_path, agent_context=""):
         _db.sqlite.close()
     except Exception:
         pass
-    user_text = "Опиши буквально что видно на фото. Перечисли все видимые предметы и объекты — мебель, игрушки, одежда, детали интерьера. Кто (имена из данных ниже — используй обязательно), возраст если указан. На чём сидит/стоит человек. Что в руках. Что на заднем плане. Что на полу. Без атмосферы, без чувств, без настроения. Только факты. Не короче 5 предложений."
+    user_text = "Опиши что видно на фото. Перечисли видимые предметы, мебель, одежду, детали. Кто (имена из данных — используй обязательно). Не пиши про то чего не видно. Начинай сразу с описания, без скобок, без заголовка. Не короче 4 предложений. Возраст — только из данных, не угадывай по внешности. Девочка/девушка/женщина — по возрасту из данных."
     if agent_context:
         user_text += "\n\n" + agent_context
     data = {
@@ -290,7 +293,7 @@ _RU_MONTHS = {
 
 
 def _parse_birth_date(comment):
-    """Парсит дату рождения из comment. Форматы: '7 мая 2009', '2009-05-07', '2009 год'."""
+    """Парсит дату рождения из comment. Форматы: 'DD месяц YYYY', 'YYYY-MM-DD', 'YYYY год'."""
     import re
     if not comment:
         return None
@@ -321,29 +324,32 @@ def _calc_age(comment, photo_date=None):
         return None
 
     total_months = (py - birth_year) * 12 + (pm - birth_month)
-    if total_months < 0 or total_months >= 84:
+    if total_months < 0 or total_months >= 216:
         return None
 
     years = total_months // 12
     months = total_months % 12
 
-    if years == 0:
-        if months == 0: return "меньше месяца"
-        if months == 1: return "1 месяц"
-        elif months in (2,3,4): return f"{months} месяца"
-        else: return f"{months} месяцев"
-    elif months == 0:
-        if years == 1: return "1 год"
-        elif years in (2,3,4): return f"{years} года"
-        else: return f"{years} лет"
+    if years < 7:
+        if years == 0:
+            if months == 0: return "меньше месяца"
+            if months == 1: return "1 месяц"
+            elif months in (2,3,4): return f"{months} месяца"
+            else: return f"{months} месяцев"
+        elif months == 0:
+            if years == 1: return "1 год"
+            elif years in (2,3,4): return f"{years} года"
+            else: return f"{years} лет"
+        else:
+            if years == 1: y_str = "1 год"
+            elif years in (2,3,4): y_str = f"{years} года"
+            else: y_str = f"{years} лет"
+            if months == 1: m_str = "1 месяц"
+            elif months in (2,3,4): m_str = f"{months} месяца"
+            else: m_str = f"{months} месяцев"
+            return f"{y_str} {m_str}"
     else:
-        if years == 1: y_str = "1 год"
-        elif years in (2,3,4): y_str = f"{years} года"
-        else: y_str = f"{years} лет"
-        if months == 1: m_str = "1 месяц"
-        elif months in (2,3,4): m_str = f"{months} месяца"
-        else: m_str = f"{months} месяцев"
-        return f"{y_str} {m_str}"
+        return f"{years} лет"
 
 
 def _is_birthday(comment, photo_date):
@@ -403,7 +409,7 @@ def _get_face_context(content_hash, img_width, db, photo_date=None):
     if unnamed_count > 0:
         lines.append(f"Также {unnamed_count} лиц без имён.")
     if lines:
-        lines.append("Используй имена в описании если они подходят к людям на фото. Для детей укажи возраст.")
+        lines.append("Используй имена в описании.")
     return " ".join(lines)
 
 
@@ -464,6 +470,13 @@ def _build_agent_context(photo_path, db):
             "FROM faces f LEFT JOIN personas per ON f.persona_id=per.persona_id WHERE f.content_hash=?",
             (content_hash,)).fetchall()
 
+        img_w_row = db.sqlite.execute("SELECT img_width FROM photos WHERE path=? AND deleted=0 LIMIT 1", (photo_path,)).fetchone()
+        img_width = img_w_row[0] if img_w_row and img_w_row[0] else 0
+        if not img_width and rows:
+            img_width = max((r[2] or 0) for r in rows) + 100
+        if not img_width:
+            img_width = 3000
+
         named = []
         named_names = []
         unnamed = 0
@@ -472,7 +485,7 @@ def _build_agent_context(photo_path, db):
                 name = r[4]
                 comment = r[5] or ""
                 pid = r[6]
-                pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0])
+                pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0], img_width)
                 pcnt = 0
                 if pid:
                     pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
@@ -503,7 +516,6 @@ def _build_agent_context(photo_path, db):
                             line += f", {age_str}"
                     elif age_str:
                         line += f", {age_str}"
-                    if pcnt: line += f" [{pcnt} фото]"
                     named.append(line)
                     named_names.append(name)
                 else:
@@ -512,9 +524,22 @@ def _build_agent_context(photo_path, db):
             unnamed = len(rows)
 
         if named:
-            parts.append("Люди: " + "; ".join(named))
+            for n in named:
+                if ' (' in n:
+                    nm = n.split(' (')[0]
+                    rest = n[len(nm)+2:]
+                    pos_str = rest.split(')')[0]
+                    extra = rest.split(')',1)[1] if ')' in rest else ''
+                    extra = extra.strip().lstrip(',').strip()
+                    stmt = f"На фото {pos_str} — {nm}"
+                    if extra:
+                        stmt += f", {extra}"
+                    stmt += "."
+                    parts.append(stmt)
+                else:
+                    parts.append(f"На фото — {n}.")
         if unnamed:
-            parts.append(f"Ещё {unnamed} чел.")
+            parts.append(f"Также на фото ещё {unnamed} чел. без имени.")
 
         if faces_done and named_names:
             ff = db.get_setting("family_facts")
@@ -535,14 +560,8 @@ def _build_agent_context(photo_path, db):
                     if photo_date:
                         m = _re.search(r'(\d{1,2})\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})', line)
                         if m:
-                            birth_year = int(m.group(2))
-                            try:
-                                py = int(photo_date[:4])
-                            except Exception:
-                                py = 0
-                            age = py - birth_year
-                            if age > 18:
-                                line = _re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}', '', line).strip()
+                            line = _re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}', '', line).strip()
+                            line = _re.sub(r'\s+', ' ', line).strip()
                     ff_lines.append(line)
                 log(f"  DEBUG family_facts filter: named_names={named_names}, ff_total={len(ff.strip().split(chr(10)))}, ff_matched={len(ff_lines)}")
                 if ff_lines:
@@ -555,7 +574,7 @@ def _build_agent_context(photo_path, db):
         if alias_row and alias_row[0]:
             parts.append(f"Папка: {alias_row[0]}")
         if photo_date:
-            parts.append(f"Дата: {photo_date}")
+            parts.append(f"Дата съёмки: {photo_date}")
 
     except Exception:
         pass

@@ -75,7 +75,22 @@ function renderResults(data) {
         var c = calls[i];
         var color = TYPE_COLORS[c.call_type] || '#888';
         var label = TYPE_LABELS[c.call_type] || c.call_type;
-        var time = (c.called_at || '').substring(0,19).replace('T',' ');
+        var rawTime = c.called_at || '';
+        var time = '';
+        if (rawTime) {
+            var d = new Date(rawTime);
+            if (!isNaN(d)) {
+                var hh = String(d.getHours()).padStart(2,'0');
+                var mm = String(d.getMinutes()).padStart(2,'0');
+                var ss = String(d.getSeconds()).padStart(2,'0');
+                var DD = String(d.getDate()).padStart(2,'0');
+                var MM = String(d.getMonth()+1).padStart(2,'0');
+                var YYYY = d.getFullYear();
+                time = DD+'.'+MM+'.'+YYYY+' '+hh+':'+mm+':'+ss;
+            } else {
+                time = rawTime.substring(0,19).replace('T',' ');
+            }
+        }
         var errMark = c.success === 0 ? ' <span class="c-err">⛔ ОШИБКА</span>' : '';
         h += '<div style="border-bottom:1px solid var(--border);padding:16px">';
 

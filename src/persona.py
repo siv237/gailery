@@ -17,7 +17,7 @@ class Persona:
     """Represents a person entity"""
     persona_id: str
     name: str  # Technical name (persona_1, persona_2, etc.)
-    display_name: Optional[str] = None  # User-provided name (Сергей)
+    display_name: Optional[str] = None  # User-provided display name
     created_at: Optional[str] = None
     face_count: int = 0
 
@@ -260,7 +260,7 @@ def main():
     print(f"Persona {persona2.persona_id} has {persona2.face_count} faces")
     
     # Test display name update
-    manager.update_persona_display_name(persona1.persona_id, "Сергей")
+    manager.update_persona_display_name(persona1.persona_id, "Test Person")
     print(f"Persona {persona1.persona_id} display name: {persona1.display_name}")
     
     # Test merge
