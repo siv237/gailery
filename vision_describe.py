@@ -154,13 +154,26 @@ def stop_llama_server(proc):
     log("llama-server stopped")
 
 
+_AI_LOG_BATCH_ID = None
+
 def describe_one(img_b64, photo_path, agent_context=""):
+    from vlm_log import log_ai_call
+    sys_prompt = get_system_prompt()
+    _ch = ""
+    try:
+        from database import DatabaseManager as _DM
+        _db = _DM()
+        _r = _db.sqlite.execute("SELECT content_hash FROM catalog_files WHERE abs_path=? AND is_canonical=1 LIMIT 1", (str(photo_path),)).fetchone()
+        if _r: _ch = _r[0] or ""
+        _db.sqlite.close()
+    except Exception:
+        pass
     user_text = "Опиши двумя предложениями: (1) кратко кто (только имена из данных ниже), возраст, родство и где (2) детали одежды, поз, окружения."
     if agent_context:
         user_text += "\n\n" + agent_context
     data = {
         "messages": [
-            {"role": "system", "content": get_system_prompt()},
+            {"role": "system", "content": sys_prompt},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
                 {"type": "text", "text": user_text},
@@ -183,9 +196,47 @@ def describe_one(img_b64, photo_path, agent_context=""):
         content = result["choices"][0]["message"].get("content", "")
         pps = result.get("timings", {}).get("predicted_per_second", 0)
         parsed = parse_tool_call(content)
+        log_ai_call(
+            call_type="vlm_describe",
+            photo_path=str(photo_path),
+            content_hash=_ch,
+            batch_id=_AI_LOG_BATCH_ID,
+            request_json={
+                "url": f"http://localhost:{LLAMA_PORT}/v1/chat/completions",
+                "method": "POST",
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,<{len(img_b64)} chars base64>"}},
+                        {"type": "text", "text": user_text},
+                    ]},
+                ],
+                "max_tokens": MAX_NEW_TOKENS,
+                "temperature": 0.1,
+                "chat_template_kwargs": {"enable_thinking": False},
+                "model": "Qwen3.5-4B-Q4_K_M",
+                "image_bytes": len(img_b64),
+            },
+            response_json=result,
+            agent_context=agent_context,
+            parsed_result=parsed,
+            elapsed_sec=round(elapsed, 2),
+            success=1,
+        )
         return photo_path, parsed, elapsed, pps, None
     except Exception as e:
         elapsed = time.time() - t0
+        log_ai_call(
+            call_type="vlm_describe",
+            photo_path=str(photo_path),
+            content_hash=_ch,
+            batch_id=_AI_LOG_BATCH_ID,
+            request_json=data,
+            agent_context=agent_context,
+            elapsed_sec=round(elapsed, 2),
+            error=str(e),
+            success=0,
+        )
         return photo_path, None, elapsed, 0, str(e)
 
 
@@ -433,6 +484,9 @@ def _build_agent_context(photo_path, db):
 
 
 def describe_batch(image_paths, db=None):
+    import uuid as _uuid
+    global _AI_LOG_BATCH_ID
+    _AI_LOG_BATCH_ID = str(_uuid.uuid4())[:8]
     images_b64 = []
     valid_paths = []
     invalid_paths = []

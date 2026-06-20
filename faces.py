@@ -155,6 +155,7 @@ def run_detection(photos):
         t_sql = time.time()
         saved = 0
         vectors_batch = []
+        face_details = []
         for face in faces:
             if face.embedding is None:
                 continue
@@ -176,6 +177,7 @@ def run_detection(photos):
             )
             if inserted:
                 vectors_batch.append({"face_id": face_id, "embedding": embedding.tolist()})
+            face_details.append({"bbox": [round(c,1) for c in bbox], "confidence": round(float(face.det_score or 0), 3), "embedding_dim": len(embedding)})
             saved += 1
         dt_sql = time.time() - t_sql
 
@@ -215,6 +217,22 @@ def run_detection(photos):
         processed += 1
 
         log(f"[{processed}] {os.path.basename(path)}: {len(faces)} det, {saved} saved | read={dt_read:.2f}s det={dt_det:.2f}s sql={dt_sql:.2f}s lance={dt_lancedb:.2f}s sql_upd={dt_sql_upd:.2f}s")
+
+        try:
+            from vlm_log import log_ai_call
+            log_ai_call(
+                call_type="face_detect",
+                photo_path=path,
+                content_hash=content_hash,
+                photo_id=photo_id,
+                input_image={"original_size": list(img.size) if hasattr(img, 'size') else None, "det_size": [640, 640]},
+                model_params={"model": "insightface buffalo_l", "provider": "CUDA"},
+                output_extra={"faces_detected": len(faces), "faces_saved": saved, "face_details": face_details},
+                elapsed_sec=round(dt_det, 3),
+                success=1,
+            )
+        except Exception:
+            pass
 
     elapsed = time.time() - t0
     log(f"Detection done: {processed} photos, {total_saved} faces in {elapsed:.0f}s")

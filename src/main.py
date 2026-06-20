@@ -1501,6 +1501,39 @@ async def config_update(request: Request):
     return {"ok": True, "env_key": env_key, "value": value}
 
 
+@app.get("/api/ai-log")
+async def ai_log(photo_path: str = "", content_hash: str = "", call_type: str = "", limit: int = 50):
+    import sqlite3
+    from vlm_log import DB_PATH
+    if not __import__('os').path.exists(DB_PATH):
+        return {"calls": [], "total": 0, "db_path": DB_PATH}
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    where = []
+    params = []
+    if photo_path:
+        where.append("photo_path LIKE ?")
+        params.append("%" + photo_path + "%")
+    if content_hash:
+        where.append("content_hash = ?")
+        params.append(content_hash)
+    if call_type:
+        where.append("call_type = ?")
+        params.append(call_type)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    total = conn.execute(f"SELECT COUNT(*) FROM ai_calls{where_sql}", params).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT * FROM ai_calls{where_sql} ORDER BY called_at DESC LIMIT ?",
+        params + [limit]
+    ).fetchall()
+    conn.close()
+    return {
+        "calls": [dict(r) for r in rows],
+        "total": total,
+        "db_path": DB_PATH,
+    }
+
+
 @app.get("/{path:path}")
 async def spa_fallback(path: str, request: Request):
     accept = request.headers.get("accept", "")

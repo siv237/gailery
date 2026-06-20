@@ -488,6 +488,19 @@ def _main(db, args, mq=None):
                 batch_photos.append(p)
                 batch_hashes.append(meta_hash)
 
+                try:
+                    from vlm_log import log_ai_call
+                    log_ai_call(
+                        call_type="embed",
+                        photo_path=path,
+                        content_hash=content_hash,
+                        photo_id=p.get("photo_id"),
+                        input_extra={"search_text": search_text, "meta_hash": meta_hash},
+                        success=1,
+                    )
+                except Exception:
+                    pass
+
                 if len(batch_texts) >= chunk_size:
                     # Encode batch
                     vecs = engine.encode(batch_texts)

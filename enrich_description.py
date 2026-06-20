@@ -413,7 +413,7 @@ def stop_server(proc):
         proc.wait(timeout=5)
 
 
-def llm_request(server, messages, use_tools=True):
+def llm_request(server, messages, use_tools=True, log_meta=None):
     data = {
         "messages": messages,
         "max_tokens": 8192,
@@ -444,6 +444,39 @@ def llm_request(server, messages, use_tools=True):
     log(f"LLM response: finish={finish} prompt={prompt_t} completion={compl_t} content={len(content_raw)} reasoning={len(reasoning_raw)} tools={len(tool_calls_raw)}")
     if finish == "length":
         log(f"WARNING: output truncated! content={content_raw[-200:]}")
+
+    if log_meta:
+        try:
+            from vlm_log import log_ai_call
+            log_ai_call(
+                call_type="enrich",
+                photo_path=log_meta.get("photo_path"),
+                content_hash=log_meta.get("content_hash"),
+                photo_id=log_meta.get("photo_id"),
+                batch_id=log_meta.get("batch_id"),
+                request_json={
+                    "url": f"http://localhost:{LLAMA_PORT}/v1/chat/completions",
+                    "method": "POST",
+                    "messages": messages,
+                    "max_tokens": 8192,
+                    "temperature": 0.7,
+                    "top_p": 0.8,
+                    "presence_penalty": 1.5,
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "tools": TOOLS if use_tools else None,
+                    "tool_choice": "auto" if use_tools else None,
+                    "round": log_meta.get("round"),
+                    "use_tools": use_tools,
+                },
+                response_json=result,
+                agent_context=log_meta.get("agent_context"),
+                tool_results=log_meta.get("tool_results_so_far"),
+                elapsed_sec=round(result.get("timings", {}).get("predicted_ms", 0) / 1000, 2) if result.get("timings") else None,
+                success=1,
+            )
+        except Exception:
+            pass
+
     return choice["message"]
 
 
@@ -451,6 +484,20 @@ def run_llm(db, photo_data):
     server = start_server()
     if not server:
         return None
+
+    _log_meta = {
+        "photo_path": photo_data.get("path", ""),
+        "photo_id": photo_data.get("photo_id", ""),
+        "content_hash": photo_data.get("content_hash", ""),
+        "agent_context": {
+            "base_description": photo_data.get("description", ""),
+            "faces": photo_data.get("faces", []),
+            "folder": photo_data.get("folder", ""),
+            "date": photo_data.get("date", ""),
+            "faces_text": format_faces(photo_data.get("faces", [])),
+        },
+        "tool_results_so_far": [],
+    }
 
     try:
         faces_text = format_faces(photo_data["faces"])
@@ -473,7 +520,8 @@ def run_llm(db, photo_data):
         max_rounds = 2
         for round_num in range(max_rounds):
             log(f"LLM round {round_num + 1}")
-            msg = llm_request(server, messages, use_tools=True)
+            _log_meta["round"] = round_num + 1
+            msg = llm_request(server, messages, use_tools=True, log_meta=_log_meta)
 
             tool_calls = msg.get("tool_calls", [])
             content = msg.get("content", "") or ""
@@ -488,7 +536,8 @@ def run_llm(db, photo_data):
                         {"role": "system", "content": get_system_prompt()},
                         {"role": "user", "content": user_msg},
                     ]
-                    msg_clean = llm_request(server, clean_msgs, use_tools=False)
+                    _log_meta["round"] = f"{round_num + 1}-clean"
+                    msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
                     content = (msg_clean.get("content", "") or "").strip()
                     if not content or len(content) < 10:
                         return None
@@ -522,6 +571,7 @@ def run_llm(db, photo_data):
 
                 result = execute_tool(db, fn_name, fn_args)
                 print(f"  [Result] {result[:200]}")
+                _log_meta["tool_results_so_far"].append({"tool": fn_name, "args": fn_args, "result": result})
 
                 messages.append({
                     "role": "tool",
@@ -531,7 +581,8 @@ def run_llm(db, photo_data):
 
             # After tool results, let model continue (may call more tools or give final answer)
             log("Continuing after tool results")
-            msg_final = llm_request(server, messages, use_tools=True)
+            _log_meta["round"] = f"{round_num + 1}-after-tools"
+            msg_final = llm_request(server, messages, use_tools=True, log_meta=_log_meta)
             content = (msg_final.get("content", "") or "").strip()
             reasoning = (msg_final.get("reasoning_content", "") or "").strip()
             new_tool_calls = msg_final.get("tool_calls", [])
@@ -551,9 +602,11 @@ def run_llm(db, photo_data):
                     print(f"  [Tool] {fn_name}({fn_args})")
                     result = execute_tool(db, fn_name, fn_args)
                     print(f"  [Result] {result[:200]}")
+                    _log_meta["tool_results_so_far"].append({"tool": fn_name, "args": fn_args, "result": result})
                     messages.append({"role": "tool", "tool_call_id": tc_id, "content": result})
                 # Ask again for final or more tools
-                msg_final2 = llm_request(server, messages, use_tools=False)
+                _log_meta["round"] = f"{round_num + 1}-final"
+                msg_final2 = llm_request(server, messages, use_tools=False, log_meta=_log_meta)
                 content = (msg_final2.get("content", "") or "").strip()
 
             if not content:
@@ -562,7 +615,8 @@ def run_llm(db, photo_data):
                     {"role": "system", "content": get_system_prompt()},
                     {"role": "user", "content": user_msg},
                 ]
-                msg_clean = llm_request(server, clean_msgs, use_tools=False)
+                _log_meta["round"] = f"{round_num + 1}-notools-retry"
+                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
                 content = (msg_clean.get("content", "") or "").strip()
 
             if content.startswith("<function=") or content.startswith("<parameter>"):
@@ -571,7 +625,8 @@ def run_llm(db, photo_data):
                     {"role": "system", "content": get_system_prompt()},
                     {"role": "user", "content": user_msg},
                 ]
-                msg_clean = llm_request(server, clean_msgs, use_tools=False)
+                _log_meta["round"] = f"{round_num + 1}-xml-fix"
+                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
                 content = (msg_clean.get("content", "") or "").strip()
 
             content = re.sub(r'^```\w*\s*\n?', '', content)
@@ -584,7 +639,8 @@ def run_llm(db, photo_data):
                     {"role": "system", "content": get_system_prompt()},
                     {"role": "user", "content": user_msg},
                 ]
-                msg_clean = llm_request(server, clean_msgs, use_tools=False)
+                _log_meta["round"] = f"{round_num + 1}-empty-fix"
+                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
                 content = (msg_clean.get("content", "") or "").strip()
                 if not content or len(content) < 10:
                     return None
@@ -622,6 +678,20 @@ def enrich_photo(db, photo_path):
 
     rich = run_llm(db, data)
     if not rich:
+        try:
+            from vlm_log import log_ai_call
+            log_ai_call(
+                call_type="enrich",
+                photo_path=photo_path,
+                photo_id=data.get("photo_id"),
+                system_prompt=get_system_prompt(),
+                user_prompt=f"Базовое описание:\n{data['description']}\n\nПапка: {data['folder']}\nДата: {data['date']}\n\nЛица:\n{format_faces(data['faces'])}",
+                input_extra={"base_description": data["description"], "faces_text": format_faces(data["faces"]), "folder": data["folder"], "date": data["date"]},
+                error="run_llm returned None",
+                success=0,
+            )
+        except Exception:
+            pass
         return None
 
     db.sqlite.execute(
@@ -630,6 +700,22 @@ def enrich_photo(db, photo_path):
     )
     db.sqlite.commit()
     log(f"Saved rich_description: {rich[:100]}...")
+
+    try:
+        from vlm_log import log_ai_call
+        log_ai_call(
+            call_type="enrich",
+            photo_path=photo_path,
+            photo_id=data.get("photo_id"),
+            system_prompt=get_system_prompt(),
+            user_prompt=f"Базовое описание:\n{data['description']}\n\nПапка: {data['folder']}\nДата: {data['date']}\n\nЛица:\n{format_faces(data['faces'])}",
+            input_extra={"base_description": data["description"], "faces_text": format_faces(data["faces"]), "folder": data["folder"], "date": data["date"]},
+            model_response=rich,
+            parsed_result={"rich_description": rich},
+            success=1,
+        )
+    except Exception:
+        pass
 
     return rich
 
