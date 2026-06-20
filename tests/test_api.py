@@ -218,15 +218,27 @@ class TestMapAPI:
 
 
 class TestPipelineControlAPI:
-    def test_control_stop(self, app_client):
-        """Остановка пайплайна не крашит API."""
+    """Деструктивные тесты — вызывают реальные systemctl/pkill/MQTT stop.
+
+    Все системные вызовы замоканы: os.system, _get_api_mqtt, PIPELINE_SERVICE.
+    Проверяем только что эндпоинт возвращает HTTP 200 + ok=True.
+    """
+
+    def test_control_stop(self, app_client, monkeypatch):
+        """Остановка пайплайна — mock os.system + MQTT, проверяем только HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
         resp = app_client.post("/api/control/stop")
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("ok") is True
 
-    def test_control_start_faces_has_limit(self, app_client):
-        """Запуск faces с faces_limit передаёт лимит."""
+    def test_control_start_faces_has_limit(self, app_client, monkeypatch):
+        """Запуск faces — mock os.system + MQTT, проверяем только HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
         resp = app_client.post("/api/control/start", json={
             "step": "faces", "faces_limit": 10
         })
@@ -234,8 +246,11 @@ class TestPipelineControlAPI:
         data = resp.json()
         assert data.get("ok") is True
 
-    def test_control_start_describe_has_params(self, app_client):
-        """Запуск describe с desc_limit и batch_size."""
+    def test_control_start_describe_has_params(self, app_client, monkeypatch):
+        """Запуск describe — mock os.system + MQTT, проверяем только HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
         resp = app_client.post("/api/control/start", json={
             "step": "describe", "desc_limit": 10, "batch_size": 3
         })

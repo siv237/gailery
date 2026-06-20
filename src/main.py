@@ -168,6 +168,19 @@ async def monitor_page():
     return {"error": "Page not found"}
 
 
+@app.get("/log")
+async def log_page():
+    from pathlib import Path
+    from fastapi.responses import HTMLResponse
+    admin_html = Path(__file__).parent.parent / "web" / "admin" / "index.html"
+    if admin_html.exists():
+        with open(admin_html) as f:
+            content = f.read()
+        content = content.replace('class="page" id="page-logs"', 'class="page active" id="page-logs"')
+        return HTMLResponse(content, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    return {"error": "Page not found"}
+
+
 @app.get("/admin")
 async def admin_page():
     from pathlib import Path

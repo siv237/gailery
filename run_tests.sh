@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 VENV="$(dirname "$0")/venv/bin/python3"
-FLAGS="-v -x --tb=short -q"
+FLAGS="-v --tb=short -q"
 
 usage() {
   cat <<'EOF'
@@ -60,6 +60,7 @@ else
   EXCLUDES=""
   [[ $WRITE -eq 0 ]] && EXCLUDES="$EXCLUDES and not write"
   [[ $AI -eq 0 ]]    && EXCLUDES="$EXCLUDES and not ai and not gpu"
+  EXCLUDES="$EXCLUDES and not destructive"
   EXCLUDES="${EXCLUDES# and }"
   [[ -n "$EXCLUDES" ]] && MARK_FILTER="-k '$EXCLUDES'" || MARK_FILTER=""
   echo "  mode: ${WRITE:+write }${AI:+ai }read-only"

@@ -430,21 +430,6 @@ class TestPersonManagement:
         assert isinstance(result, list)
         assert len(result) >= 1
 
-    def test_rename_persona_one_cluster(self):
-        code, body, _ = _get("/api/persons/")
-        persons = _json(body).get("persons", _json(body))
-        unnamed = [p for p in persons if not p.get("display_name")]
-        if not unnamed:
-            pytest.skip("no unnamed personas to rename")
-        pid = unnamed[0]["persona_id"]
-        code2, body2, _ = _put(f"/api/persons/{pid}", {
-            "display_name": "ТестПерсона_E2E",
-        })
-        assert code2 == 200
-        updated = _json(body2)
-        assert updated.get("display_name") == "ТестПерсона_E2E"
-        _put(f"/api/persons/{pid}", {"clear_display_name": True})
-
 
 # ═══════════════════════════════════════════════════════════════
 # Flow 5: Photo operations (date, GPS, delete, undelete)

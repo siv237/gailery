@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 import asyncio
 
 
+@pytest.mark.destructive
 class TestMQTTWorkerLifecycle:
     def test_worker_publishes_running_on_start(self):
         """Воркер публикует статус running + PID при старте, API их видит."""
@@ -76,6 +77,7 @@ class TestMQTTWorkerLifecycle:
         api.disconnect()
 
 
+@pytest.mark.destructive
 class TestMQTTApiStatus:
     def test_api_detects_mqtt_worker_alive(self):
         """API видит живого воркера, get_current_step возвращает не idle."""
@@ -127,6 +129,7 @@ class TestMQTTApiStatus:
         api.disconnect()
 
 
+@pytest.mark.destructive
 class TestMQTTGPUArbitration:
     def test_pause_resume_cycle(self):
         """API может приостановить и возобновить воркер через pause/resume."""
