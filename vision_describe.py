@@ -40,10 +40,10 @@ MODEL_PATH = str(MODELS_DIR / "gguf" / "Qwen3.5-4B-Q4_K_M.gguf")
 MMPROJ_PATH = str(MODELS_DIR / "gguf" / "mmproj-BF16.gguf")
 LLAMA_PORT = 8101
 NP_SLOTS = 6
-CTX_SIZE = 8192
+CTX_SIZE = 16384
 
 BATCH_SIZE = 6
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 1024
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 LOG_FILE = str(PROJECT_ROOT / "logs" / "pipeline.log")
 
@@ -55,10 +55,11 @@ LD_LIBRARY_PATH = ":".join([
     str(LLAMA_CPP_DIR / "build" / "bin"),
 ])
 
-SYSTEM_PROMPT = """Ты описываешь фото в два предложения.
-Первое — кратко: кто (имена, связь) и где. Возраст — только детям до 18 лет.
-Второе — детально: одежда, позы, окружение, детали.
-Взрослые: женщина/мужчина, не девочка/мальчик. Без "вероятно", без эмоций. Имена вместо "девушка/женщина"."""
+SYSTEM_PROMPT = """Ты описатель фотографий. Описывай только то что реально видно — буквально, без фантазии.
+Люди из списка 'Люди:' — ОБЯЗАТЕЛЬНО по имени. Безымянные — женщина/мужчина/девочка/мальчик.
+Возраст из списка — упомяни рядом с именем.
+Не пиши про атмосферу, уют, настроение, чувства. Только факты: кто, что делает, где, предметы.
+Без "вероятно", "возможно", "кажется". Без выдуманного повода. Без квадратных скобок."""
 
 _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT
 
@@ -168,7 +169,7 @@ def describe_one(img_b64, photo_path, agent_context=""):
         _db.sqlite.close()
     except Exception:
         pass
-    user_text = "Опиши двумя предложениями: (1) кратко кто (только имена из данных ниже), возраст, родство и где (2) детали одежды, поз, окружения."
+    user_text = "Опиши буквально что видно на фото. Перечисли все видимые предметы и объекты — мебель, игрушки, одежда, детали интерьера. Кто (имена из данных ниже — используй обязательно), возраст если указан. На чём сидит/стоит человек. Что в руках. Что на заднем плане. Что на полу. Без атмосферы, без чувств, без настроения. Только факты. Не короче 5 предложений."
     if agent_context:
         user_text += "\n\n" + agent_context
     data = {
@@ -282,25 +283,34 @@ def _get_photo_context(photo_path, db):
     return " ".join(parts)
 
 
-def _calc_age(comment, photo_date=None):
+_RU_MONTHS = {
+    'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+    'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
+}
+
+
+def _parse_birth_date(comment):
+    """Парсит дату рождения из comment. Форматы: '7 мая 2009', '2009-05-07', '2009 год'."""
     import re
     if not comment:
         return None
+    m = re.search(r'(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})', comment)
+    if m:
+        return int(m.group(3)), _RU_MONTHS[m.group(2)], int(m.group(1))
     m = re.search(r'(\d{4})[-.](\d{2})[-.](\d{2})', comment)
-    if not m:
-        m = re.search(r'(\d{4})\s+год', comment, re.IGNORECASE)
-        if m:
-            birth_year = int(m.group(1))
-            birth_month = 7
-            birth_day = 1
-        else:
-            return None
-    else:
-        birth_year = int(m.group(1))
-        birth_month = int(m.group(2))
-        birth_day = int(m.group(3))
-    if not photo_date:
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    m = re.search(r'(\d{4})\s+год', comment, re.IGNORECASE)
+    if m:
+        return int(m.group(1)), 7, 1
+    return None
+
+
+def _calc_age(comment, photo_date=None):
+    bd = _parse_birth_date(comment)
+    if not bd or not photo_date:
         return None
+    birth_year, birth_month, birth_day = bd
     try:
         pd = photo_date[:10]
         parts = pd.split('-')
@@ -309,12 +319,48 @@ def _calc_age(comment, photo_date=None):
         py, pm, pdd = int(parts[0]), int(parts[1]), int(parts[2])
     except Exception:
         return None
-    age = py - birth_year
-    if (pm, pdd) < (birth_month, birth_day):
-        age -= 1
-    if age < 0 or age > 18:
+
+    total_months = (py - birth_year) * 12 + (pm - birth_month)
+    if total_months < 0 or total_months >= 84:
         return None
-    return f"{age} {'лет' if age % 10 != 1 or age == 11 else 'год' if age == 1 else 'года'}"
+
+    years = total_months // 12
+    months = total_months % 12
+
+    if years == 0:
+        if months == 0: return "меньше месяца"
+        if months == 1: return "1 месяц"
+        elif months in (2,3,4): return f"{months} месяца"
+        else: return f"{months} месяцев"
+    elif months == 0:
+        if years == 1: return "1 год"
+        elif years in (2,3,4): return f"{years} года"
+        else: return f"{years} лет"
+    else:
+        if years == 1: y_str = "1 год"
+        elif years in (2,3,4): y_str = f"{years} года"
+        else: y_str = f"{years} лет"
+        if months == 1: m_str = "1 месяц"
+        elif months in (2,3,4): m_str = f"{months} месяца"
+        else: m_str = f"{months} месяцев"
+        return f"{y_str} {m_str}"
+
+
+def _is_birthday(comment, photo_date):
+    """Проверяет совпадает ли дата фото с днём рождения (месяц+день)."""
+    bd = _parse_birth_date(comment)
+    if not bd or not photo_date:
+        return False
+    _, birth_month, birth_day = bd
+    try:
+        pd = photo_date[:10]
+        parts = pd.split('-')
+        if len(parts) != 3:
+            return False
+        _, pm, pdd = int(parts[0]), int(parts[1]), int(parts[2])
+        return pm == birth_month and pdd == birth_day
+    except Exception:
+        return False
 
 
 def _get_face_context(content_hash, img_width, db, photo_date=None):
@@ -419,6 +465,7 @@ def _build_agent_context(photo_path, db):
             (content_hash,)).fetchall()
 
         named = []
+        named_names = []
         unnamed = 0
         if faces_done:
             for r in rows:
@@ -431,13 +478,34 @@ def _build_agent_context(photo_path, db):
                     pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
                     pcnt = pc[0] if pc else 0
                 age_str = _calc_age(comment, photo_date) if name and comment else None
+                is_bday = _is_birthday(comment, photo_date) if name and comment else False
+                bday_date = _parse_birth_date(comment) if name and comment else None
+
+                if not comment and name and photo_date:
+                    ff = db.get_setting("family_facts")
+                    if ff:
+                        for ff_line in ff.strip().split("\n"):
+                            ff_line = ff_line.strip()
+                            if ff_line.startswith(name):
+                                age_str = _calc_age(ff_line, photo_date)
+                                is_bday = _is_birthday(ff_line, photo_date)
+                                bday_date = _parse_birth_date(ff_line)
+                                comment = ff_line
+                                break
+
                 if name:
                     line = name
                     if pos: line += f" ({pos})"
-                    if age_str: line += f", {age_str}"
-                    if comment: line += f" [{comment}]"
+                    if is_bday:
+                        bday_str = f"{bday_date[2]:02d}.{bday_date[1]:02d}.{bday_date[0]}" if bday_date else ""
+                        line += f", день рождения ({bday_str}, фото {photo_date})"
+                        if age_str:
+                            line += f", {age_str}"
+                    elif age_str:
+                        line += f", {age_str}"
                     if pcnt: line += f" [{pcnt} фото]"
                     named.append(line)
+                    named_names.append(name)
                 else:
                     unnamed += 1
         else:
@@ -448,15 +516,22 @@ def _build_agent_context(photo_path, db):
         if unnamed:
             parts.append(f"Ещё {unnamed} чел.")
 
-        if faces_done and named:
+        if faces_done and named_names:
             ff = db.get_setting("family_facts")
             if ff:
-                parts.append("Семья:")
+                import re as _re
+                ff_lines = []
                 for line in ff.strip().split("\n"):
                     line = line.strip()
                     if not line:
                         continue
-                    import re as _re
+                    matched = False
+                    for nn in named_names:
+                        if nn and line.startswith(nn):
+                            matched = True
+                            break
+                    if not matched:
+                        continue
                     if photo_date:
                         m = _re.search(r'(\d{1,2})\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})', line)
                         if m:
@@ -468,7 +543,11 @@ def _build_agent_context(photo_path, db):
                             age = py - birth_year
                             if age > 18:
                                 line = _re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}', '', line).strip()
-                    parts.append(line)
+                    ff_lines.append(line)
+                log(f"  DEBUG family_facts filter: named_names={named_names}, ff_total={len(ff.strip().split(chr(10)))}, ff_matched={len(ff_lines)}")
+                if ff_lines:
+                    parts.append("Семья:")
+                    parts.extend(ff_lines)
 
         alias_row = db.sqlite.execute(
             "SELECT cr.alias FROM catalog_roots cr JOIN catalog_files cf ON cf.root_id=cr.root_id WHERE cf.abs_path=? AND cf.is_canonical=1 LIMIT 1",
@@ -671,6 +750,7 @@ def process_single(photo_path):
             print(f"DESC:{parsed['description']}", flush=True)
             print(f"FACES:{parsed['has_faces']}", flush=True)
             print(f"ISSUES:{parsed['has_issues']}", flush=True)
+            save_description(db, path, parsed)
     finally:
         stop_llama_server(server)
 

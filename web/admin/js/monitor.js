@@ -204,7 +204,7 @@ MonP.renderCard = function(p, idx, containerId, compact) {
         if (p.date) h += '<div class="mcard-meta">Дата: '+Admin.esc(p.date.substring(0,19).replace('T',' '))+'</div>';
         if (p.camera_make || p.camera_model) h += '<div class="mcard-meta">Камера: '+Admin.esc((p.camera_make||'')+' '+(p.camera_model||''))+'</div>';
         if (p.gps_lat) h += '<div class="mcard-meta">GPS: '+p.gps_lat.toFixed(4)+', '+p.gps_lon.toFixed(4)+'</div>';
-        if (p.content_hash) h += '<div class="mcard-meta c-dim">hash: '+Admin.esc(p.content_hash)+'</div>';
+        if (p.content_hash) h += '<div class="mcard-meta c-dim">hash: <a href="#" onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')" style="color:#58a6ff;font-family:monospace;text-decoration:none">'+Admin.esc(p.content_hash)+'</a> <button onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')" style="margin-left:8px;padding:2px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;font-size:12px">🔍 AI-лог</button></div>';
 
         if (p.personas && p.personas.length) {
             h += '<div class="mpers-list">';
@@ -315,6 +315,18 @@ MonP.fmtAgo = function(iso) {
     if (diff < 3600) return Math.floor(diff/60) + 'м назад';
     if (diff < 86400) return Math.floor(diff/3600) + 'ч назад';
     return Math.floor(diff/86400) + 'д назад';
+};
+
+MonP.openAiLog = function(contentHash) {
+    Admin.navigate('ailog');
+    setTimeout(function() {
+        var input = document.getElementById('ailogInput');
+        var btn = document.getElementById('ailogBtn');
+        if (input && btn) {
+            input.value = contentHash;
+            btn.click();
+        }
+    }, 100);
 };
 
 MonP.openPersonaModal = function(personaId, currentName, currentComment, faceUrl) {
