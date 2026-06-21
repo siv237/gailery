@@ -18,6 +18,7 @@ import os
 import time
 import logging
 import threading
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -441,9 +442,9 @@ class ApiMQTT(GailrayMQTT):
             time.sleep(0.3)
         if any_gpu:
             logger.warning(f"[MQTT] GPU still held after {time.time()-t0:.1f}s, forcing pkill")
-            os.system("pkill -9 -f 'llama-server' 2>/dev/null")
+            subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True)
             for pattern in PIPELINE_GPU_PROCS:
-                os.system(f"pkill -f '{pattern}' 2>/dev/null")
+                subprocess.run(["pkill", "-f", pattern], capture_output=True)
             time.sleep(0.5)
         logger.info(f"[MQTT] GPU acquired for {worker_name} in {time.time()-t0:.1f}s")
         self.publish(gpu_lock_topic(), json.dumps({
@@ -468,7 +469,7 @@ class ApiMQTT(GailrayMQTT):
             time.sleep(0.5)
         if any_gpu:
             logger.warning(f"[MQTT] GPU still held after {time.time()-t0:.1f}s — killing llama-server")
-            os.system("pkill -9 -f 'llama-server' 2>/dev/null")
+            subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True)
             time.sleep(1)
         self.send_resume()
         self.publish(gpu_lock_topic(), json.dumps({

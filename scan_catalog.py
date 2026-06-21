@@ -204,7 +204,7 @@ def scan_root(db, root_id, mq=None):
                     log(progress_msg)
                     if mq:
                         try: mq.publish_progress(scanned, 0, {"new": len(new_files), "changed": changed_count, "restored": restored_count, "elapsed": round(elapsed, 1)})
-                        except: pass
+                        except Exception: pass
 
                 try:
                     stat = os.stat(abs_path)
@@ -289,7 +289,7 @@ def hash_batch(db, limit=500, mq=None):
             log(f"  Hashed {done}/{len(files)} ({elapsed:.1f}s, {done/max(elapsed,1):.0f}/s)")
             if mq:
                 try: mq.publish_progress(done, len(files), {"speed": f"{done/max(elapsed,1):.0f}/s"})
-                except: pass
+                except Exception: pass
 
     if batch:
         db.sqlite.executemany("UPDATE catalog_files SET content_hash = ? WHERE file_id = ?", batch)
