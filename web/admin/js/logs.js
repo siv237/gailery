@@ -3,6 +3,15 @@
 
 var _logFilter = '';
 var _logFilterMap = {};
+var _logTimer = null;
+
+function startLogRefresh(cid) {
+    if (_logTimer) clearInterval(_logTimer);
+    _logTimer = setInterval(function() { loadLogInto(cid); }, 3000);
+}
+function stopLogRefresh() {
+    if (_logTimer) { clearInterval(_logTimer); _logTimer = null; }
+}
 
 A.registerBlock('logs', 'Логи', '📋', function(cid) { A.renderBlock_logs(cid); });
 
@@ -49,6 +58,7 @@ A.renderBlock_logs = function(containerId) {
     });
 
     loadLogInto(containerId);
+    startLogRefresh(containerId);
 };
 
 function setFilter(cid, f) {
@@ -143,7 +153,8 @@ function loadLogInto(cid) {
 }
 
 A.on('navigate', function(page) {
-    if (page==='logs') buildUI();
+    if (page==='logs') { buildUI(); }
+    else { stopLogRefresh(); }
 });
 
 })(window.Admin);

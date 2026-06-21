@@ -42,7 +42,23 @@ var TYPE_COLORS = {
     'enrich':       '#a55eea',
 };
 
+var _ailogTimer = null;
+var _ailogQuery = null;
+var _ailogType = null;
+
+function startAilogRefresh() {
+    if (_ailogTimer) clearInterval(_ailogTimer);
+    _ailogTimer = setInterval(function() {
+        if (_ailogQuery || _ailogType) search(_ailogQuery, _ailogType);
+    }, 5000);
+}
+function stopAilogRefresh() {
+    if (_ailogTimer) { clearInterval(_ailogTimer); _ailogTimer = null; }
+}
+
 function search(query, callType) {
+    _ailogQuery = query;
+    _ailogType = callType;
     var el = A.$('ailogResults');
     if (!query && !callType) { el.innerHTML = '<p class="c-dim">Введите content_hash</p>'; return; }
     el.innerHTML = '<p class="c-dim">Загрузка...</p>';
@@ -151,6 +167,9 @@ function renderResults(data) {
     el.innerHTML = h;
 }
 
-A.on('navigate', function(page) { if (page === 'ailog') render(); });
+A.on('navigate', function(page) {
+    if (page === 'ailog') { render(); if (_ailogQuery || _ailogType) startAilogRefresh(); }
+    else { stopAilogRefresh(); }
+});
 window.Admin = A;
 })();
