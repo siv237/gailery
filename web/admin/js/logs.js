@@ -13,7 +13,7 @@ function stopLogRefresh() {
     if (_logTimer) { clearInterval(_logTimer); _logTimer = null; }
 }
 
-A.registerBlock('logs', 'Логи', '📋', function(cid) { A.renderBlock_logs(cid); });
+A.registerBlock('logs', 'Логи', '📋', function(cid) { A.renderBlock_logs(cid); }, function(cid) { loadLogInto(cid); });
 
 function buildUI() {
     var el = A.$('page-logs');
@@ -58,7 +58,7 @@ A.renderBlock_logs = function(containerId) {
     });
 
     loadLogInto(containerId);
-    startLogRefresh(containerId);
+    if (containerId === 'logsBlock') startLogRefresh(containerId);
 };
 
 function setFilter(cid, f) {
