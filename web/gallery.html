@@ -69,6 +69,8 @@
         .month-divider { grid-column: 1 / -1; padding: 6px 0 2px 2px; font-size: 12px; font-weight: 600; color: #8b949e; border-bottom: 1px solid #21262d; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
         .month-divider .md-year { color: #58a6ff; font-size: 13px; }
         .month-divider .md-month { color: #c9d1d9; }
+        .month-divider .md-ago { color: #6e7681; font-size: 11px; font-weight: 400; margin-left: 2px; }
+        .light-theme .month-divider .md-ago { color: #8c949e; }
         .card { background: #161b22; border-radius: 4px; overflow: hidden; cursor: pointer; position: relative; transition: transform .15s; }
         .card:hover { transform: scale(1.02); }
         .card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #21262d; transition: transform .3s; }
@@ -1484,12 +1486,47 @@ function _monthKey(dateStr) {
     return dateStr.substring(0, 7);
 }
 
+function _monthAgoLabel(year, month) {
+    var now = new Date();
+    var target = new Date(year, month - 1, 1);
+    var daysAgo = Math.floor((now - target) / 86400000);
+    if (daysAgo <= 0) return '';
+    if (daysAgo < 30) {
+        function dayWord(n) {
+            if (n === 1) return '1 день';
+            if (n >= 2 && n <= 4) return n + ' дня';
+            return n + ' дней';
+        }
+        return dayWord(daysAgo) + ' назад';
+    }
+    var monthsAgo = (now.getFullYear() - year) * 12 + (now.getMonth() + 1 - month);
+    if (monthsAgo < 12) {
+        function monthWord(n) {
+            if (n === 1) return '1 месяц';
+            if (n >= 2 && n <= 4) return n + ' месяца';
+            return n + ' месяцев';
+        }
+        return monthWord(monthsAgo) + ' назад';
+    }
+    var years = Math.floor(monthsAgo / 12);
+    var remM = monthsAgo % 12;
+    if (remM >= 6) years++;
+    function yearWord(n) {
+        if (n === 1) return '1 год';
+        if (n >= 2 && n <= 4) return n + ' года';
+        return n + ' лет';
+    }
+    return yearWord(years) + ' назад';
+}
+
 function _monthDividerHtml(dateStr) {
     var key = _monthKey(dateStr);
     if (!key) return '';
     var y = key.substring(0, 4);
     var m = parseInt(key.substring(5, 7), 10);
-    return '<div class="month-divider" data-month="' + key + '"><span class="md-year">' + esc(y) + '</span><span class="md-month">' + MONTH_NAMES[m - 1] + '</span></div>';
+    var ago = _monthAgoLabel(parseInt(y, 10), m);
+    var agoHtml = ago ? '<span class="md-ago">' + esc(ago) + '</span>' : '';
+    return '<div class="month-divider" data-month="' + key + '"><span class="md-year">' + esc(y) + '</span><span class="md-month">' + MONTH_NAMES[m - 1] + '</span>' + agoHtml + '</div>';
 }
 
 function appendGrid(photos, startIdx) {
