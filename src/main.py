@@ -1125,9 +1125,33 @@ async def logo_light():
 
 @app.get("/favicon.ico")
 async def favicon():
+    p = web_dir / "favicon.png"
+    if p.exists():
+        return FileResponse(str(p), media_type="image/png")
     p = web_dir / "logo-dark.png"
     if p.exists():
         return FileResponse(str(p), media_type="image/x-icon")
+    raise HTTPException(status_code=404)
+
+@app.get("/favicon.png")
+async def favicon_png():
+    p = web_dir / "favicon.png"
+    if p.exists():
+        return FileResponse(str(p), media_type="image/png")
+    raise HTTPException(status_code=404)
+
+@app.get("/apple-touch-icon.png")
+async def apple_touch_icon():
+    p = web_dir / "apple-touch-icon.png"
+    if p.exists():
+        return FileResponse(str(p), media_type="image/png")
+    raise HTTPException(status_code=404)
+
+@app.get("/favicon-32.png")
+async def favicon_32():
+    p = web_dir / "favicon-32.png"
+    if p.exists():
+        return FileResponse(str(p), media_type="image/png")
     raise HTTPException(status_code=404)
 
 
