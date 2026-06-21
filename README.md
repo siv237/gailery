@@ -1,4 +1,4 @@
-<img src="web/logo-light.png" width="378">
+<img src="web/logo-light.png" width="480">
 
 # Gailery — AI-фотогалерея для домашнего файлового сервера
 

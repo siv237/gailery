@@ -45,6 +45,11 @@
         .nav a { color: #8b949e; text-decoration: none; font-size: 12px; padding: 4px 8px; border-radius: 4px; }
         h1 { display: flex; align-items: center; }
         h1 .logo { height: 32px; width: auto; margin-right: 6px; }
+        .logo-link { text-decoration: none; display: inline-flex; align-items: center; }
+        .logo { transition: transform .3s ease, filter .3s ease; filter: drop-shadow(0 0 5px rgba(240,200,120,.45)); }
+        .light-theme .logo { filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+        .logo-link:hover .logo { transform: scale(1.1) rotate(-3deg); filter: drop-shadow(0 0 12px rgba(240,200,120,.85)); }
+        .light-theme .logo-link:hover .logo { filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
         
         .nav a:hover { background: #21262d; color: #c9d1d9; }
         .nav a.active { color: #58a6ff; }
@@ -160,7 +165,7 @@
 </head>
 <body>
     <h1>
-        <img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"><span>Карта</span>
+        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Карта</span>
         <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
         <div class="nav">
             <a href="/gallery">Галерея</a>

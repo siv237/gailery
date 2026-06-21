@@ -74,6 +74,11 @@
         h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
         h1 { display: flex; align-items: center; }
         h1 .logo { height: 32px; width: auto; margin-right: 6px; }
+        .logo-link { text-decoration: none; display: inline-flex; align-items: center; }
+        .logo { transition: transform .3s ease, filter .3s ease; filter: drop-shadow(0 0 5px rgba(240,200,120,.45)); }
+        .light-theme .logo { filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+        .logo-link:hover .logo { transform: scale(1.1) rotate(-3deg); filter: drop-shadow(0 0 12px rgba(240,200,120,.85)); }
+        .light-theme .logo-link:hover .logo { filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
         
         h1 .nav a:hover { color: #58a6ff; }
         h1 .nav a.active { color: #58a6ff; }
@@ -287,7 +292,7 @@
 </head>
 <body>
     <h1>
-        <img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"><span>Каталог</span>
+        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Каталог</span>
         <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
         <div class="nav">
             <a href="/gallery">Галерея</a>

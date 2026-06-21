@@ -85,6 +85,11 @@
         h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
         h1 { display: flex; align-items: center; }
         h1 .logo { height: 32px; width: auto; margin-right: 6px; }
+        .logo-link { text-decoration: none; display: inline-flex; align-items: center; }
+        .logo { transition: transform .3s ease, filter .3s ease; filter: drop-shadow(0 0 5px rgba(240,200,120,.45)); }
+        .light-theme .logo { filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+        .logo-link:hover .logo { transform: scale(1.1) rotate(-3deg); filter: drop-shadow(0 0 12px rgba(240,200,120,.85)); }
+        .light-theme .logo-link:hover .logo { filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
         
         h1 .nav a:hover { color: #58a6ff; }
         .toolbar { padding: 8px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
@@ -241,7 +246,7 @@
 </head>
 <body>
     <h1>
-        <img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"><span>Персоны</span>
+        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Персоны</span>
         <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
         <div class="nav">
             <a href="/gallery">Галерея</a>
