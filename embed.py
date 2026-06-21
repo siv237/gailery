@@ -363,44 +363,128 @@ def main():
             mq.shutdown()
 
 
-def _main(db, args, mq=None):
-
+def _load_persona_map(db):
     log("Loading personas data...")
     all_personas = db.get_all_personas()
     persona_map = {p["persona_id"]: p for p in all_personas}
     log(f"Loaded {len(all_personas)} personas")
+    return persona_map
 
+
+def _count_unembedded(db, args):
     if args.force:
         all_photos = db.get_all_photos()
         photos = all_photos[:args.limit] if args.limit > 0 else all_photos
-    else:
-        content_hash = args.hash or None
-        cur = db.sqlite.cursor()
-        ch_where = " AND c.content_hash = ?" if content_hash else ""
-        ch_params = [content_hash] if content_hash else []
-        total_unembedded = cur.execute(
-            "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0" + ch_where, ch_params
-        ).fetchone()[0]
-        log(f"Found {total_unembedded} photos to embed (SQL query)")
-        photos = None
+        return len(photos), photos
+    content_hash = args.hash or None
+    cur = db.sqlite.cursor()
+    ch_where = " AND c.content_hash = ?" if content_hash else ""
+    ch_params = [content_hash] if content_hash else []
+    total_unembedded = cur.execute(
+        "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0" + ch_where, ch_params
+    ).fetchone()[0]
+    log(f"Found {total_unembedded} photos to embed (SQL query)")
+    return total_unembedded, None
 
+
+def _check_stop_pause(mq, label):
+    if mq and (mq.stopped() or mq.paused()):
+        if mq.stopped():
+            return True
+        if mq.paused():
+            mq.publish_gpu_held(False)
+        mq.wait_while_paused()
+        if not mq.stopped():
+            mq.publish_gpu_held(True)
+        return "paused"
+    if stopped():
+        return True
+    return False
+
+
+def _fetch_chunk_faces(db, hashes):
+    photo_faces = {}
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2 FROM faces WHERE content_hash IN ({ph})",
+            hashes
+        ).fetchall()
+        for fr in face_rows:
+            ch = fr[2] or fr[1] or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append({
+                    "face_id": fr[0], "photo_id": fr[1], "content_hash": fr[2],
+                    "persona_id": fr[3], "bbox_x1": fr[4], "bbox_y1": fr[5],
+                    "bbox_x2": fr[6], "bbox_y2": fr[7],
+                })
+    return photo_faces
+
+
+def _encode_and_flush(engine, batch_texts, batch_photos, batch_hashes, lance_buffer, mark_buffer, db, photo_faces, persona_map):
+    vecs = engine.encode(batch_texts)
+    embedded = 0
+    processed = 0
+    for j, p2 in enumerate(batch_photos):
+        vec = vecs[j]
+        if j < len(batch_hashes):
+            meta = batch_hashes[j]
+        else:
+            meta = compute_meta_hash(build_search_text(p2, photo_faces.get(p2.get("content_hash",""), []), persona_map))
+        lance_buffer.append({
+            "photo_id": p2["photo_id"],
+            "search_text": batch_texts[j] if j < len(batch_texts) else "",
+            "embedding": vec.tolist(),
+            "meta_hash": meta,
+            "embedded_at": datetime.now().isoformat(),
+        })
+        embedded += 1
+        mark_buffer.append(p2["photo_id"])
+        if len(mark_buffer) >= 64:
+            _mark_embedded_batch(db, mark_buffer)
+            mark_buffer = []
+        processed += 1
+        if len(lance_buffer) >= LANCE_FLUSH_SIZE:
+            db.add_photo_embeddings_batch(lance_buffer)
+            lance_buffer = []
+    return lance_buffer, mark_buffer, embedded, processed
+
+
+def _finalize_lance_index(db):
+    try:
+        db.photo_embeddings.create_index(
+            vector_column_name="embedding",
+            index_type="IVF_FLAT",
+            metric="cosine",
+        )
+        log("Vector index created on photo_embeddings")
+    except Exception as e:
+        log(f"Index creation note: {e}")
+    try:
+        db.compact_photo_embeddings()
+        log("Compacted photo_embeddings LanceDB fragments")
+    except Exception as e:
+        log(f"Compact note: {e}")
+
+
+def _main(db, args, mq=None):
+    persona_map = _load_persona_map(db)
+    total_unembedded, photos = _count_unembedded(db, args)
+    if not args.force:
+        cur = db.sqlite.cursor()
     if not args.force and total_unembedded == 0:
         log("All photos already embedded")
         return 0
-
     total_to_embed = total_unembedded if not args.force else len(photos)
-
     if mq and not args.no_gpu_lock:
         log("Acquiring GPU...")
         if not mq.acquire_gpu(timeout=60):
             log("GPU занят, embed не может запуститься")
             return 1
         log("GPU acquired")
-
     engine = None
     try:
         engine = EmbedEngine()
-
         lance_buffer = []
         mark_buffer = []
         embedded = 0
@@ -410,20 +494,12 @@ def _main(db, args, mq=None):
         processed = 0
         fetch_size = 5000
         offset = 0
-
         while True:
-            if mq and (mq.stopped() or mq.paused()):
-                if mq.stopped():
-                    break
-                if mq.paused():
-                    mq.publish_gpu_held(False)
-                mq.wait_while_paused()
-                if not mq.stopped():
-                    mq.publish_gpu_held(True)
-                continue
-            if stopped():
+            _r = _check_stop_pause(mq, "outer")
+            if _r is True:
                 break
-
+            if _r == "paused":
+                continue
             if args.force:
                 if photos is None:
                     break
@@ -434,47 +510,20 @@ def _main(db, args, mq=None):
                 chunk = get_unembedded_photos_sql(db, limit=fetch_size, offset=0, content_hash=args.hash or None)
                 if not chunk:
                     break
-
             chunk_hashes = [p.get("content_hash", "") for p in chunk if p.get("content_hash")]
-            photo_faces = {}
-            if chunk_hashes:
-                ph = ",".join("?" * len(chunk_hashes))
-                face_rows = db.sqlite.execute(
-                    f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2 FROM faces WHERE content_hash IN ({ph})",
-                    chunk_hashes
-                ).fetchall()
-                for fr in face_rows:
-                    ch = fr[2] or fr[1] or ""
-                    if ch:
-                        photo_faces.setdefault(ch, []).append({
-                            "face_id": fr[0], "photo_id": fr[1], "content_hash": fr[2],
-                            "persona_id": fr[3], "bbox_x1": fr[4], "bbox_y1": fr[5],
-                            "bbox_x2": fr[6], "bbox_y2": fr[7],
-                        })
-
-            # Batch encode: collect texts, encode in groups
+            photo_faces = _fetch_chunk_faces(db, chunk_hashes)
             chunk_size = getattr(app_config, 'OLLAMA_EMBED_CHUNK', 64) if engine._mode == "ollama" else NUM_SEQ
             batch_texts = []
             batch_photos = []
             batch_hashes = []
-
             for p in chunk:
-                if mq and (mq.stopped() or mq.paused()):
-                    if mq.stopped():
-                        break
-                    mq.publish_gpu_held(False)
-                    mq.wait_while_paused()
-                    if not mq.stopped():
-                        mq.publish_gpu_held(True)
-                if stopped():
+                _r = _check_stop_pause(mq, "inner")
+                if _r is True:
                     break
-
                 path = p.get("path", "")
                 content_hash = p.get("content_hash", "")
                 faces = photo_faces.get(content_hash, [])
-
                 search_text = build_search_text(p, faces, persona_map)
-
                 if not search_text.strip():
                     skipped += 1
                     cur = db.sqlite.cursor()
@@ -482,12 +531,10 @@ def _main(db, args, mq=None):
                     db.sqlite.commit()
                     processed += 1
                     continue
-
                 meta_hash = compute_meta_hash(search_text)
                 batch_texts.append(search_text)
                 batch_photos.append(p)
                 batch_hashes.append(meta_hash)
-
                 try:
                     from vlm_log import log_ai_call
                     log_ai_call(
@@ -500,37 +547,15 @@ def _main(db, args, mq=None):
                     )
                 except Exception:
                     pass
-
                 if len(batch_texts) >= chunk_size:
-                    # Encode batch
-                    vecs = engine.encode(batch_texts)
-                    for j, p2 in enumerate(batch_photos):
-                        vec = vecs[j]
-                        if j < len(batch_hashes):
-                            meta = batch_hashes[j]
-                        else:
-                            meta = compute_meta_hash(build_search_text(p2, photo_faces.get(p2.get("content_hash",""), []), persona_map))
-                        lance_buffer.append({
-                            "photo_id": p2["photo_id"],
-                            "search_text": batch_texts[j] if j < len(batch_texts) else "",
-                            "embedding": vec.tolist(),
-                            "meta_hash": meta,
-                            "embedded_at": datetime.now().isoformat(),
-                        })
-                        embedded += 1
-                        mark_buffer.append(p2["photo_id"])
-                        if len(mark_buffer) >= 64:
-                            _mark_embedded_batch(db, mark_buffer)
-                            mark_buffer = []
-                        processed += 1
-                        if len(lance_buffer) >= LANCE_FLUSH_SIZE:
-                            db.add_photo_embeddings_batch(lance_buffer)
-                            lance_buffer = []
-
+                    lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
+                        engine, batch_texts, batch_photos, batch_hashes,
+                        lance_buffer, mark_buffer, db, photo_faces, persona_map)
+                    embedded += _emb
+                    processed += _proc
                     batch_texts = []
                     batch_photos = []
                     batch_hashes = []
-
                 now = time.time()
                 if now - last_log_t >= LOG_INTERVAL:
                     elapsed = now - t0
@@ -540,30 +565,12 @@ def _main(db, args, mq=None):
                     eta_fmt = _fmt_eta(elapsed, pct)
                     log(f"  [{embedded}/{total_to_embed}] {pct:.1f}% | {elapsed_fmt} пройдено, {rate:.0f}/с{eta_fmt}")
                     last_log_t = now
-
-            # Encode remaining batch
             if batch_texts:
-                vecs = engine.encode(batch_texts)
-                for j, p2 in enumerate(batch_photos):
-                    vec = vecs[j]
-                    meta = batch_hashes[j] if j < len(batch_hashes) else compute_meta_hash(build_search_text(p2, photo_faces.get(p2.get("content_hash",""), []), persona_map))
-                    lance_buffer.append({
-                        "photo_id": p2["photo_id"],
-                        "search_text": batch_texts[j],
-                        "embedding": vec.tolist(),
-                        "meta_hash": meta,
-                        "embedded_at": datetime.now().isoformat(),
-                    })
-                    embedded += 1
-                    mark_buffer.append(p2["photo_id"])
-                    if len(mark_buffer) >= 64:
-                        _mark_embedded_batch(db, mark_buffer)
-                        mark_buffer = []
-                    processed += 1
-                    if len(lance_buffer) >= LANCE_FLUSH_SIZE:
-                        db.add_photo_embeddings_batch(lance_buffer)
-                        lance_buffer = []
-
+                lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
+                    engine, batch_texts, batch_photos, batch_hashes,
+                    lance_buffer, mark_buffer, db, photo_faces, persona_map)
+                embedded += _emb
+                processed += _proc
             if args.force:
                 offset += fetch_size
             else:
@@ -572,32 +579,13 @@ def _main(db, args, mq=None):
                 ).fetchone()[0]
                 if remaining == 0:
                     break
-
         if mark_buffer:
             _mark_embedded_batch(db, mark_buffer)
-
         if lance_buffer:
             db.add_photo_embeddings_batch(lance_buffer)
-
         elapsed = time.time() - t0
         log(f"Embedding done: {embedded} встроено, {skipped} пропущено за {_fmt_dur(elapsed)} ({embedded/max(elapsed,1):.0f}/с)")
-
-        try:
-            db.photo_embeddings.create_index(
-                vector_column_name="embedding",
-                index_type="IVF_FLAT",
-                metric="cosine",
-            )
-            log("Vector index created on photo_embeddings")
-        except Exception as e:
-            log(f"Index creation note: {e}")
-
-        try:
-            db.compact_photo_embeddings()
-            log("Compacted photo_embeddings LanceDB fragments")
-        except Exception as e:
-            log(f"Compact note: {e}")
-
+        _finalize_lance_index(db)
     except Exception as e:
         log(f"FATAL: {e}")
         import traceback
@@ -607,7 +595,6 @@ def _main(db, args, mq=None):
             engine.cleanup()
         if mq:
             mq.release_gpu()
-
     return 0
 
 

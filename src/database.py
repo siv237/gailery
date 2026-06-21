@@ -153,7 +153,18 @@ class DatabaseManager:
         self.sqlite.commit()
         self._apply_migrations(cur)
 
-    def _apply_migrations(self, cur):
+    def _add_column_if_missing(self, cur, table, column, col_type):
+        cur.execute(f"PRAGMA table_info({table})")
+        existing = [row[1] for row in cur.fetchall()]
+        if column not in existing:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+    def _create_table_if_missing(self, cur, table, create_sql):
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cur.fetchone():
+            cur.execute(create_sql)
+
+    def _migrate_catalog_files_cols(self, cur):
         cur.execute("PRAGMA table_info(catalog_files)")
         cf_columns = [row[1] for row in cur.fetchall()]
         if 'content_hash' not in cf_columns:
@@ -170,53 +181,29 @@ class DatabaseManager:
             cur.execute("ALTER TABLE catalog_files ADD COLUMN deleted_type TEXT")
             self.sqlite.commit()
 
-        cur.execute("PRAGMA table_info(photos)")
-        columns = [row[1] for row in cur.fetchall()]
-        if 'manual_gps' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN manual_gps INTEGER DEFAULT 0")
-        if 'manual_date' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN manual_date TEXT")
-        if 'deleted' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN deleted INTEGER DEFAULT 0")
-        if 'rich_description' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN rich_description TEXT")
-        if 'embedded' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN embedded INTEGER DEFAULT 0")
-        if 'has_issues' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN has_issues INTEGER DEFAULT 0")
-        if 'issue_type' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN issue_type TEXT")
-        if 'photo_type' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN photo_type TEXT DEFAULT 'photo'")
-        if 'exif_raw' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN exif_raw TEXT")
-        if 'img_width' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN img_width INTEGER")
-        if 'img_height' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN img_height INTEGER")
-        if 'date_conflict' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN date_conflict INTEGER DEFAULT 0")
-        if 'thumbnail_path' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN thumbnail_path TEXT")
-        if 'media_type' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN media_type TEXT DEFAULT 'photo'")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_media_type ON photos(media_type)")
-        if 'duration_seconds' not in columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN duration_seconds REAL DEFAULT 0")
+    def _migrate_photos_cols(self, cur):
+        self._add_column_if_missing(cur, 'photos', 'manual_gps', 'INTEGER DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'manual_date', 'TEXT')
+        self._add_column_if_missing(cur, 'photos', 'deleted', 'INTEGER DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'rich_description', 'TEXT')
+        self._add_column_if_missing(cur, 'photos', 'embedded', 'INTEGER DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'has_issues', 'INTEGER DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'issue_type', 'TEXT')
+        self._add_column_if_missing(cur, 'photos', 'photo_type', "TEXT DEFAULT 'photo'")
+        self._add_column_if_missing(cur, 'photos', 'exif_raw', 'TEXT')
+        self._add_column_if_missing(cur, 'photos', 'img_width', 'INTEGER')
+        self._add_column_if_missing(cur, 'photos', 'img_height', 'INTEGER')
+        self._add_column_if_missing(cur, 'photos', 'date_conflict', 'INTEGER DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'thumbnail_path', 'TEXT')
+        self._add_column_if_missing(cur, 'photos', 'media_type', "TEXT DEFAULT 'photo'")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_media_type ON photos(media_type)")
+        self._add_column_if_missing(cur, 'photos', 'duration_seconds', 'REAL DEFAULT 0')
+        self.sqlite.commit()
+        self._add_column_if_missing(cur, 'photos', 'root_id', 'TEXT')
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_root_id ON photos(root_id)")
         self.sqlite.commit()
 
-        cur.execute("PRAGMA table_info(catalog_roots)")
-        cr_columns = [row[1] for row in cur.fetchall()]
-        if 'enabled' not in cr_columns:
-            cur.execute("ALTER TABLE catalog_roots ADD COLUMN enabled INTEGER DEFAULT 1")
-            self.sqlite.commit()
-
-        p_columns = [row[1] for row in cur.execute("PRAGMA table_info(photos)").fetchall()]
-        if 'root_id' not in p_columns:
-            cur.execute("ALTER TABLE photos ADD COLUMN root_id TEXT")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_root_id ON photos(root_id)")
-            self.sqlite.commit()
-
+    def _migrate_faces_content_hash(self, cur):
         faces_columns = [row[1] for row in cur.execute("PRAGMA table_info(faces)").fetchall()]
         if 'content_hash' not in faces_columns:
             cur.execute("ALTER TABLE faces ADD COLUMN content_hash TEXT")
@@ -236,6 +223,79 @@ class DatabaseManager:
             """)
             self.sqlite.commit()
 
+    def _ensure_tables_and_indexes(self, cur):
+        self._create_table_if_missing(cur, 'changes', """
+            CREATE TABLE changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                photo_id TEXT,
+                field TEXT,
+                value TEXT,
+                changed_at TEXT
+            )
+        """)
+        self.sqlite.commit()
+
+        self._create_table_if_missing(cur, 'photo_edits', """
+            CREATE TABLE photo_edits (
+                edit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_hash TEXT NOT NULL,
+                action TEXT NOT NULL,
+                params TEXT NOT NULL,
+                action_order INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_edits_hash ON photo_edits(content_hash)")
+        self.sqlite.commit()
+
+        cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_photos_effective_date'")
+        if not cur.fetchone():
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos(COALESCE(manual_date, date))")
+            self.sqlite.commit()
+
+        self._create_table_if_missing(cur, 'settings', """
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        self.sqlite.commit()
+
+        self._create_table_if_missing(cur, 'system_metrics', """
+            CREATE TABLE system_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                cpu_percent REAL,
+                cpu_temp_max REAL,
+                mem_percent REAL,
+                mem_avail_gb REAL,
+                gpu_load REAL,
+                gpu_vram_mb REAL,
+                gpu_temp REAL,
+                gpu_power_w REAL,
+                gpu_fan REAL,
+                disk_root REAL,
+                disk_share REAL,
+                load1 REAL,
+                load5 REAL,
+                load15 REAL,
+                net_rx_gb REAL,
+                net_tx_gb REAL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts ON system_metrics(timestamp)")
+        self.sqlite.commit()
+
+    def _apply_migrations(self, cur):
+        self._migrate_catalog_files_cols(cur)
+        self._migrate_photos_cols(cur)
+        cur.execute("PRAGMA table_info(catalog_roots)")
+        cr_columns = [row[1] for row in cur.fetchall()]
+        if 'enabled' not in cr_columns:
+            cur.execute("ALTER TABLE catalog_roots ADD COLUMN enabled INTEGER DEFAULT 1")
+            self.sqlite.commit()
+        self._migrate_faces_content_hash(cur)
         cur.execute("""
             UPDATE photos SET deleted = 1
             WHERE deleted = 0
@@ -245,77 +305,7 @@ class DatabaseManager:
             )
         """)
         self.sqlite.commit()
-
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='changes'")
-        if not cur.fetchone():
-            cur.execute("""
-                CREATE TABLE changes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    photo_id TEXT,
-                    field TEXT,
-                    value TEXT,
-                    changed_at TEXT
-                )
-            """)
-            self.sqlite.commit()
-
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='photo_edits'")
-        if not cur.fetchone():
-            cur.execute("""
-                CREATE TABLE photo_edits (
-                    edit_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content_hash TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    params TEXT NOT NULL,
-                    action_order INTEGER NOT NULL DEFAULT 0,
-                    enabled INTEGER DEFAULT 1,
-                    created_at TEXT
-                )
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edits_hash ON photo_edits(content_hash)")
-            self.sqlite.commit()
-
-        cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_photos_effective_date'")
-        if not cur.fetchone():
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos(COALESCE(manual_date, date))")
-            self.sqlite.commit()
-
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
-        if not cur.fetchone():
-            cur.execute("""
-                CREATE TABLE settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            """)
-            self.sqlite.commit()
-
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='system_metrics'")
-        if not cur.fetchone():
-            cur.execute("""
-                CREATE TABLE system_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    cpu_percent REAL,
-                    cpu_temp_max REAL,
-                    mem_percent REAL,
-                    mem_avail_gb REAL,
-                    gpu_load REAL,
-                    gpu_vram_mb REAL,
-                    gpu_temp REAL,
-                    gpu_power_w REAL,
-                    gpu_fan REAL,
-                    disk_root REAL,
-                    disk_share REAL,
-                    load1 REAL,
-                    load5 REAL,
-                    load15 REAL,
-                    net_rx_gb REAL,
-                    net_tx_gb REAL
-                )
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts ON system_metrics(timestamp)")
-            self.sqlite.commit()
+        self._ensure_tables_and_indexes(cur)
 
     def _open_vector_tables(self):
         if "photo_embeddings" not in self.vectordb.list_tables().tables:

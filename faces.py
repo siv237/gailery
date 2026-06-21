@@ -84,12 +84,8 @@ def get_undetected_photos(db, limit=0, content_hash=None):
     return result
 
 
-def run_detection(photos):
+def _init_insightface():
     from insightface.app import FaceAnalysis
-    from database import DatabaseManager
-    import numpy as np
-    from PIL import Image
-
     cuda_opts = {
         'device_id': 0,
         'arena_extend_strategy': 'kSameAsRequested',
@@ -102,6 +98,140 @@ def run_detection(photos):
     app = FaceAnalysis(name='buffalo_l', root=insightface_root, providers=[('CUDAExecutionProvider', cuda_opts), 'CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(640, 640))
     log(f"InsightFace loaded on GPU (optimized CUDA provider)")
+    return app
+
+
+def _check_existing_faces(db, photo_id, path):
+    existing = db.get_faces_for_photo(photo_id)
+    if existing:
+        try:
+            db.update_catalog_file_by_path(path, faces_done=1)
+        except Exception:
+            pass
+        log(f"  skip {os.path.basename(path)} (faces already exist)")
+        return True
+    return False
+
+
+def _load_and_detect(app, img_path):
+    from PIL import Image
+    import numpy as np
+    t_read = time.time()
+    img = Image.open(img_path).convert("RGB")
+    img_array = np.array(img)
+    dt_read = time.time() - t_read
+
+    t_det = time.time()
+    log(f"  detecting {os.path.basename(img_path)}...")
+    faces = app.get(img_array)
+    log(f"  detected {len(faces)} faces")
+    dt_det = time.time() - t_det
+    return faces, img, dt_read, dt_det
+
+
+def _handle_detection_error(db, e, photo, content_hash, rel_path, ext):
+    log(f"ERROR {os.path.basename(rel_path)}: {e}")
+    try:
+        if ext in VIDEO_EXTS:
+            db.sqlite.execute("UPDATE photos SET media_type = 'video', faces_present = 0, description = NULL WHERE path = ? AND deleted = 0", (rel_path,))
+            db.sqlite.commit()
+            log(f"  set media_type=video (not an image)")
+        else:
+            db.sqlite.execute("UPDATE photos SET faces_present = 0, deleted = 1 WHERE path = ? AND deleted = 0", (rel_path,))
+            db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (rel_path,))
+            db.sqlite.commit()
+            log(f"  marked as deleted (corrupted file)")
+    except Exception:
+        pass
+
+
+def _process_detected_faces(db, faces, photo_id, path, content_hash):
+    import numpy as np
+    t_sql = time.time()
+    saved = 0
+    vectors_batch = []
+    face_details = []
+    for face in faces:
+        if face.embedding is None:
+            continue
+        embedding = face.embedding
+        norm = np.linalg.norm(embedding)
+        if norm > 0:
+            embedding = embedding / norm
+
+        bbox = face.bbox.astype(float).tolist()
+        face_id = hashlib.md5(f"{path}_{bbox}".encode()).hexdigest()
+
+        face_id, inserted = db.add_face_sqlite_only(
+            photo_id=photo_id,
+            face_id=face_id,
+            bbox=bbox,
+            confidence=float(face.det_score) if face.det_score is not None else 0.0,
+            persona_id=None,
+            content_hash=content_hash,
+        )
+        if inserted:
+            vectors_batch.append({"face_id": face_id, "embedding": embedding.tolist()})
+        face_details.append({"bbox": [round(c,1) for c in bbox], "confidence": round(float(face.det_score or 0), 3), "embedding_dim": len(embedding)})
+        saved += 1
+    dt_sql = time.time() - t_sql
+    return saved, vectors_batch, face_details, dt_sql
+
+
+def _update_photo_flags(db, photo, saved_count, content_hash, rel_path, faces_count):
+    t_cleanup = time.time()
+    dt_sql_upd = 0.0
+    if saved_count > 0:
+        try:
+            photo = db.get_photo_by_path(rel_path)
+            if photo:
+                t_upd = time.time()
+                db.sqlite.execute("UPDATE photos SET embedded = 0, faces_present = 1 WHERE photo_id = ?", (photo["photo_id"],))
+                db.sqlite.commit()
+                dt_sql_upd = time.time() - t_upd
+        except Exception:
+            pass
+    elif faces_count == 0:
+        try:
+            photo = db.get_photo_by_path(rel_path)
+            if photo:
+                db.update_photo(photo["photo_id"], faces_present=0)
+        except Exception:
+            pass
+    try:
+        db.update_catalog_file_by_path(rel_path, faces_done=1)
+    except Exception:
+        pass
+    dt_cleanup = time.time() - t_cleanup
+    return dt_sql_upd
+
+
+def _optimize_lancedb(db):
+    try:
+        import lancedb as _ldb
+        _db = _ldb.connect(str(Path(__file__).parent / "data" / "lancedb"))
+        _tbl = _db.open_table('face_vectors')
+        from datetime import timedelta as _td
+        try:
+            _tbl.optimize(cleanup_older_than=_td(seconds=0))
+        except Exception:
+            try:
+                _tbl.compact_files()
+                _tbl.cleanup_old_versions()
+            except Exception:
+                pass
+        import os as _os
+        _data_dir = str(Path(__file__).parent / "data" / "lancedb" / "face_vectors.lance" / "data")
+        _nfrags = len([f for f in _os.listdir(_data_dir) if f.endswith('.lance')])
+        log(f"LanceDB optimized: {_tbl.count_rows()} rows, {_nfrags} fragments")
+    except Exception as e:
+        log(f"LanceDB optimize warning: {e}")
+
+
+def run_detection(photos):
+    from database import DatabaseManager
+
+    app = _init_insightface()
 
     db = DatabaseManager()
     total_saved = 0
@@ -115,71 +245,17 @@ def run_detection(photos):
             continue
 
         photo_id = str(Path(path).relative_to(PHOTO_SHARE_PATH)) if path.startswith(str(PHOTO_SHARE_PATH) + "/") else path
-        existing = db.get_faces_for_photo(photo_id)
-        if existing:
-            try:
-                db.update_catalog_file_by_path(path, faces_done=1)
-            except Exception:
-                pass
-            log(f"  skip {os.path.basename(path)} (faces already exist)")
+        if _check_existing_faces(db, photo_id, path):
             continue
 
         try:
-            t_read = time.time()
-            img = Image.open(path).convert("RGB")
-            img_array = np.array(img)
-            dt_read = time.time() - t_read
-
-            t_det = time.time()
-            log(f"  detecting {os.path.basename(path)}...")
-            faces = app.get(img_array)
-            log(f"  detected {len(faces)} faces")
-            dt_det = time.time() - t_det
+            faces, img, dt_read, dt_det = _load_and_detect(app, path)
         except Exception as e:
-            log(f"ERROR {os.path.basename(path)}: {e}")
-            try:
-                ext = os.path.splitext(path)[1].lower()
-                if ext in VIDEO_EXTS:
-                    db.sqlite.execute("UPDATE photos SET media_type = 'video', faces_present = 0, description = NULL WHERE path = ? AND deleted = 0", (path,))
-                    db.sqlite.commit()
-                    log(f"  set media_type=video (not an image)")
-                else:
-                    db.sqlite.execute("UPDATE photos SET faces_present = 0, deleted = 1 WHERE path = ? AND deleted = 0", (path,))
-                    db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (path,))
-                    db.sqlite.commit()
-                    log(f"  marked as deleted (corrupted file)")
-            except Exception:
-                pass
+            ext = os.path.splitext(path)[1].lower()
+            _handle_detection_error(db, e, p, content_hash, path, ext)
             continue
 
-        t_sql = time.time()
-        saved = 0
-        vectors_batch = []
-        face_details = []
-        for face in faces:
-            if face.embedding is None:
-                continue
-            embedding = face.embedding
-            norm = np.linalg.norm(embedding)
-            if norm > 0:
-                embedding = embedding / norm
-
-            bbox = face.bbox.astype(float).tolist()
-            face_id = hashlib.md5(f"{path}_{bbox}".encode()).hexdigest()
-
-            face_id, inserted = db.add_face_sqlite_only(
-                photo_id=photo_id,
-                face_id=face_id,
-                bbox=bbox,
-                confidence=float(face.det_score) if face.det_score is not None else 0.0,
-                persona_id=None,
-                content_hash=content_hash,
-            )
-            if inserted:
-                vectors_batch.append({"face_id": face_id, "embedding": embedding.tolist()})
-            face_details.append({"bbox": [round(c,1) for c in bbox], "confidence": round(float(face.det_score or 0), 3), "embedding_dim": len(embedding)})
-            saved += 1
-        dt_sql = time.time() - t_sql
+        saved, vectors_batch, face_details, dt_sql = _process_detected_faces(db, faces, photo_id, path, content_hash)
 
         t_lancedb = time.time()
         if vectors_batch:
@@ -188,30 +264,7 @@ def run_detection(photos):
             log(f"  lance write done")
         dt_lancedb = time.time() - t_lancedb
 
-        t_cleanup = time.time()
-        dt_sql_upd = 0.0
-        if saved > 0:
-            try:
-                photo = db.get_photo_by_path(path)
-                if photo:
-                    t_upd = time.time()
-                    db.sqlite.execute("UPDATE photos SET embedded = 0, faces_present = 1 WHERE photo_id = ?", (photo["photo_id"],))
-                    db.sqlite.commit()
-                    dt_sql_upd = time.time() - t_upd
-            except Exception:
-                pass
-        elif len(faces) == 0:
-            try:
-                photo = db.get_photo_by_path(path)
-                if photo:
-                    db.update_photo(photo["photo_id"], faces_present=0)
-            except Exception:
-                pass
-        try:
-            db.update_catalog_file_by_path(path, faces_done=1)
-        except Exception:
-            pass
-        dt_cleanup = time.time() - t_cleanup
+        dt_sql_upd = _update_photo_flags(db, None, saved, content_hash, path, len(faces))
 
         total_saved += saved
         processed += 1
@@ -237,25 +290,7 @@ def run_detection(photos):
     elapsed = time.time() - t0
     log(f"Detection done: {processed} photos, {total_saved} faces in {elapsed:.0f}s")
 
-    try:
-        import lancedb as _ldb
-        _db = _ldb.connect(str(Path(__file__).parent / "data" / "lancedb"))
-        _tbl = _db.open_table('face_vectors')
-        from datetime import timedelta as _td
-        try:
-            _tbl.optimize(cleanup_older_than=_td(seconds=0))
-        except Exception:
-            try:
-                _tbl.compact_files()
-                _tbl.cleanup_old_versions()
-            except Exception:
-                pass
-        import os as _os
-        _data_dir = str(Path(__file__).parent / "data" / "lancedb" / "face_vectors.lance" / "data")
-        _nfrags = len([f for f in _os.listdir(_data_dir) if f.endswith('.lance')])
-        log(f"LanceDB optimized: {_tbl.count_rows()} rows, {_nfrags} fragments")
-    except Exception as e:
-        log(f"LanceDB optimize warning: {e}")
+    _optimize_lancedb(db)
 
     return total_saved
 

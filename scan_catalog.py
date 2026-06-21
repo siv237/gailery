@@ -69,6 +69,70 @@ def add_root(db, root_path, alias=""):
     return root_id
 
 
+def _load_existing_files(db, root_id):
+    cur = db.sqlite.cursor()
+    rows = cur.execute(
+        "SELECT rel_path, abs_path, file_id, content_hash, modified, size, deleted FROM catalog_files WHERE root_id = ?",
+        (root_id,)
+    ).fetchall()
+    existing_map = {}
+    for r in rows:
+        existing_map[r[0]] = {
+            "rel_path": r[0], "abs_path": r[1], "file_id": r[2],
+            "content_hash": r[3], "modified": r[4], "size": r[5], "deleted": r[6],
+        }
+    return existing_map
+
+
+def _process_existing_file(db, old, abs_path, rel_path, ext, file_size, mtime_str):
+    if file_size == 0:
+        if not old.get("deleted"):
+            db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_empty')
+        return 'empty'
+    if old.get("deleted"):
+        db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
+        return 'restored'
+    if str(old.get("modified", "")) != mtime_str or old.get("size", 0) != file_size:
+        db.update_catalog_file(old["file_id"], abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=None)
+        return 'changed'
+    return None
+
+
+def _create_new_file_record(root_id, rel_path, abs_path, ext, file_size, mtime_str):
+    return {
+        "file_id": str(uuid.uuid4()),
+        "root_id": root_id,
+        "rel_path": rel_path,
+        "abs_path": abs_path,
+        "parent_dir": str(Path(rel_path).parent),
+        "ext": ext,
+        "size": file_size,
+        "modified": mtime_str,
+        "content_hash": None,
+        "ingested": False,
+        "described": False,
+        "exif_done": False,
+        "faces_done": False,
+    }
+
+
+def _mark_missing_files(db, existing_map, kept_rel):
+    deleted_rel = set(existing_map.keys()) - kept_rel
+    deleted_count = 0
+    for rel in deleted_rel:
+        old = existing_map[rel]
+        if not old.get("deleted"):
+            db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_missing')
+            pid_row = db.sqlite.execute("SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (old["abs_path"],)).fetchone()
+            if pid_row:
+                db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid_row[0],))
+                db.sqlite.commit()
+            deleted_count += 1
+    if deleted_count:
+        log(f"Marked {deleted_count} files as deleted (auto_missing)")
+    return deleted_count
+
+
 def scan_root(db, root_id, mq=None):
     """Фаза A: Сбор путей — БЫСТРО, без хеширования."""
     root = db.get_catalog_root(root_id)
@@ -90,18 +154,7 @@ def scan_root(db, root_id, mq=None):
 
     log(f"SCAN (paths only): {root_path}")
 
-    cur = db.sqlite.cursor()
-    existing_rows = cur.execute(
-        "SELECT rel_path, abs_path, file_id, content_hash, modified, size, deleted FROM catalog_files WHERE root_id = ?",
-        (root_id,)
-    ).fetchall()
-    existing_map = {}
-    for r in existing_rows:
-        existing_map[r[0]] = {
-            "rel_path": r[0], "abs_path": r[1], "file_id": r[2],
-            "content_hash": r[3], "modified": r[4], "size": r[5], "deleted": r[6],
-        }
-
+    existing_map = _load_existing_files(db, root_id)
     existing_rel = set(existing_map.keys())
 
     new_files = []
@@ -162,41 +215,15 @@ def scan_root(db, root_id, mq=None):
 
                 mtime_str = str(mtime)
 
-                if file_size == 0:
-                    if rel_path in existing_map:
-                        old = existing_map[rel_path]
-                        if not old.get("deleted"):
-                            db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_empty')
-                    continue
-
                 if rel_path in existing_map:
-                    old = existing_map[rel_path]
-                    if old.get("deleted"):
-                        if old.get("deleted_type") == 'auto_empty' and file_size > 0:
-                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
-                            restored_count += 1
-                        else:
-                            db.update_catalog_file(old["file_id"], deleted=0, deleted_type=None, abs_path=abs_path, size=file_size, modified=mtime_str)
-                            restored_count += 1
-                    elif str(old.get("modified", "")) != mtime_str or old.get("size", 0) != file_size:
-                        db.update_catalog_file(old["file_id"], abs_path=abs_path, parent_dir=str(Path(rel_path).parent), ext=ext, size=file_size, modified=mtime_str, content_hash=None)
+                    result = _process_existing_file(db, existing_map[rel_path], abs_path, rel_path, ext, file_size, mtime_str)
+                    if result == 'restored':
+                        restored_count += 1
+                    elif result == 'changed':
                         changed_count += 1
                 else:
-                    new_files.append({
-                        "file_id": str(uuid.uuid4()),
-                        "root_id": root_id,
-                        "rel_path": rel_path,
-                        "abs_path": abs_path,
-                        "parent_dir": str(Path(rel_path).parent),
-                        "ext": ext,
-                        "size": file_size,
-                        "modified": mtime_str,
-                        "content_hash": None,
-                        "ingested": False,
-                        "described": False,
-                        "exif_done": False,
-                        "faces_done": False,
-                    })
+                    if file_size > 0:
+                        new_files.append(_create_new_file_record(root_id, rel_path, abs_path, ext, file_size, mtime_str))
 
                 if len(new_files) >= 200:
                     db.add_catalog_files_batch(new_files)
@@ -212,20 +239,9 @@ def scan_root(db, root_id, mq=None):
         db.add_catalog_files_batch(new_files)
         log(f"  Flushed {len(new_files)} new files to DB")
 
+    deleted_count = 0
     if scan_complete:
-        deleted_rel = existing_rel - kept_rel
-        deleted_count = 0
-        if deleted_rel:
-            for rel in deleted_rel:
-                old = existing_map[rel]
-                if not old.get("deleted"):
-                    db.update_catalog_file(old["file_id"], deleted=1, deleted_type='auto_missing')
-                    pid_row = db.sqlite.execute("SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (old["abs_path"],)).fetchone()
-                    if pid_row:
-                        db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid_row[0],))
-                        db.sqlite.commit()
-                    deleted_count += 1
-            log(f"Marked {deleted_count} files as deleted (auto_missing)")
+        deleted_count = _mark_missing_files(db, existing_map, kept_rel)
     else:
         log(f"Scan incomplete, skipping soft-delete step")
 

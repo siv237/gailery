@@ -480,40 +480,106 @@ def llm_request(server, messages, use_tools=True, log_meta=None):
     return choice["message"]
 
 
+_RETRY = object()
+
+
+def _strip_code_fences(text):
+    text = re.sub(r'^```\w*\s*\n?', '', text)
+    text = re.sub(r'\n?\s*```\s*$', '', text)
+    return text.strip()
+
+
+def _retry_clean_without_tools(server, system_msg, user_msg, log_meta, round_label):
+    clean_msgs = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": user_msg},
+    ]
+    log_meta["round"] = round_label
+    msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=log_meta)
+    return (msg_clean.get("content", "") or "").strip()
+
+
+def _build_log_meta(photo, agent_context):
+    return {
+        "photo_path": photo.get("path", ""),
+        "photo_id": photo.get("photo_id", ""),
+        "content_hash": photo.get("content_hash", ""),
+        "agent_context": agent_context,
+        "tool_results_so_far": [],
+    }
+
+
+def _build_user_message(description, folder, date, faces_text):
+    return f"""Базовое описание:
+{description}
+
+Название папки: {folder}
+
+Дата: {date}
+
+Распознанные лица (x - координата слева-направо, меньше = левее):
+{faces_text}"""
+
+
+def _handle_direct_answer(content, system_msg, user_msg, server, _log_meta, round_num, msg):
+    log(f"LLM direct answer ({len(content)} chars): {content[:200]}")
+    content = content.strip()
+    if content.startswith("<function=") or content.startswith("<parameter>"):
+        log("XML hallucination, retrying clean")
+        print("  [XML hallucination, retrying]")
+        content = _retry_clean_without_tools(server, system_msg, user_msg, _log_meta, f"{round_num + 1}-clean")
+        if not content or len(content) < 10:
+            return None
+    content = _strip_code_fences(content)
+    if not content or len(content) < 10:
+        reasoning = msg.get("reasoning_content", "") or ""
+        if reasoning:
+            log(f"Thinking only ({len(reasoning)} chars)")
+        if round_num == 0:
+            log("Empty on round 1, retrying")
+            return _RETRY
+        return None
+    return content
+
+
+def _execute_tool_calls(tool_calls, db, system_msg, user_msg, messages, _log_meta, default_id="call_0"):
+    for tc in tool_calls:
+        fn_name = tc["function"]["name"]
+        fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
+        tc_id = tc.get("id", default_id)
+        log(f"  Tool call: {fn_name}({fn_args})")
+        print(f"  [Tool] {fn_name}({fn_args})")
+        result = execute_tool(db, fn_name, fn_args)
+        print(f"  [Result] {result[:200]}")
+        _log_meta["tool_results_so_far"].append({"tool": fn_name, "args": fn_args, "result": result})
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc_id,
+            "content": result,
+        })
+
+
 def run_llm(db, photo_data):
     server = start_server()
     if not server:
         return None
 
-    _log_meta = {
-        "photo_path": photo_data.get("path", ""),
-        "photo_id": photo_data.get("photo_id", ""),
-        "content_hash": photo_data.get("content_hash", ""),
-        "agent_context": {
-            "base_description": photo_data.get("description", ""),
-            "faces": photo_data.get("faces", []),
-            "folder": photo_data.get("folder", ""),
-            "date": photo_data.get("date", ""),
-            "faces_text": format_faces(photo_data.get("faces", [])),
-        },
-        "tool_results_so_far": [],
+    agent_context = {
+        "base_description": photo_data.get("description", ""),
+        "faces": photo_data.get("faces", []),
+        "folder": photo_data.get("folder", ""),
+        "date": photo_data.get("date", ""),
+        "faces_text": format_faces(photo_data.get("faces", [])),
     }
+    _log_meta = _build_log_meta(photo_data, agent_context)
 
     try:
         faces_text = format_faces(photo_data["faces"])
-
-        user_msg = f"""Базовое описание:
-{photo_data['description']}
-
-Название папки: {photo_data['folder']}
-
-Дата: {photo_data['date']}
-
-Распознанные лица (x - координата слева-направо, меньше = левее):
-{faces_text}"""
+        user_msg = _build_user_message(photo_data['description'], photo_data['folder'], photo_data['date'], faces_text)
+        system_msg = get_system_prompt()
 
         messages = [
-            {"role": "system", "content": get_system_prompt()},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": user_msg},
         ]
 
@@ -527,32 +593,10 @@ def run_llm(db, photo_data):
             content = msg.get("content", "") or ""
 
             if not tool_calls:
-                log(f"LLM direct answer ({len(content)} chars): {content[:200]}")
-                content = content.strip()
-                if content.startswith("<function=") or content.startswith("<parameter>"):
-                    log("XML hallucination, retrying clean")
-                    print("  [XML hallucination, retrying]")
-                    clean_msgs = [
-                        {"role": "system", "content": get_system_prompt()},
-                        {"role": "user", "content": user_msg},
-                    ]
-                    _log_meta["round"] = f"{round_num + 1}-clean"
-                    msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
-                    content = (msg_clean.get("content", "") or "").strip()
-                    if not content or len(content) < 10:
-                        return None
-                content = re.sub(r'^```\w*\s*\n?', '', content)
-                content = re.sub(r'\n?\s*```\s*$', '', content)
-                content = content.strip()
-                if not content or len(content) < 10:
-                    reasoning = msg.get("reasoning_content", "") or ""
-                    if reasoning:
-                        log(f"Thinking only ({len(reasoning)} chars)")
-                    if round_num == 0:
-                        log("Empty on round 1, retrying")
-                        continue
-                    return None
-                return content
+                result = _handle_direct_answer(content, system_msg, user_msg, server, _log_meta, round_num, msg)
+                if result is _RETRY:
+                    continue
+                return result
 
             # Tool calls path
             log(f"LLM called {len(tool_calls)} tools")
@@ -561,23 +605,7 @@ def run_llm(db, photo_data):
             else:
                 messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
 
-            for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
-                tc_id = tc.get("id", "call_0")
-
-                log(f"  Tool call: {fn_name}({fn_args})")
-                print(f"  [Tool] {fn_name}({fn_args})")
-
-                result = execute_tool(db, fn_name, fn_args)
-                print(f"  [Result] {result[:200]}")
-                _log_meta["tool_results_so_far"].append({"tool": fn_name, "args": fn_args, "result": result})
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": result,
-                })
+            _execute_tool_calls(tool_calls, db, system_msg, user_msg, messages, _log_meta)
 
             # After tool results, let model continue (may call more tools or give final answer)
             log("Continuing after tool results")
@@ -594,16 +622,7 @@ def run_llm(db, photo_data):
                     messages.append({"role": "assistant", "content": content, "tool_calls": new_tool_calls})
                 else:
                     messages.append({"role": "assistant", "content": None, "tool_calls": new_tool_calls})
-                for tc in new_tool_calls:
-                    fn_name = tc["function"]["name"]
-                    fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
-                    tc_id = tc.get("id", "call_1")
-                    log(f"  Tool call: {fn_name}({fn_args})")
-                    print(f"  [Tool] {fn_name}({fn_args})")
-                    result = execute_tool(db, fn_name, fn_args)
-                    print(f"  [Result] {result[:200]}")
-                    _log_meta["tool_results_so_far"].append({"tool": fn_name, "args": fn_args, "result": result})
-                    messages.append({"role": "tool", "tool_call_id": tc_id, "content": result})
+                _execute_tool_calls(new_tool_calls, db, system_msg, user_msg, messages, _log_meta, default_id="call_1")
                 # Ask again for final or more tools
                 _log_meta["round"] = f"{round_num + 1}-final"
                 msg_final2 = llm_request(server, messages, use_tools=False, log_meta=_log_meta)
@@ -611,37 +630,17 @@ def run_llm(db, photo_data):
 
             if not content:
                 log("No content after tools, retrying without thinking")
-                clean_msgs = [
-                    {"role": "system", "content": get_system_prompt()},
-                    {"role": "user", "content": user_msg},
-                ]
-                _log_meta["round"] = f"{round_num + 1}-notools-retry"
-                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
-                content = (msg_clean.get("content", "") or "").strip()
+                content = _retry_clean_without_tools(server, system_msg, user_msg, _log_meta, f"{round_num + 1}-notools-retry")
 
             if content.startswith("<function=") or content.startswith("<parameter>"):
                 log("XML hallucination after tools, retrying clean")
-                clean_msgs = [
-                    {"role": "system", "content": get_system_prompt()},
-                    {"role": "user", "content": user_msg},
-                ]
-                _log_meta["round"] = f"{round_num + 1}-xml-fix"
-                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
-                content = (msg_clean.get("content", "") or "").strip()
+                content = _retry_clean_without_tools(server, system_msg, user_msg, _log_meta, f"{round_num + 1}-xml-fix")
 
-            content = re.sub(r'^```\w*\s*\n?', '', content)
-            content = re.sub(r'\n?\s*```\s*$', '', content)
-            content = content.strip()
+            content = _strip_code_fences(content)
 
             if not content or len(content) < 10:
                 log("Empty after tools, retrying clean")
-                clean_msgs = [
-                    {"role": "system", "content": get_system_prompt()},
-                    {"role": "user", "content": user_msg},
-                ]
-                _log_meta["round"] = f"{round_num + 1}-empty-fix"
-                msg_clean = llm_request(server, clean_msgs, use_tools=False, log_meta=_log_meta)
-                content = (msg_clean.get("content", "") or "").strip()
+                content = _retry_clean_without_tools(server, system_msg, user_msg, _log_meta, f"{round_num + 1}-empty-fix")
                 if not content or len(content) < 10:
                     return None
 

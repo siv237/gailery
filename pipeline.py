@@ -180,6 +180,213 @@ def kill_orphan_llama_servers():
         pass
 
 
+def _resolve_photo_id(db, identifier):
+    row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (identifier, f"%{identifier}")).fetchone()
+    return row[0] if row else None
+
+
+def _cmd_control_reset(db, params):
+    step = params.get("step", "")
+    reset_map = {
+        "describe": [
+            "UPDATE photos SET description=NULL, embedded=0, rich_description=NULL WHERE deleted=0",
+            "UPDATE catalog_files SET described=0 WHERE is_canonical=1 AND deleted=0",
+        ],
+        "faces": [
+            "DELETE FROM faces",
+            "UPDATE photos SET faces_present=0 WHERE deleted=0",
+            "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
+            "DELETE FROM personas",
+        ],
+        "exif": [
+            "UPDATE photos SET exif_checked=0 WHERE deleted=0",
+            "UPDATE catalog_files SET exif_done=0 WHERE is_canonical=1 AND deleted=0",
+        ],
+        "embed": [
+            "UPDATE photos SET embedded=0 WHERE deleted=0",
+            "UPDATE catalog_files SET embedded=0 WHERE is_canonical=1 AND deleted=0",
+        ],
+        "describe_with_faces": [
+            "UPDATE photos SET description=NULL, embedded=0 WHERE path IN (SELECT DISTINCT cf.abs_path FROM catalog_files cf JOIN faces f ON f.content_hash = cf.content_hash JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL AND cf.is_canonical=1) AND deleted=0",
+            "UPDATE catalog_files SET described=0, embedded=0 WHERE content_hash IN (SELECT DISTINCT f.content_hash FROM faces f JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL) AND is_canonical=1",
+        ],
+    }
+    sqls = reset_map.get(step)
+    if not sqls:
+        return {"ok": False, "error": f"unknown step: {step}"}
+    affected = 0
+    for sql in sqls:
+        cur = db.sqlite.execute(sql)
+        affected += cur.rowcount
+    db.sqlite.commit()
+    if step == "faces":
+        try:
+            db.face_vectors.delete("face_id != ''")
+        except Exception:
+            pass
+    return {"ok": True, "step": step, "affected": affected}
+
+
+def _cmd_photo_ops(db, cmd, params):
+    if cmd == "set_gps":
+        photo_id = params.get("photo_id")
+        lat = params.get("lat")
+        lon = params.get("lon")
+        if not photo_id or lat is None or lon is None:
+            return {"ok": False, "error": "photo_id, lat, lon required"}
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), pid))
+        db.sqlite.commit()
+        return {"ok": True}
+
+    elif cmd == "clear_gps":
+        photo_id = params.get("photo_id")
+        if not photo_id:
+            return {"ok": False, "error": "photo_id required"}
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (pid,))
+        db.sqlite.commit()
+        return {"ok": True}
+
+    elif cmd == "set_date":
+        photo_id = params.get("photo_id")
+        manual_date = params.get("manual_date")
+        if not photo_id or not manual_date:
+            return {"ok": False, "error": "photo_id, manual_date required"}
+        if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
+            manual_date += " 00:00:00"
+        elif len(manual_date) == 16 and manual_date[10] == ' ':
+            manual_date += ":00"
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, pid))
+        db.sqlite.commit()
+        return {"ok": True, "manual_date": manual_date}
+
+    elif cmd == "clear_date":
+        photo_id = params.get("photo_id")
+        if not photo_id:
+            return {"ok": False, "error": "photo_id required"}
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (pid,))
+        db.sqlite.commit()
+        return {"ok": True}
+
+    elif cmd == "mark_deleted":
+        photo_id = params.get("photo_id")
+        if not photo_id:
+            return {"ok": False, "error": "photo_id required"}
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid,))
+        db.sqlite.commit()
+        return {"ok": True}
+
+    elif cmd == "undelete":
+        photo_id = params.get("photo_id")
+        if not photo_id:
+            return {"ok": False, "error": "photo_id required"}
+        pid = _resolve_photo_id(db, photo_id)
+        if not pid:
+            return {"ok": False, "error": "Photo not found"}
+        db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (pid,))
+        db.sqlite.commit()
+        return {"ok": True}
+
+
+def _cmd_persona_ops(db, cmd, params):
+    if cmd == "update_persona":
+        persona = db.update_persona(
+            params.get("persona_id"),
+            display_name=params.get("display_name"),
+            comment=params.get("comment"),
+            clear_display_name=params.get("clear_display_name", False),
+            clear_comment=params.get("clear_comment", False),
+        )
+        if not persona:
+            return {"ok": False, "error": "Person not found"}
+        db.invalidate_for_persona(params.get("persona_id"))
+        fc_map = db.face_count_map()
+        return {"ok": True, "persona": dict(persona), "face_count": fc_map.get(persona["persona_id"], 0)}
+
+    elif cmd == "merge_personas":
+        source = params.get("source_persona_id")
+        target = params.get("target_persona_id")
+        if not source or not target:
+            return {"ok": False, "error": "source_persona_id and target_persona_id required"}
+        success = db.merge_personas(source, target)
+        if success:
+            db.invalidate_for_persona(target)
+            return {"ok": True}
+        return {"ok": False, "error": "Failed to merge"}
+
+    elif cmd == "delete_persona":
+        persona_id = params.get("persona_id")
+        if not persona_id:
+            return {"ok": False, "error": "persona_id required"}
+        persona = db.get_persona(persona_id)
+        if not persona:
+            return {"ok": False, "error": "Person not found"}
+        db.delete_persona(persona_id)
+        return {"ok": True}
+
+
+def _cmd_catalog_root_ops(db, cmd, params):
+    if cmd == "add_catalog_root":
+        import uuid
+        root_id = str(uuid.uuid4())
+        db.add_catalog_root(
+            root_id=root_id,
+            root_path=params.get("root_path", ""),
+            alias=params.get("alias", ""),
+        )
+        return {"ok": True, "root_id": root_id}
+
+    elif cmd == "delete_catalog_root":
+        db.delete_catalog_root(params.get("root_id", ""))
+        return {"ok": True}
+
+    elif cmd == "update_catalog_root":
+        db.update_catalog_root(
+            params.get("root_id", ""),
+            enabled=params.get("enabled"),
+        )
+        return {"ok": True}
+
+
+def _cmd_edit_ops(db, cmd, params):
+    if cmd == "add_edit":
+        edit_id = db.add_edit(
+            params.get("content_hash", ""),
+            params.get("action", ""),
+            params.get("params", {}),
+        )
+        return {"ok": True, "edit_id": edit_id}
+
+    elif cmd == "clear_edits":
+        db.clear_edits(params.get("content_hash", ""), params.get("action", ""))
+        return {"ok": True}
+
+    elif cmd == "remove_edit":
+        db.remove_edit(params.get("edit_id"))
+        return {"ok": True}
+
+
+def _cmd_vacuum(db):
+    before = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
+    db.sqlite.execute("VACUUM")
+    after = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
+    return {"ok": True, "before": before, "after": after, "freed": before - after}
+
+
 def _execute_db_cmd(cmd, params):
     db = get_db()
     try:
@@ -188,45 +395,7 @@ def _execute_db_cmd(cmd, params):
             return {"ok": True}
 
         elif cmd == "control_reset":
-            step = params.get("step", "")
-            reset_map = {
-                "describe": [
-                    "UPDATE photos SET description=NULL, embedded=0, rich_description=NULL WHERE deleted=0",
-                    "UPDATE catalog_files SET described=0 WHERE is_canonical=1 AND deleted=0",
-                ],
-                "faces": [
-                    "DELETE FROM faces",
-                    "UPDATE photos SET faces_present=0 WHERE deleted=0",
-                    "UPDATE catalog_files SET faces_done=0 WHERE is_canonical=1 AND deleted=0",
-                    "DELETE FROM personas",
-                ],
-                "exif": [
-                    "UPDATE photos SET exif_checked=0 WHERE deleted=0",
-                    "UPDATE catalog_files SET exif_done=0 WHERE is_canonical=1 AND deleted=0",
-                ],
-                "embed": [
-                    "UPDATE photos SET embedded=0 WHERE deleted=0",
-                    "UPDATE catalog_files SET embedded=0 WHERE is_canonical=1 AND deleted=0",
-                ],
-                "describe_with_faces": [
-                    "UPDATE photos SET description=NULL, embedded=0 WHERE path IN (SELECT DISTINCT cf.abs_path FROM catalog_files cf JOIN faces f ON f.content_hash = cf.content_hash JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL AND cf.is_canonical=1) AND deleted=0",
-                    "UPDATE catalog_files SET described=0, embedded=0 WHERE content_hash IN (SELECT DISTINCT f.content_hash FROM faces f JOIN personas p ON p.persona_id = f.persona_id WHERE p.display_name IS NOT NULL) AND is_canonical=1",
-                ],
-            }
-            sqls = reset_map.get(step)
-            if not sqls:
-                return {"ok": False, "error": f"unknown step: {step}"}
-            affected = 0
-            for sql in sqls:
-                cur = db.sqlite.execute(sql)
-                affected += cur.rowcount
-            db.sqlite.commit()
-            if step == "faces":
-                try:
-                    db.face_vectors.delete("face_id != ''")
-                except Exception:
-                    pass
-            return {"ok": True, "step": step, "affected": affected}
+            return _cmd_control_reset(db, params)
 
         elif cmd == "set_setting":
             db.set_setting(params.get("key", ""), params.get("value", ""))
@@ -245,150 +414,17 @@ def _execute_db_cmd(cmd, params):
             db.update_photo(photo["photo_id"], **updates)
             return {"ok": True}
 
-        elif cmd == "set_gps":
-            photo_id = params.get("photo_id")
-            lat = params.get("lat")
-            lon = params.get("lon")
-            if not photo_id or lat is None or lon is None:
-                return {"ok": False, "error": "photo_id, lat, lon required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), row[0]))
-            db.sqlite.commit()
-            return {"ok": True}
+        elif cmd in ("set_gps", "clear_gps", "set_date", "clear_date", "mark_deleted", "undelete"):
+            return _cmd_photo_ops(db, cmd, params)
 
-        elif cmd == "clear_gps":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
+        elif cmd in ("update_persona", "merge_personas", "delete_persona"):
+            return _cmd_persona_ops(db, cmd, params)
 
-        elif cmd == "set_date":
-            photo_id = params.get("photo_id")
-            manual_date = params.get("manual_date")
-            if not photo_id or not manual_date:
-                return {"ok": False, "error": "photo_id, manual_date required"}
-            if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
-                manual_date += " 00:00:00"
-            elif len(manual_date) == 16 and manual_date[10] == ' ':
-                manual_date += ":00"
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, row[0]))
-            db.sqlite.commit()
-            return {"ok": True, "manual_date": manual_date}
+        elif cmd in ("add_catalog_root", "delete_catalog_root", "update_catalog_root"):
+            return _cmd_catalog_root_ops(db, cmd, params)
 
-        elif cmd == "clear_date":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-
-        elif cmd == "mark_deleted":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-
-        elif cmd == "undelete":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-
-        elif cmd == "update_persona":
-            persona = db.update_persona(
-                params.get("persona_id"),
-                display_name=params.get("display_name"),
-                comment=params.get("comment"),
-                clear_display_name=params.get("clear_display_name", False),
-                clear_comment=params.get("clear_comment", False),
-            )
-            if not persona:
-                return {"ok": False, "error": "Person not found"}
-            db.invalidate_for_persona(params.get("persona_id"))
-            fc_map = db.face_count_map()
-            return {"ok": True, "persona": dict(persona), "face_count": fc_map.get(persona["persona_id"], 0)}
-
-        elif cmd == "merge_personas":
-            source = params.get("source_persona_id")
-            target = params.get("target_persona_id")
-            if not source or not target:
-                return {"ok": False, "error": "source_persona_id and target_persona_id required"}
-            success = db.merge_personas(source, target)
-            if success:
-                db.invalidate_for_persona(target)
-                return {"ok": True}
-            return {"ok": False, "error": "Failed to merge"}
-
-        elif cmd == "delete_persona":
-            persona_id = params.get("persona_id")
-            if not persona_id:
-                return {"ok": False, "error": "persona_id required"}
-            persona = db.get_persona(persona_id)
-            if not persona:
-                return {"ok": False, "error": "Person not found"}
-            db.delete_persona(persona_id)
-            return {"ok": True}
-
-        elif cmd == "add_catalog_root":
-            import uuid
-            root_id = str(uuid.uuid4())
-            db.add_catalog_root(
-                root_id=root_id,
-                root_path=params.get("root_path", ""),
-                alias=params.get("alias", ""),
-            )
-            return {"ok": True, "root_id": root_id}
-
-        elif cmd == "delete_catalog_root":
-            db.delete_catalog_root(params.get("root_id", ""))
-            return {"ok": True}
-
-        elif cmd == "update_catalog_root":
-            db.update_catalog_root(
-                params.get("root_id", ""),
-                enabled=params.get("enabled"),
-            )
-            return {"ok": True}
-
-        elif cmd == "add_edit":
-            edit_id = db.add_edit(
-                params.get("content_hash", ""),
-                params.get("action", ""),
-                params.get("params", {}),
-            )
-            return {"ok": True, "edit_id": edit_id}
-
-        elif cmd == "clear_edits":
-            db.clear_edits(params.get("content_hash", ""), params.get("action", ""))
-            return {"ok": True}
-
-        elif cmd == "remove_edit":
-            db.remove_edit(params.get("edit_id"))
-            return {"ok": True}
+        elif cmd in ("add_edit", "clear_edits", "remove_edit"):
+            return _cmd_edit_ops(db, cmd, params)
 
         elif cmd == "dedup_embeddings":
             before, after, removed = db.dedup_photo_embeddings()
@@ -399,10 +435,7 @@ def _execute_db_cmd(cmd, params):
             return {"ok": True}
 
         elif cmd == "vacuum":
-            before = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
-            db.sqlite.execute("VACUUM")
-            after = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
-            return {"ok": True, "before": before, "after": after, "freed": before - after}
+            return _cmd_vacuum(db)
 
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
@@ -462,8 +495,7 @@ def _collect_metrics():
         log(f"METRICS error: {e}")
 
 
-def main():
-    global _wake_flag
+def _parse_pipeline_args():
     parser = argparse.ArgumentParser(description="Gailery batch worker loop")
     parser.add_argument("--batch", type=int, default=60, help="Photos per iteration (ingest/describe)")
     parser.add_argument("--ingest", type=int, default=0, help="Override ingest batch size (0=use --batch)")
@@ -482,10 +514,126 @@ def main():
         if _r:
             root_path_arg = ["--dir", _r["root_path"]]
 
+    return args, ingest_n, describe_n, hash_limit, root_path_arg
+
+
+def _idle_wait(mq, db, flag_dir, last_metrics, now):
+    global _wake_flag
+    _idle_flag = Path(flag_dir) / "pipeline_idle"
+    _idle_flag.parent.mkdir(parents=True, exist_ok=True)
+    _idle_flag.touch()
+    log("Все шаги 100% — засыпаю 30с, жду новых фото...")
+    sleep_until = time.time() + 30
+    while time.time() < sleep_until and not stopped():
+        _process_db_cmds()
+        if _wake_flag:
+            _wake_flag = False
+            log("WAKE: control_reset — просыпаюсь")
+            break
+        if time.time() - last_metrics >= 60:
+            _collect_metrics()
+            last_metrics = now
+        time.sleep(5)
+    try:
+        _idle_flag.unlink()
+    except Exception:
+        pass
+    return True, last_metrics
+
+
+def _run_filling_phase(db, args, mq, hash_limit, progress):
+    filling_done = progress["ingest"][2] >= 100 and progress["exif"][2] >= 100 and progress["unhashed"] == 0
+
+    if not filling_done:
+        while True:
+            progress = get_progress(root_id=args.root or None)
+            unhashed = progress["unhashed"]
+            if unhashed == 0 and progress["exif"][2] >= 100:
+                break
+            if stopped():
+                break
+
+            if unhashed > 0:
+                run_step(f"ХЕШ {min(hash_limit, unhashed)} из {unhashed}", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--hash", "--limit", str(hash_limit)])
+                if stopped():
+                    break
+
+                run_step("ДЕДУП+INGEST", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--dedup-ingest"])
+                if stopped():
+                    break
+
+            progress = get_progress(root_id=args.root or None)
+            if progress["exif"][2] < 100 and progress["ingest"][2] > 0:
+                run_step("EXIF", [VENV_PYTHON, f"{SCRIPTS_DIR}/exif.py", "--all"])
+                if stopped():
+                    break
+
+        if stopped():
+            return False, progress
+        log(">>> НАПОЛНЕНИЕ 100% — переходим к AI-шагам")
+
+    return True, progress
+
+
+def _run_ai_phase(db, args, mq, describe_n, progress, root_path_arg):
+    log(">>> ЭТАП 2: AI-обработка (faces → describe → embed) батчами")
+
+    ai_batch = describe_n
+    faces_batch = min(ai_batch * 10, 600)
+
+    if progress["faces"][2] < 100:
+        kill_orphan_llama_servers()
+        run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py", "--limit", str(faces_batch)])
+        if stopped():
+            return False, progress
+        progress = get_progress(root_id=args.root or None)
+
+    if progress["describe"][2] < 100:
+        db = get_db()
+        _cur = db.sqlite.execute("UPDATE photos SET description='[видео]' WHERE media_type='video' AND (description IS NULL OR description='') AND deleted=0")
+        if _cur.rowcount > 0:
+            db.sqlite.execute("UPDATE catalog_files SET described=1, faces_done=1 WHERE abs_path IN (SELECT path FROM photos WHERE media_type='video' AND description='[видео]') AND is_canonical=1")
+            db.sqlite.commit()
+            log(f"MIGRATE: set description='[видео]' for {_cur.rowcount} videos")
+        kill_orphan_llama_servers()
+        remaining = progress["describe"][1] - progress["describe"][0]
+        n = min(ai_batch, remaining) if remaining > 0 else ai_batch
+        run_step("DESCRIBE", [VENV_PYTHON, f"{SCRIPTS_DIR}/describe.py", "--limit", str(n), "--batch-size", str(args.batch_size)] + root_path_arg)
+        if stopped():
+            return False, progress
+        progress = get_progress(root_id=args.root or None)
+
+    if progress["embed"][2] < 100:
+        kill_orphan_llama_servers()
+        run_step("EMBED", [VENV_PYTHON, f"{SCRIPTS_DIR}/embed.py", "--limit", str(ai_batch)])
+        if stopped():
+            return False, progress
+
+    return True, progress
+
+
+def _run_embedding_dedup(db, mq):
+    t0 = time.time()
+    try:
+        db = get_db()
+        before, after, removed = db.dedup_photo_embeddings()
+        db.compact_photo_embeddings()
+        elapsed = time.time() - t0
+        if removed > 0:
+            log(f"DEDUP: removed {removed} duplicate embeddings ({before} → {after}) in {elapsed:.1f}s")
+        else:
+            log(f"DEDUP: no duplicates ({before} rows), optimized in {elapsed:.1f}s")
+    except Exception as e:
+        log(f"DEDUP: error: {e}")
+
+
+def main():
+    global _wake_flag, _mq
+    args, ingest_n, describe_n, hash_limit, root_path_arg = _parse_pipeline_args()
+
     os.makedirs(str(Path(__file__).parent / "logs"), exist_ok=True)
     set_flag()
 
-    global _mq
     try:
         from mqtt_client import create_worker_mqtt, DB_CMD_TOPIC
         _mq = create_worker_mqtt("pipeline")
@@ -528,103 +676,21 @@ def main():
 
             all_done = all(pct >= 100 for _, _, pct in [v for v in progress.values() if isinstance(v, tuple)])
             if all_done:
-                _idle_flag = Path(FLAG_FILE).parent / "pipeline_idle"
-                _idle_flag.parent.mkdir(parents=True, exist_ok=True)
-                _idle_flag.touch()
-                log("Все шаги 100% — засыпаю 30с, жду новых фото...")
-                sleep_until = time.time() + 30
-                while time.time() < sleep_until and not stopped():
-                    _process_db_cmds()
-                    if _wake_flag:
-                        _wake_flag = False
-                        log("WAKE: control_reset — просыпаюсь")
-                        break
-                    if time.time() - last_metrics >= 60:
-                        _collect_metrics()
-                        last_metrics = now
-                    time.sleep(5)
-                try:
-                    _idle_flag.unlink()
-                except Exception:
-                    pass
-                continue
+                should_continue, last_metrics = _idle_wait(_mq, get_db(), Path(FLAG_FILE).parent, last_metrics, now)
+                if should_continue:
+                    continue
+                break
 
-            filling_done = progress["ingest"][2] >= 100 and progress["exif"][2] >= 100 and progress["unhashed"] == 0
+            should_continue, progress = _run_filling_phase(get_db(), args, _mq, hash_limit, progress)
+            if not should_continue:
+                break
 
-            if not filling_done:
-                while True:
-                    progress = get_progress(root_id=args.root or None)
-                    unhashed = progress["unhashed"]
-                    if unhashed == 0 and progress["exif"][2] >= 100:
-                        break
-                    if stopped():
-                        break
-
-                    if unhashed > 0:
-                        run_step(f"ХЕШ {min(hash_limit, unhashed)} из {unhashed}", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--hash", "--limit", str(hash_limit)])
-                        if stopped():
-                            break
-
-                        run_step("ДЕДУП+INGEST", [VENV_PYTHON, f"{SCRIPTS_DIR}/scan_catalog.py", "--dedup-ingest"])
-                        if stopped():
-                            break
-
-                    progress = get_progress(root_id=args.root or None)
-                    if progress["exif"][2] < 100 and progress["ingest"][2] > 0:
-                        run_step("EXIF", [VENV_PYTHON, f"{SCRIPTS_DIR}/exif.py", "--all"])
-                        if stopped():
-                            break
-
-                if stopped():
-                    break
-                log(">>> НАПОЛНЕНИЕ 100% — переходим к AI-шагам")
-
-            log(">>> ЭТАП 2: AI-обработка (faces → describe → embed) батчами")
-
-            ai_batch = describe_n
-            faces_batch = min(ai_batch * 10, 600)
-
-            if progress["faces"][2] < 100:
-                kill_orphan_llama_servers()
-                run_step("FACES", [VENV_PYTHON, f"{SCRIPTS_DIR}/faces.py", "--limit", str(faces_batch)])
-                if stopped():
-                    break
-                progress = get_progress(root_id=args.root or None)
-
-            if progress["describe"][2] < 100:
-                db = get_db()
-                _cur = db.sqlite.execute("UPDATE photos SET description='[видео]' WHERE media_type='video' AND (description IS NULL OR description='') AND deleted=0")
-                if _cur.rowcount > 0:
-                    db.sqlite.execute("UPDATE catalog_files SET described=1, faces_done=1 WHERE abs_path IN (SELECT path FROM photos WHERE media_type='video' AND description='[видео]') AND is_canonical=1")
-                    db.sqlite.commit()
-                    log(f"MIGRATE: set description='[видео]' for {_cur.rowcount} videos")
-                kill_orphan_llama_servers()
-                remaining = progress["describe"][1] - progress["describe"][0]
-                n = min(ai_batch, remaining) if remaining > 0 else ai_batch
-                run_step("DESCRIBE", [VENV_PYTHON, f"{SCRIPTS_DIR}/describe.py", "--limit", str(n), "--batch-size", str(args.batch_size)] + root_path_arg)
-                if stopped():
-                    break
-                progress = get_progress(root_id=args.root or None)
-
-            if progress["embed"][2] < 100:
-                kill_orphan_llama_servers()
-                run_step("EMBED", [VENV_PYTHON, f"{SCRIPTS_DIR}/embed.py", "--limit", str(ai_batch)])
-                if stopped():
-                    break
+            should_continue, progress = _run_ai_phase(get_db(), args, _mq, describe_n, progress, root_path_arg)
+            if not should_continue:
+                break
 
             if not stopped():
-                t0 = time.time()
-                try:
-                    db = get_db()
-                    before, after, removed = db.dedup_photo_embeddings()
-                    db.compact_photo_embeddings()
-                    elapsed = time.time() - t0
-                    if removed > 0:
-                        log(f"DEDUP: removed {removed} duplicate embeddings ({before} → {after}) in {elapsed:.1f}s")
-                    else:
-                        log(f"DEDUP: no duplicates ({before} rows), optimized in {elapsed:.1f}s")
-                except Exception as e:
-                    log(f"DEDUP: error: {e}")
+                _run_embedding_dedup(get_db(), _mq)
 
         log("Pipeline loop завершён")
     finally:

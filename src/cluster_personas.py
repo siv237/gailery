@@ -251,6 +251,109 @@ def _batch_commit(db, faces_to_update, photos_to_reset):
         _log(f"LanceDB compact warning: {e}")
 
 
+def _build_path_to_uuid_map(db):
+    path_to_uuid = {}
+    prefix = str(PHOTO_SHARE_PATH) + "/"
+    for row in db.sqlite.execute("SELECT photo_id, path FROM photos").fetchall():
+        pid, path = row[0], row[1]
+        path_to_uuid[path] = pid
+        if path.startswith(prefix):
+            rel = path[len(prefix):]
+            path_to_uuid[rel] = pid
+    return path_to_uuid
+
+
+def _match_to_existing_personas(assigned_faces, new_faces, centroids, match_threshold, device, path_to_uuid):
+    matched = 0
+    unmatched = []
+    faces_to_update = []
+    photos_to_reset = set()
+
+    if not centroids:
+        return [], set(), list(new_faces), 0
+
+    centroid_ids = list(centroids.keys())
+
+    if device:
+        t0 = time.time()
+        _log(f"GPU centroid matching: {len(new_faces)} faces vs {len(centroids)} centroids")
+        match_map, unmatched_indices = _gpu_match_to_centroids(new_faces, centroids, match_threshold, device)
+        for gi, (pid, dist) in match_map.items():
+            f = new_faces[gi]
+            faces_to_update.append((pid, f["face_id"]))
+            photo_uuid = path_to_uuid.get(f.get("photo_id"))
+            if photo_uuid: photos_to_reset.add(photo_uuid)
+            matched += 1
+            if matched <= 20 or matched % 2000 == 0:
+                _log(f"Matched {f['face_id'][:12]}... → {pid} (dist={dist:.3f})")
+        unmatched = [new_faces[i] for i in unmatched_indices]
+        _log(f"GPU matched {matched} faces in {time.time()-t0:.1f}s, {len(unmatched)} unmatched")
+    else:
+        centroid_matrix = np.array([centroids[pid] for pid in centroid_ids])
+        for f in new_faces:
+            emb = np.array(f["embedding"]).reshape(1, -1)
+            dists = cosine_distances(emb, centroid_matrix)[0]
+            min_idx = np.argmin(dists)
+            min_dist = dists[min_idx]
+            if min_dist < match_threshold:
+                best_pid = centroid_ids[min_idx]
+                faces_to_update.append((best_pid, f["face_id"]))
+                photo_uuid = path_to_uuid.get(f.get("photo_id"))
+                if photo_uuid: photos_to_reset.add(photo_uuid)
+                matched += 1
+                _log(f"Matched {f['face_id'][:12]}... → {best_pid} (dist={min_dist:.3f})")
+            else:
+                unmatched.append(f)
+        _log(f"Matched {matched} faces to existing personas, {len(unmatched)} unmatched")
+
+    return faces_to_update, photos_to_reset, unmatched, matched
+
+
+def _run_dbscan(embeddings, eps, min_samples, device):
+    if device:
+        t0 = time.time()
+        try:
+            labels = _gpu_dbscan(embeddings, eps, min_samples, device)
+            _log(f"GPU DBSCAN completed in {time.time()-t0:.1f}s")
+            return labels, device
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower() or "CUDA" in str(e):
+                _log(f"GPU OOM during DBSCAN, falling back to CPU: {e}")
+                try:
+                    import torch
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                device = None
+            else:
+                raise
+    _log(f"CPU DBSCAN on {len(embeddings)} faces (eps={eps})")
+    t0 = time.time()
+    labels = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine").fit_predict(embeddings)
+    _log(f"CPU DBSCAN completed in {time.time()-t0:.1f}s")
+    return labels, device
+
+
+def _create_new_personas(db, labels):
+    counter = next_persona_id(db)
+    cluster_to_persona = {}
+    persona_rows = []
+    for cluster_id in sorted(set(labels)):
+        if cluster_id == -1:
+            continue
+        persona_id = f"cluster_{counter}"
+        counter += 1
+        cluster_to_persona[cluster_id] = persona_id
+        persona_rows.append((persona_id, persona_id, None, None, datetime.now().isoformat()))
+    if persona_rows:
+        db.sqlite.executemany(
+            "INSERT OR IGNORE INTO personas (persona_id,name,display_name,comment,created_at) VALUES (?,?,?,?,?)",
+            persona_rows,
+        )
+        db.sqlite.commit()
+    return cluster_to_persona
+
+
 def cluster_faces(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES, match_threshold=MATCH_THRESHOLD):
     t_total = time.time()
     db = DatabaseManager()
@@ -274,69 +377,18 @@ def cluster_faces(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES, match_threshol
         return
 
     t0 = time.time()
-    path_to_uuid = {}
-    prefix = str(PHOTO_SHARE_PATH) + "/"
-    for row in db.sqlite.execute("SELECT photo_id, path FROM photos").fetchall():
-        pid, path = row[0], row[1]
-        path_to_uuid[path] = pid
-        if path.startswith(prefix):
-            rel = path[len(prefix):]
-            path_to_uuid[rel] = pid
+    path_to_uuid = _build_path_to_uuid_map(db)
     _log(f"Path mapping built in {time.time()-t0:.1f}s")
 
     t0 = time.time()
     centroids = compute_centroids(assigned_faces)
     _log(f"Computed {len(centroids)} centroids in {time.time()-t0:.1f}s")
-    matched = 0
-    unmatched = []
-
-    faces_to_update = []
-    photos_to_reset = set()
 
     device = _try_gpu()
 
-    if centroids:
-        centroid_ids = list(centroids.keys())
-
-        if device:
-            t0 = time.time()
-            _log(f"GPU centroid matching: {len(new_faces)} faces vs {len(centroids)} centroids")
-            match_map, unmatched_indices = _gpu_match_to_centroids(
-                new_faces, centroids, match_threshold, device
-            )
-            for gi, (pid, dist) in match_map.items():
-                f = new_faces[gi]
-                faces_to_update.append((pid, f["face_id"]))
-                photo_uuid = path_to_uuid.get(f.get("photo_id"))
-                if photo_uuid:
-                    photos_to_reset.add(photo_uuid)
-                matched += 1
-                if matched <= 20 or matched % 2000 == 0:
-                    _log(f"Matched {f['face_id'][:12]}... → {pid} (dist={dist:.3f})")
-            unmatched = [new_faces[i] for i in unmatched_indices]
-            _log(f"GPU matched {matched} faces in {time.time()-t0:.1f}s, {len(unmatched)} unmatched")
-        else:
-            centroid_matrix = np.array([centroids[pid] for pid in centroid_ids])
-            for f in new_faces:
-                emb = np.array(f["embedding"]).reshape(1, -1)
-                dists = cosine_distances(emb, centroid_matrix)[0]
-                min_idx = np.argmin(dists)
-                min_dist = dists[min_idx]
-
-                if min_dist < match_threshold:
-                    best_pid = centroid_ids[min_idx]
-                    faces_to_update.append((best_pid, f["face_id"]))
-                    photo_uuid = path_to_uuid.get(f.get("photo_id"))
-                    if photo_uuid:
-                        photos_to_reset.add(photo_uuid)
-                    matched += 1
-                    _log(f"Matched {f['face_id'][:12]}... → {best_pid} (dist={min_dist:.3f})")
-                else:
-                    unmatched.append(f)
-
-            _log(f"Matched {matched} faces to existing personas, {len(unmatched)} unmatched")
-    else:
-        unmatched = list(new_faces)
+    faces_to_update, photos_to_reset, unmatched, matched = _match_to_existing_personas(
+        assigned_faces, new_faces, centroids, match_threshold, device, path_to_uuid
+    )
 
     if not unmatched:
         _log("All faces assigned")
@@ -346,56 +398,13 @@ def cluster_faces(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES, match_threshol
 
     embeddings = np.array([f["embedding"] for f in unmatched], dtype=np.float32)
 
-    if device:
-        t0 = time.time()
-        try:
-            labels = _gpu_dbscan(embeddings, eps, min_samples, device)
-            _log(f"GPU DBSCAN completed in {time.time()-t0:.1f}s")
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower() or "CUDA" in str(e):
-                _log(f"GPU OOM during DBSCAN, falling back to CPU: {e}")
-                try:
-                    import torch
-                    torch.cuda.empty_cache()
-                except Exception:
-                    pass
-                device = None
-                labels = None
-            else:
-                raise
-    else:
-        labels = None
-
-    if labels is None:
-        _log(f"CPU DBSCAN on {len(unmatched)} unmatched faces (eps={eps})")
-        t0 = time.time()
-        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine")
-        labels = dbscan.fit_predict(embeddings)
-        _log(f"CPU DBSCAN completed in {time.time()-t0:.1f}s")
+    labels, device = _run_dbscan(embeddings, eps, min_samples, device)
 
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     noise_count = list(labels).count(-1)
     _log(f"DBSCAN found {n_clusters} new clusters, {noise_count} noise faces")
 
-    counter = next_persona_id(db)
-
-    t0 = time.time()
-    cluster_to_persona = {}
-    persona_rows = []
-    for cluster_id in sorted(set(labels)):
-        if cluster_id == -1:
-            continue
-        persona_id = f"cluster_{counter}"
-        counter += 1
-        cluster_to_persona[cluster_id] = persona_id
-        persona_rows.append((persona_id, persona_id, None, None, datetime.now().isoformat()))
-    if persona_rows:
-        db.sqlite.executemany(
-            "INSERT OR IGNORE INTO personas (persona_id,name,display_name,comment,created_at) VALUES (?,?,?,?,?)",
-            persona_rows,
-        )
-        db.sqlite.commit()
-    _log(f"Created {len(cluster_to_persona)} personas in {time.time()-t0:.1f}s")
+    cluster_to_persona = _create_new_personas(db, labels)
 
     t0 = time.time()
     for i, f in enumerate(unmatched):

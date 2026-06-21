@@ -153,3 +153,116 @@ if (_savedTheme === 'light') {
     document.body.classList.add('light-theme');
     updateThemeIcon();
 }
+
+/* ===== Modal zoom/pan/touch — shared across gallery, photos, catalog ===== */
+
+function applyModalTransform() {
+    var rot = (typeof _mRot !== 'undefined') ? 'rotate(' + _mRot + 'deg) ' : '';
+    document.getElementById('modalImgWrap').style.transform = rot + 'translate(' + _mPx + 'px,' + _mPy + 'px) scale(' + _mZoom + ')';
+    var boxes = document.querySelectorAll('.face-box');
+    for (var i = 0; i < boxes.length; i++) {
+        boxes[i].style.borderWidth = (2 / _mZoom) + 'px';
+        var lbl = boxes[i].querySelector('.face-box-label');
+        if (lbl) lbl.style.fontSize = (13 / _mZoom) + 'px';
+    }
+    if (typeof _positionModalControls === 'function') _positionModalControls();
+}
+
+function initModalZoom() {
+    var modal = document.getElementById('photoModal');
+    if (!modal || !document.getElementById('modalImgWrap')) return;
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === this) closePhotoModal();
+    });
+
+    modal.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var rect = document.getElementById('modalImgWrap').getBoundingClientRect();
+        var cx = e.clientX - rect.left - rect.width / 2 - _mPx;
+        var cy = e.clientY - rect.top - rect.height / 2 - _mPy;
+        var oldZ = _mZoom;
+        var delta = e.deltaY > 0 ? 0.8 : 1.25;
+        _mZoom = Math.max(1, Math.min(20, _mZoom * delta));
+        var ratio = _mZoom / oldZ;
+        _mPx -= cx * (ratio - 1);
+        _mPy -= cy * (ratio - 1);
+        if (_mZoom <= 1) { _mPx = 0; _mPy = 0; }
+        applyModalTransform();
+    });
+
+    document.getElementById('modalImgWrap').addEventListener('mousedown', function(e) {
+        if (_mZoom > 1) {
+            e.preventDefault();
+            _mDrag = true;
+            _mDX = e.clientX - _mPx;
+            _mDY = e.clientY - _mPy;
+            e.currentTarget.style.cursor = 'grabbing';
+        }
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (_mDrag) { _mPx = e.clientX - _mDX; _mPy = e.clientY - _mDY; applyModalTransform(); }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (_mDrag) { _mDrag = false; document.getElementById('modalImgWrap').style.cursor = 'grab'; }
+    });
+
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement) document.getElementById('photoModal').classList.remove('fs');
+        if (typeof _positionModalControls === 'function') setTimeout(_positionModalControls, 100);
+    });
+
+    var sx = 0, sy = 0, st = 0;
+    var pinchStartDist = 0, pinchStartZoom = 1;
+    var panStartX = 0, panStartY = 0, isPanning = false;
+
+    modal.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            pinchStartZoom = _mZoom;
+            return;
+        }
+        if (e.touches.length === 1) {
+            sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
+            if (_mZoom > 1) {
+                isPanning = true;
+                panStartX = e.touches[0].clientX - _mPx;
+                panStartY = e.touches[0].clientY - _mPy;
+            }
+        }
+    }, { passive: true });
+
+    modal.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2 && pinchStartDist > 0) {
+            var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            var scale = dist / pinchStartDist;
+            _mZoom = Math.max(1, Math.min(20, pinchStartZoom * scale));
+            if (_mZoom <= 1) { _mPx = 0; _mPy = 0; }
+            applyModalTransform();
+            return;
+        }
+        if (isPanning && e.touches.length === 1) {
+            _mPx = e.touches[0].clientX - panStartX;
+            _mPy = e.touches[0].clientY - panStartY;
+            applyModalTransform();
+        }
+    }, { passive: true });
+
+    modal.addEventListener('touchend', function(e) {
+        isPanning = false;
+        pinchStartDist = 0;
+        if (e.touches.length > 0) return;
+        if (_mZoom > 1) return;
+        var dx = e.changedTouches[0].clientX - sx;
+        var dy = e.changedTouches[0].clientY - sy;
+        var dt = Date.now() - st;
+        if (dt < 500 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            if (dx < 0) modalNav(1);
+            else modalNav(-1);
+        }
+    }, { passive: true });
+}
+
+initModalZoom();

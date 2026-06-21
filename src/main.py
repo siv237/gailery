@@ -256,6 +256,126 @@ def _get_api_mqtt():
     return _api_mqtt if _api_mqtt else None
 
 
+def _determine_pipeline_step(flag_dir, mq, mqtt_states):
+    import os, datetime as dt
+    current_step = "idle"
+    step_details = ""
+    step_started_at = None
+    pipeline_started_at = None
+
+    mqtt_step = mq.get_current_step() if mq else "idle"
+    if mqtt_step != "idle":
+        current_step = mqtt_step
+        step_details = mqtt_step.upper()
+    else:
+        pipeline_flag = os.path.join(flag_dir, "pipeline")
+        if os.path.exists(pipeline_flag):
+            try:
+                mtime = os.path.getmtime(pipeline_flag)
+                pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
+            except Exception:
+                pass
+        for proc_name, fname in [("DESCRIBE", "describe"), ("INGEST", "ingest"), ("FACES", "faces"), ("EXIF", "exif"), ("EMBED", "embed"), ("PIPELINE", "pipeline")]:
+            fpath = os.path.join(flag_dir, fname)
+            if os.path.exists(fpath):
+                current_step = proc_name.lower()
+                step_details = proc_name
+                try:
+                    mtime = os.path.getmtime(fpath)
+                    step_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
+                except Exception:
+                    pass
+                break
+
+    if mq and current_step != "idle":
+        pipeline_state = mqtt_states.get("pipeline", {})
+        if pipeline_state.get("status") == "running" and pipeline_state.get("pid"):
+            try:
+                mtime = os.path.getmtime(f"/proc/{pipeline_state['pid']}")
+                pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
+            except Exception:
+                pass
+
+    return current_step, step_details, step_started_at, pipeline_started_at
+
+
+def _get_git_info():
+    import subprocess
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        date = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "log", "-1", "--format=%cs"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        return commit, date
+    except Exception:
+        return None, None
+
+
+def _read_log_info(log_path):
+    import os
+    progress_info = {}
+    tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
+    faces_phase = ""
+    faces_detail = ""
+    try:
+        with open(log_path, "r") as f:
+            tail_lines = f.readlines()[-200:]
+    except Exception:
+        return {}, "", ""
+    for line in tail_lines:
+        for tag, key in tag_map.items():
+            if "[" + tag + "]" in line:
+                progress_info[key] = line.strip()
+    for line in reversed(tail_lines[-100:]):
+        if "[FACES]" in line or "[CLUSTER]" in line:
+            stripped = line.strip()
+            if "detecting " in stripped:
+                faces_phase = "detecting"
+                faces_detail = stripped.split("detecting ")[-1].replace("...", "")
+                break
+            elif "lance write " in stripped and "done" not in stripped:
+                faces_phase = "lance_write"
+                faces_detail = stripped.split("lance write ")[-1].replace(" vectors...", "") + " vectors"
+                break
+            elif "lance write done" in stripped:
+                faces_phase = "lance_write"
+                faces_detail = "done"
+                break
+            elif "Running DBSCAN" in stripped:
+                faces_phase = "clustering"
+                faces_detail = "DBSCAN"
+                break
+            elif "[CLUSTER]" in stripped and "DBSCAN on" in stripped:
+                faces_phase = "clustering"
+                faces_detail = "DBSCAN"
+                break
+            elif "[CLUSTER]" in stripped and "Matched" in stripped:
+                faces_phase = "clustering"
+                faces_detail = "matching"
+                break
+            elif "Detection done" in stripped:
+                faces_phase = "detection_done"
+                faces_detail = stripped.split("Detection done: ")[-1] if "Detection done: " in stripped else ""
+                break
+            elif "Clustering done" in stripped:
+                faces_phase = "done"
+                faces_detail = ""
+                break
+            elif "InsightFace loaded" in stripped:
+                faces_phase = "loading"
+                faces_detail = "InsightFace"
+                break
+            elif "Found " in stripped and "photos needing" in stripped:
+                faces_phase = "loading"
+                faces_detail = stripped.split("Found ")[-1].split(" photos")[0] + " photos"
+                break
+    return progress_info, faces_phase, faces_detail
+
+
 @app.get("/api/status")
 async def get_status():
     import time as _time
@@ -296,46 +416,7 @@ async def get_status():
         elif os.path.exists(os.path.join(flag_dir, worker_name)):
             procs[key] = True
 
-    current_step = "idle"
-    step_details = ""
-    step_started_at = None
-    pipeline_started_at = None
-
-    mqtt_step = mq.get_current_step() if mq else "idle"
-    if mqtt_step != "idle":
-        current_step = mqtt_step
-        step_details = mqtt_step.upper()
-    else:
-        pipeline_flag = os.path.join(flag_dir, "pipeline")
-        if os.path.exists(pipeline_flag):
-            try:
-                import datetime as dt
-                mtime = os.path.getmtime(pipeline_flag)
-                pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-            except Exception:
-                pass
-        for proc_name, fname in [("DESCRIBE", "describe"), ("INGEST", "ingest"), ("FACES", "faces"), ("EXIF", "exif"), ("EMBED", "embed"), ("PIPELINE", "pipeline")]:
-            fpath = os.path.join(flag_dir, fname)
-            if os.path.exists(fpath):
-                current_step = proc_name.lower()
-                step_details = proc_name
-                try:
-                    import datetime as dt
-                    mtime = os.path.getmtime(fpath)
-                    step_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-                except Exception:
-                    pass
-                break
-
-    if mq and current_step != "idle":
-        pipeline_state = mqtt_states.get("pipeline", {})
-        if pipeline_state.get("status") == "running" and pipeline_state.get("pid"):
-            try:
-                import datetime as dt
-                mtime = os.path.getmtime(f"/proc/{pipeline_state['pid']}")
-                pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-            except Exception:
-                pass
+    current_step, step_details, step_started_at, pipeline_started_at = _determine_pipeline_step(flag_dir, mq, mqtt_states)
 
     status["processes"] = procs
     status["current_step"] = current_step
@@ -344,19 +425,10 @@ async def get_status():
     status["pipeline_started_at"] = pipeline_started_at
     status["server_time"] = datetime.now().isoformat()
 
-    try:
-        git_commit = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5
-        ).stdout.strip()
-        git_date = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "log", "-1", "--format=%cs"],
-            capture_output=True, text=True, timeout=5
-        ).stdout.strip()
+    git_commit, git_date = _get_git_info()
+    if git_commit:
         status["git_commit"] = git_commit
         status["git_date"] = git_date
-    except Exception:
-        pass
 
     if mq:
         mqtt_progress = {}
@@ -368,68 +440,7 @@ async def get_status():
             status["mqtt_progress"] = mqtt_progress
 
     try:
-        log_path = str(LOG_FILE)
-
-        def _read_log_info():
-            progress_info = {}
-            tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
-            faces_phase = ""
-            faces_detail = ""
-            try:
-                with open(log_path, "r") as f:
-                    tail_lines = f.readlines()[-200:]
-            except Exception:
-                return {}, "", ""
-            for line in tail_lines:
-                for tag, key in tag_map.items():
-                    if "[" + tag + "]" in line:
-                        progress_info[key] = line.strip()
-            for line in reversed(tail_lines[-100:]):
-                if "[FACES]" in line or "[CLUSTER]" in line:
-                    stripped = line.strip()
-                    if "detecting " in stripped:
-                        faces_phase = "detecting"
-                        faces_detail = stripped.split("detecting ")[-1].replace("...", "")
-                        break
-                    elif "lance write " in stripped and "done" not in stripped:
-                        faces_phase = "lance_write"
-                        faces_detail = stripped.split("lance write ")[-1].replace(" vectors...", "") + " vectors"
-                        break
-                    elif "lance write done" in stripped:
-                        faces_phase = "lance_write"
-                        faces_detail = "done"
-                        break
-                    elif "Running DBSCAN" in stripped:
-                        faces_phase = "clustering"
-                        faces_detail = "DBSCAN"
-                        break
-                    elif "[CLUSTER]" in stripped and "DBSCAN on" in stripped:
-                        faces_phase = "clustering"
-                        faces_detail = "DBSCAN"
-                        break
-                    elif "[CLUSTER]" in stripped and "Matched" in stripped:
-                        faces_phase = "clustering"
-                        faces_detail = "matching"
-                        break
-                    elif "Detection done" in stripped:
-                        faces_phase = "detection_done"
-                        faces_detail = stripped.split("Detection done: ")[-1] if "Detection done: " in stripped else ""
-                        break
-                    elif "Clustering done" in stripped:
-                        faces_phase = "done"
-                        faces_detail = ""
-                        break
-                    elif "InsightFace loaded" in stripped:
-                        faces_phase = "loading"
-                        faces_detail = "InsightFace"
-                        break
-                    elif "Found " in stripped and "photos needing" in stripped:
-                        faces_phase = "loading"
-                        faces_detail = stripped.split("Found ")[-1].split(" photos")[0] + " photos"
-                        break
-            return progress_info, faces_phase, faces_detail
-
-        progress_info, faces_phase, faces_detail = await loop.run_in_executor(None, _read_log_info)
+        progress_info, faces_phase, faces_detail = await loop.run_in_executor(None, _read_log_info, str(LOG_FILE))
         status["progress_lines"] = progress_info
         status["faces_phase"] = faces_phase
         status["faces_detail"] = faces_detail
@@ -458,6 +469,107 @@ async def get_monitoring():
     return await loop.run_in_executor(None, _compute)
 
 
+def _collect_disks():
+    import psutil
+    disks = []
+    skip_prefixes = ('/dev', '/proc', '/sys', '/run', '/boot', '/usr', '/lib', '/etc', '/tmp')
+    skip_fstypes = ('tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'aufs')
+    seen_mounts = set()
+    for mp in psutil.disk_partitions():
+        mnt = mp.mountpoint
+        if mnt in seen_mounts:
+            continue
+        if any(mnt.startswith(p + '/') or mnt == p for p in skip_prefixes):
+            continue
+        if mp.fstype in skip_fstypes or mp.device in ('none', 'tmpfs'):
+            continue
+        try:
+            u = psutil.disk_usage(mnt)
+            disks.append({
+                "mount": mnt, "device": mp.device, "fstype": mp.fstype,
+                "total_gib": round(u.total / (1024**3), 1), "used_gib": round(u.used / (1024**3), 1),
+                "free_gib": round(u.free / (1024**3), 1), "percent": u.percent,
+            })
+            seen_mounts.add(mnt)
+        except Exception:
+            pass
+    return disks
+
+
+def _collect_gpu_processes():
+    import subprocess
+    gpu_processes = []
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in out.stdout.strip().split("\n"):
+            if not line.strip(): continue
+            parts = [p.strip() for p in line.split(", ", 2)]
+            if len(parts) >= 3:
+                gpu_processes.append({"pid": parts[0], "name": parts[1], "vram_mb": parts[2]})
+    except Exception:
+        pass
+    return gpu_processes
+
+
+def _collect_top_procs():
+    import psutil
+    top_procs = []
+    for p in sorted(psutil.process_iter(['pid','name','memory_percent','cpu_percent']),
+                    key=lambda x: x.info.get('memory_percent', 0) or 0, reverse=True)[:8]:
+        try:
+            top_procs.append({
+                "pid": p.info['pid'], "name": p.info['name'] or '?',
+                "mem_pct": round(p.info['memory_percent'] or 0, 2),
+                "cpu_pct": round(p.info['cpu_percent'] or 0, 1),
+            })
+        except Exception:
+            pass
+    return top_procs
+
+
+def _collect_pipeline_stats(db):
+    q = db.sqlite.execute
+    pl = {
+        "cf_total": q("SELECT COUNT(*) FROM catalog_files WHERE deleted = 0").fetchone()[0],
+        "cf_canonical": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0").fetchone()[0],
+        "cf_duplicates": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 0 AND deleted = 0").fetchone()[0],
+        "cf_unhashed": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND content_hash IS NULL").fetchone()[0],
+        "cf_empty": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND size = 0").fetchone()[0],
+        "cf_deleted": q("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1").fetchone()[0],
+        "cf_auto_missing": q("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1 AND deleted_type = 'auto_missing'").fetchone()[0],
+        "cf_auto_empty": q("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1 AND deleted_type = 'auto_empty'").fetchone()[0],
+        "cf_ingested": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND ingested = 1").fetchone()[0],
+        "cf_described": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND described = 1").fetchone()[0],
+        "cf_faces_done": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND faces_done = 1").fetchone()[0],
+        "cf_embedded": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND embedded = 1").fetchone()[0],
+        "cf_exif_done": q("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND exif_done = 1").fetchone()[0],
+        "p_alive": q("SELECT COUNT(*) FROM photos WHERE deleted = 0").fetchone()[0],
+        "p_video": q("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND media_type = 'video'").fetchone()[0],
+        "p_photo": q("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND (media_type IS NULL OR media_type != 'video')").fetchone()[0],
+        "p_described": q("SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE cf.is_canonical = 1 AND cf.described = 1 AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')").fetchone()[0],
+        "p_faces_done": q("SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE cf.is_canonical = 1 AND cf.faces_done = 1 AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')").fetchone()[0],
+        "p_faces_present": q("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND faces_present = 1").fetchone()[0],
+        "p_embedded": q("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND embedded = 1").fetchone()[0],
+        "p_exif": q("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND exif_checked = 1").fetchone()[0],
+        "f_total": q("SELECT COUNT(*) FROM faces").fetchone()[0],
+        "f_with_persona": q("SELECT COUNT(*) FROM faces WHERE persona_id IS NOT NULL").fetchone()[0],
+        "f_with_hash": q("SELECT COUNT(*) FROM faces WHERE content_hash IS NOT NULL").fetchone()[0],
+        "personas_total": q("SELECT COUNT(*) FROM personas").fetchone()[0],
+        "personas_named": q("SELECT COUNT(*) FROM personas WHERE display_name IS NOT NULL AND display_name != ''").fetchone()[0],
+        "pct_described": 0, "pct_faces": 0, "pct_embedded": 0, "pct_exif": 0,
+    }
+    pp = max(pl["p_photo"], 1)
+    pl["pct_described"] = round(pl["p_described"] / pp * 100, 1)
+    pl["pct_faces"] = round(pl["p_faces_done"] / pp * 100, 1)
+    pl["pct_embedded"] = round(pl["p_embedded"] / pp * 100, 1)
+    pl["pct_exif"] = round(pl["cf_exif_done"] / max(pl["cf_canonical"], 1) * 100, 1)
+    return pl
+
+
 @app.get("/api/system-report")
 async def get_system_report():
     import asyncio
@@ -474,60 +586,8 @@ async def get_system_report():
 
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
-
-        disks = []
-        skip_prefixes = ('/dev', '/proc', '/sys', '/run', '/boot', '/usr', '/lib', '/etc', '/tmp')
-        skip_fstypes = ('tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'aufs')
-        seen_mounts = set()
-        for mp in psutil.disk_partitions():
-            mnt = mp.mountpoint
-            if mnt in seen_mounts:
-                continue
-            if any(mnt.startswith(p + '/') or mnt == p for p in skip_prefixes):
-                continue
-            if mp.fstype in skip_fstypes or mp.device in ('none', 'tmpfs'):
-                continue
-            try:
-                u = psutil.disk_usage(mnt)
-                disks.append({
-                    "mount": mnt, "device": mp.device, "fstype": mp.fstype,
-                    "total_gib": round(u.total / (1024**3), 1), "used_gib": round(u.used / (1024**3), 1),
-                    "free_gib": round(u.free / (1024**3), 1), "percent": u.percent,
-                })
-                seen_mounts.add(mnt)
-            except Exception:
-                pass
-
         net = psutil.net_io_counters()
         boot = psutil.boot_time()
-
-        top_procs = []
-        for p in sorted(psutil.process_iter(['pid','name','memory_percent','cpu_percent']),
-                        key=lambda x: x.info.get('memory_percent', 0) or 0, reverse=True)[:8]:
-            try:
-                top_procs.append({
-                    "pid": p.info['pid'], "name": p.info['name'] or '?',
-                    "mem_pct": round(p.info['memory_percent'] or 0, 2),
-                    "cpu_pct": round(p.info['cpu_percent'] or 0, 1),
-                })
-            except Exception:
-                pass
-
-        gpu_processes = []
-        try:
-            import subprocess
-            out = subprocess.run(
-                ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            for line in out.stdout.strip().split("\n"):
-                if not line.strip(): continue
-                parts = [p.strip() for p in line.split(", ", 2)]
-                if len(parts) >= 3:
-                    gpu_processes.append({"pid": parts[0], "name": parts[1], "vram_mb": parts[2]})
-        except Exception:
-            pass
 
         report = {
             "host": {
@@ -567,9 +627,9 @@ async def get_system_report():
                 "mem_clock_mhz": live.get("gpu_mem_clock", 0),
                 "pcie_gen": si.get("pcie_gen", "?"),
                 "pcie_width": si.get("pcie_width", "?"),
-                "processes": gpu_processes,
+                "processes": _collect_gpu_processes(),
             },
-            "disks": disks,
+            "disks": _collect_disks(),
             "network": {
                 "rx_gb": round(net.bytes_recv / 1e9, 2),
                 "tx_gb": round(net.bytes_sent / 1e9, 2),
@@ -582,7 +642,7 @@ async def get_system_report():
                 "read_mbps": live.get("disk_read_mbps", 0),
                 "write_mbps": live.get("disk_write_mbps", 0),
             },
-            "top_processes": top_procs,
+            "top_processes": _collect_top_procs(),
             "app": {
                 "photos": db.count_photos("deleted = 0"),
                 "persons": db.sqlite.execute("SELECT COUNT(*) FROM personas").fetchone()[0],
@@ -591,45 +651,8 @@ async def get_system_report():
                 "db_size_mb": round(os.path.getsize(str(DATA_DIR / "gallery.db")) / (1024**2), 1),
                 "lancedb_size_mb": 0,
             },
-            "pipeline": {
-                "cf_total": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE deleted = 0").fetchone()[0],
-                "cf_canonical": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0").fetchone()[0],
-                "cf_duplicates": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 0 AND deleted = 0").fetchone()[0],
-                "cf_unhashed": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND content_hash IS NULL").fetchone()[0],
-                "cf_empty": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND size = 0").fetchone()[0],
-                "cf_deleted": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1").fetchone()[0],
-                "cf_auto_missing": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1 AND deleted_type = 'auto_missing'").fetchone()[0],
-                "cf_auto_empty": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE deleted = 1 AND deleted_type = 'auto_empty'").fetchone()[0],
-                "cf_ingested": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND ingested = 1").fetchone()[0],
-                "cf_described": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND described = 1").fetchone()[0],
-                "cf_faces_done": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND faces_done = 1").fetchone()[0],
-                "cf_embedded": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND embedded = 1").fetchone()[0],
-                "cf_exif_done": db.sqlite.execute("SELECT COUNT(*) FROM catalog_files WHERE is_canonical = 1 AND deleted = 0 AND exif_done = 1").fetchone()[0],
-                "p_alive": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0").fetchone()[0],
-                "p_video": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND media_type = 'video'").fetchone()[0],
-                "p_photo": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND (media_type IS NULL OR media_type != 'video')").fetchone()[0],
-                "p_described": db.sqlite.execute("SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE cf.is_canonical = 1 AND cf.described = 1 AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')").fetchone()[0],
-                "p_faces_done": db.sqlite.execute("SELECT COUNT(*) FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path WHERE cf.is_canonical = 1 AND cf.faces_done = 1 AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')").fetchone()[0],
-                "p_faces_present": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND faces_present = 1").fetchone()[0],
-                "p_embedded": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND embedded = 1").fetchone()[0],
-                "p_exif": db.sqlite.execute("SELECT COUNT(*) FROM photos WHERE deleted = 0 AND exif_checked = 1").fetchone()[0],
-                "f_total": db.sqlite.execute("SELECT COUNT(*) FROM faces").fetchone()[0],
-                "f_with_persona": db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id IS NOT NULL").fetchone()[0],
-                "f_with_hash": db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE content_hash IS NOT NULL").fetchone()[0],
-                "personas_total": db.sqlite.execute("SELECT COUNT(*) FROM personas").fetchone()[0],
-                "personas_named": db.sqlite.execute("SELECT COUNT(*) FROM personas WHERE display_name IS NOT NULL AND display_name != ''").fetchone()[0],
-                "pct_described": 0,
-                "pct_faces": 0,
-                "pct_embedded": 0,
-                "pct_exif": 0,
-            }
+            "pipeline": _collect_pipeline_stats(db),
         }
-        pl = report["pipeline"]
-        pp = max(pl["p_photo"], 1)
-        pl["pct_described"] = round(pl["p_described"] / pp * 100, 1)
-        pl["pct_faces"] = round(pl["p_faces_done"] / pp * 100, 1)
-        pl["pct_embedded"] = round(pl["p_embedded"] / pp * 100, 1)
-        pl["pct_exif"] = round(pl["cf_exif_done"] / max(pl["cf_canonical"], 1) * 100, 1)
         try:
             total = int(subprocess.run(["du", "-s",
                 str(DATA_DIR / "lancedb")], capture_output=True, text=True,
@@ -1357,13 +1380,7 @@ _config_cache = {"data": None, "ts": 0}
 _CONFIG_TTL = 30
 
 
-@app.get("/api/config")
-async def get_config():
-    import time as _time
-    now = _time.time()
-    if _config_cache["data"] and (now - _config_cache["ts"]) < _CONFIG_TTL:
-        return _config_cache["data"]
-
+def _build_config_groups():
     from config import (
         PHOTO_SHARE_PATH, DATA_DIR, THUMBNAILS_DIR, LOGS_DIR, LLAMA_CPP_DIR,
         VENV_PYTHON, MQTT_HOST, MQTT_PORT, MQTT_WS_PORT, GPU_LOCK_TIMEOUT,
@@ -1378,7 +1395,7 @@ async def get_config():
         from config import embed_backend, search_backend, describe_backend
     except ImportError:
         embed_backend = search_backend = describe_backend = ""
-    groups = [
+    return [
         {
             "name": "Сервис",
             "icon": "\U0001f3e0",
@@ -1499,6 +1516,16 @@ async def get_config():
             ]
         },
     ]
+
+
+@app.get("/api/config")
+async def get_config():
+    import time as _time
+    now = _time.time()
+    if _config_cache["data"] and (now - _config_cache["ts"]) < _CONFIG_TTL:
+        return _config_cache["data"]
+
+    groups = _build_config_groups()
     from pathlib import Path as _P
     for g in groups:
         for p in g["params"]:
