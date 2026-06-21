@@ -231,6 +231,14 @@ class TestConfigAPI:
 class TestOllamaEmbedAI:
     """Integration tests for Ollama dual-circuit embedding (requires AI)"""
 
+    @pytest.fixture(autouse=True)
+    def _check_ollama(self):
+        import requests
+        try:
+            requests.get("http://ollama.localnet:11434/api/tags", timeout=3)
+        except Exception:
+            pytest.skip("Ollama server unreachable")
+
     @pytest.mark.ai
     def test_ollama_embed_single(self):
         import requests

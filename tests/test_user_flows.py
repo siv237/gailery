@@ -26,7 +26,11 @@ def _skip_if_no_server():
 
 
 def _get(path, timeout=15):
-    url = f"{BASE}{path}"
+    from urllib.parse import quote, urlsplit, urlunsplit
+    parts = urlsplit(f"{BASE}{path}")
+    encoded_path = quote(parts.path, safe='/%')
+    encoded_query = quote(parts.query, safe='=&+%')
+    url = urlunsplit((parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment))
     t0 = time.time()
     try:
         resp = urllib.request.urlopen(url, timeout=timeout)

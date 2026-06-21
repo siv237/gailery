@@ -157,27 +157,54 @@ def minidb(tmp_data):
 
     # ATTACH реальную БД и копируем первые N строк ДАННЫХ
     mini.execute(f"ATTACH DATABASE '{REAL_DB}' AS prod")
+
+    photo_ids = [r[0] for r in mini.execute(
+        "SELECT p.photo_id FROM prod.photos p "
+        "WHERE p.deleted = 0 AND EXISTS ("
+        "SELECT 1 FROM prod.catalog_files cf "
+        "WHERE cf.abs_path = p.path AND cf.is_canonical = 1 AND cf.deleted = 0"
+        ") LIMIT 100").fetchall()]
+    if photo_ids:
+        ph = ",".join("?" * len(photo_ids))
+        mini.execute(f"INSERT INTO photos SELECT * FROM prod.photos WHERE photo_id IN ({ph})", photo_ids)
+
+    photo_paths = [r[0] for r in mini.execute(
+        "SELECT path FROM prod.photos WHERE photo_id IN (" + ",".join("?" * len(photo_ids)) + ")",
+        photo_ids).fetchall()] if photo_ids else []
+    if photo_paths:
+        ph_paths = ",".join("?" * len(photo_paths))
+        mini.execute(f"INSERT INTO catalog_files SELECT * FROM prod.catalog_files WHERE abs_path IN ({ph_paths})", photo_paths)
+    mini.commit()
+
     for tbl, rowid_col, limit in [
-        ("photos", "photo_id", 100),
         ("faces", "rowid", 500),
         ("personas", "rowid", 50),
         ("catalog_roots", "rowid", 5),
-        ("catalog_files", "rowid", 200),
         ("changes", "rowid", 50),
         ("settings", "rowid", 20),
     ]:
         cnt = mini.execute(f"SELECT COUNT(*) FROM prod.{tbl}").fetchone()[0]
         if cnt == 0:
             continue
-        if cnt > limit:
+        if tbl == "photos":
             ids = [r[0] for r in mini.execute(
-                f"SELECT {rowid_col} FROM prod.{tbl} LIMIT {limit}").fetchall()]
-            if ids:
-                ph = ",".join("?" * len(ids))
-                mini.execute(
-                    f"INSERT INTO {tbl} SELECT * FROM prod.{tbl} "
-                    f"WHERE {rowid_col} IN ({ph})", ids)
+                f"SELECT p.photo_id FROM prod.photos p "
+                f"WHERE p.deleted = 0 AND EXISTS ("
+                f"SELECT 1 FROM prod.catalog_files cf "
+                f"WHERE cf.abs_path = p.path AND cf.is_canonical = 1 AND cf.deleted = 0"
+                f") LIMIT {limit}").fetchall()]
         else:
+            if cnt > limit:
+                ids = [r[0] for r in mini.execute(
+                    f"SELECT {rowid_col} FROM prod.{tbl} LIMIT {limit}").fetchall()]
+            else:
+                ids = None
+        if ids:
+            ph = ",".join("?" * len(ids))
+            mini.execute(
+                f"INSERT INTO {tbl} SELECT * FROM prod.{tbl} "
+                f"WHERE {rowid_col} IN ({ph})", ids)
+        elif ids is None:
             mini.execute(f"INSERT INTO {tbl} SELECT * FROM prod.{tbl}")
         mini.commit()
 
