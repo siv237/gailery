@@ -95,6 +95,7 @@
         .card .video-play-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.3); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 1; }
         .card:hover .video-play-overlay { opacity: 1; }
         .card .video-play-overlay span { font-size: 36px; color: #fff; text-shadow: 0 0 8px rgba(0,0,0,.5); }
+        .card-preview-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; background: #000; }
 
         .card .del-mark { position: absolute; bottom: 4px; right: 4px; width: 22px; height: 22px; background: none; color: #c9d1d9; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; z-index: 3; opacity: 0; transition: opacity .15s; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000; }
         .card:hover .del-mark { opacity: 1; }
@@ -907,6 +908,38 @@ function videoSrc(p) {
     }
     return p.photo_id ? (API + '/photos/?path=' + encodeURIComponent(p.photo_id)) : '';
 }
+
+var _videoPreviewTimer = null;
+var _videoPreviewEl = null;
+function startVideoPreview(card, idx) {
+    clearTimeout(_videoPreviewTimer);
+    _videoPreviewTimer = setTimeout(function() {
+        var p = currentPhotos[idx];
+        if (!p || p.media_type !== 'video') return;
+        var url = videoSrc(p);
+        if (!url) return;
+        var v = document.createElement('video');
+        v.className = 'card-preview-video';
+        v.muted = true;
+        v.loop = true;
+        v.playsInline = true;
+        v.preload = 'auto';
+        v.src = url;
+        v.play().catch(function(){});
+        card.appendChild(v);
+        _videoPreviewEl = v;
+    }, 400);
+}
+function stopVideoPreview(card) {
+    clearTimeout(_videoPreviewTimer);
+    if (_videoPreviewEl) {
+        _videoPreviewEl.pause();
+        _videoPreviewEl.removeAttribute('src');
+        _videoPreviewEl.load();
+        if (_videoPreviewEl.parentNode) _videoPreviewEl.parentNode.removeChild(_videoPreviewEl);
+        _videoPreviewEl = null;
+    }
+}
 var pageSize = 60;
 var totalResults = 0;
 var activeDate = '';
@@ -1552,7 +1585,8 @@ function buildCardHtml(p, idx) {
          var ftop = hasRel ? (p.is_raw ? ' style="top:40px"' : '') : (p.is_raw ? ' style="top:22px"' : '');
          badge = '<div class="' + fcls + '"' + ftop + '>' + p.personas.length + ' лиц</div>';
      }
-     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '" onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();openViewer(' + idx + ');toggleFullscreen()">';
+     var _videoHover = p.media_type === 'video' ? ' onmouseenter="startVideoPreview(this,' + idx + ')" onmouseleave="stopVideoPreview(this)"' : '';
+     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();openViewer(' + idx + ');toggleFullscreen()">';
     html += '<button class="expand-btn" onclick="event.stopPropagation();openViewer(' + idx + ')">' + (p.media_type === 'video' ? '&#9654;' : '&#x2922;') + '</button>';
     var q = document.getElementById('searchInput').value.trim();
     if (q) html += '<button class="goto-btn" onclick="event.stopPropagation();goToTimelineFromCard(' + idx + ')" title="Найти в хронологии">&#x21E1;</button>';
