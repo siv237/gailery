@@ -452,11 +452,12 @@ class ApiMQTT(GailrayMQTT):
             "pid": os.getpid(),
         }), retain=True)
 
-    def request_gpu_gentle(self, worker_name="api", timeout=120):
+    def request_gpu_gentle(self, worker_name="api", timeout=30):
         t0 = time.time()
         logger.info(f"[MQTT] Gentle GPU request for {worker_name}, waiting up to {timeout}s")
         self.send_pause(reason="gpu_yield")
-        while time.time() - t0 < timeout:
+        wait_deadline = t0 + 5
+        while time.time() < wait_deadline:
             any_gpu = False
             for name in GPU_WORKERS:
                 if self._worker_states.get(name, {}).get("gpu_held", False):
@@ -464,11 +465,12 @@ class ApiMQTT(GailrayMQTT):
                     break
             if not any_gpu:
                 break
-            time.sleep(1)
+            time.sleep(0.5)
         if any_gpu:
-            logger.warning(f"[MQTT] GPU still held after {time.time()-t0:.1f}s — giving up gently")
-            self.send_resume()
-            return False
+            logger.warning(f"[MQTT] GPU still held after {time.time()-t0:.1f}s — killing llama-server")
+            os.system("pkill -9 -f 'llama-server' 2>/dev/null")
+            time.sleep(1)
+        self.send_resume()
         self.publish(gpu_lock_topic(), json.dumps({
             "holder": worker_name,
             "since": datetime.now(timezone.utc).isoformat(),

@@ -1287,7 +1287,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     gpu_acquired = False
     gpu_t0 = time.time()
     if mq and _embed_engine is None:
-        gpu_acquired = mq.request_gpu_gentle(worker_name="semantic_search", timeout=120)
+        gpu_acquired = mq.request_gpu_gentle(worker_name="semantic_search", timeout=30)
         if gpu_acquired:
             logger.info(f"[SEMSEARCH] GPU acquired gently in {time.time()-gpu_t0:.1f}s")
         else:
