@@ -1004,10 +1004,11 @@ async def control_update():
 
             async def _delayed_restart():
                 import asyncio
+                from config import PIPELINE_SERVICE, WATCHDOG_SERVICE, SERVICE_NAME
                 await asyncio.sleep(1)
-                await asyncio.create_subprocess_exec("systemctl", "restart", config.PIPELINE_SERVICE, stderr=asyncio.subprocess.DEVNULL)
-                await asyncio.create_subprocess_exec("systemctl", "restart", config.WATCHDOG_SERVICE, stderr=asyncio.subprocess.DEVNULL)
-                await asyncio.create_subprocess_exec("systemctl", "restart", config.SERVICE_NAME, stderr=asyncio.subprocess.DEVNULL)
+                await asyncio.create_subprocess_exec("systemctl", "restart", PIPELINE_SERVICE, stderr=asyncio.subprocess.DEVNULL)
+                await asyncio.create_subprocess_exec("systemctl", "restart", WATCHDOG_SERVICE, stderr=asyncio.subprocess.DEVNULL)
+                await asyncio.create_subprocess_exec("systemctl", "restart", SERVICE_NAME, stderr=asyncio.subprocess.DEVNULL)
 
             asyncio.ensure_future(_delayed_restart())
             return {"ok": True, "updated": True, "before": before[:8], "after": after[:8]}
@@ -1152,6 +1153,20 @@ async def favicon_32():
     p = web_dir / "favicon-32.png"
     if p.exists():
         return FileResponse(str(p), media_type="image/png")
+    raise HTTPException(status_code=404)
+
+@app.get("/shared.css")
+async def shared_css():
+    p = web_dir / "shared.css"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/css")
+    raise HTTPException(status_code=404)
+
+@app.get("/shared.js")
+async def shared_js():
+    p = web_dir / "shared.js"
+    if p.exists():
+        return FileResponse(str(p), media_type="application/javascript")
     raise HTTPException(status_code=404)
 
 

@@ -99,7 +99,7 @@ class GailrayMQTT:
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
 
-    def _on_connect(self, client, userdata, flags, rc, properties=None):
+    def _on_connect(self, client, _userdata, _flags, rc, _properties=None):
         if rc == 0:
             self._connected = True
             logger.info(f"MQTT connected to {self.host}:{self.port}")
@@ -108,7 +108,7 @@ class GailrayMQTT:
         else:
             logger.error(f"MQTT connect failed rc={rc}")
 
-    def _on_message(self, client, userdata, msg):
+    def _on_message(self, client, _userdata, msg):
         topic = msg.topic
         if topic in self._sub_handlers:
             try:
@@ -238,7 +238,7 @@ class WorkerMQTT(GailrayMQTT):
             payload = None
         temp = _Temp()
 
-        def _on_msg(client, userdata, msg):
+        def _on_msg(client, _userdata, msg):
             if msg.topic == lock_topic:
                 temp.payload = msg.payload.decode("utf-8") if msg.payload else ""
 

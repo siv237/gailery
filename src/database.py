@@ -1288,7 +1288,7 @@ deleted=None, deleted_only=None,
         self.sqlite.commit()
         return (total_groups, total_copies)
 
-    def get_duplicate_paths(self, content_hash, exclude_path=None):
+    def get_duplicate_paths(self, content_hash):
         """Get all abs_paths for non-canonical files with the same content_hash, excluding canonical path."""
         canonical = self.sqlite.execute(
             "SELECT abs_path FROM catalog_files WHERE content_hash = ? AND is_canonical = 1 LIMIT 1",

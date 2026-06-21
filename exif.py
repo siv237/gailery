@@ -230,9 +230,18 @@ def read_exif_one(photo_path):
     lon_ref = tags.get("GPS GPSLongitudeRef")
     if lat_tag and lon_tag:
         def to_deg(val, ref):
-            d = float(val.values[0].num) / float(val.values[0].den) if hasattr(val.values[0], 'den') else float(val.values[0])
-            m = float(val.values[1].num) / float(val.values[1].den) if hasattr(val.values[1], 'den') else float(val.values[1])
-            s = float(val.values[2].num) / float(val.values[2].den) if hasattr(val.values[2], 'den') else float(val.values[2])
+            def _ratio(v):
+                if hasattr(v, 'den'):
+                    if v.den == 0:
+                        return 0.0
+                    return float(v.num) / float(v.den)
+                try:
+                    return float(v)
+                except (ZeroDivisionError, ValueError):
+                    return 0.0
+            d = _ratio(val.values[0])
+            m = _ratio(val.values[1])
+            s = _ratio(val.values[2])
             deg = d + m / 60.0 + s / 3600.0
             if ref and str(ref) in ('S', 'W'):
                 deg = -deg

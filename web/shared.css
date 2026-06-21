@@ -1,0 +1,66 @@
+/* ===== Gailery shared CSS — common blocks for all pages ===== */
+
+/* --- Reset --- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* --- Theme toggle button --- */
+h1 .theme-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-55%); background: none; border: none; cursor: pointer; color: #e3b341; font-size: 24px; padding: 8px 12px; display: flex; align-items: center; justify-content: center; z-index: 10; }
+h1 .theme-toggle:hover { background: rgba(255,255,255,.08); }
+.light-theme h1 .theme-toggle { color: #0969da; }
+.light-theme h1 .theme-toggle:hover { background: rgba(0,0,0,.06); }
+
+/* --- Logo --- */
+h1 .logo { height: 32px; width: auto; margin-right: 6px; }
+.logo-link { text-decoration: none; display: inline-flex; align-items: center; }
+.logo { transition: transform .3s ease, filter .3s ease; filter: drop-shadow(0 0 5px rgba(240,200,120,.45)); }
+.light-theme .logo { filter: drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+.logo-link:hover .logo { transform: scale(1.1) rotate(-3deg); filter: drop-shadow(0 0 12px rgba(240,200,120,.85)); }
+.light-theme .logo-link:hover .logo { filter: drop-shadow(0 3px 10px rgba(0,0,0,.45)); }
+
+/* --- Hamburger button --- */
+.hamburger { display: none; background: none; border: none; color: #c9d1d9; font-size: 20px; cursor: pointer; padding: 8px 10px; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; order: 99; }
+.light-theme .hamburger { color: #24292f; }
+
+/* --- Mobile nav panel --- */
+.mm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999; }
+.mm-overlay.open { display: block; }
+.mm-panel { position: fixed; top: 0; right: 0; width: 280px; height: 100%; background: #161b22; border-left: 1px solid #30363d; z-index: 1000; display: flex; flex-direction: column; transform: translateX(100%); transition: transform .3s ease; will-change: transform; }
+.mm-panel.open { transform: translateX(0); }
+.mm-panel.dragging { transition: none; }
+.mm-head { padding: 14px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #21262d; }
+.mm-head img { height: 24px; }
+.mm-head span { font-size: 14px; font-weight: 600; color: #c9d1d9; }
+.mm-x { margin-left: auto; background: none; border: none; color: #6e7681; font-size: 20px; cursor: pointer; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+.mm-x:hover { color: #c9d1d9; }
+.mm-nav { flex: 1; overflow-y: auto; padding: 4px 0; }
+.mm-a { display: flex; align-items: center; gap: 12px; padding: 13px 16px; color: #8b949e; text-decoration: none; font-size: 14px; border-left: 3px solid transparent; transition: background .15s, color .15s; }
+.mm-a:hover { background: #21262d; color: #c9d1d9; }
+.mm-a.active { color: #58a6ff; background: rgba(88,166,255,.06); border-left-color: #58a6ff; }
+.mm-a.active .mm-lbl { font-weight: 600; }
+.mm-ico { width: 24px; text-align: center; font-size: 18px; flex-shrink: 0; }
+.mm-lbl { flex: 1; }
+.mm-foot { padding: 10px 16px; border-top: 1px solid #21262d; }
+.mm-theme { display: flex; align-items: center; gap: 10px; background: none; border: none; color: #8b949e; font-size: 13px; cursor: pointer; padding: 10px 0; width: 100%; font-family: monospace; }
+.mm-theme:hover { color: #c9d1d9; }
+.mm-theme-ico { font-size: 18px; }
+.mm-edge { display: none; position: fixed; top: 0; right: 0; width: 24px; height: 100%; z-index: 998; }
+
+/* --- Mobile nav light theme --- */
+.light-theme .mm-panel { background: #f6f8fa; border-left-color: #d0d7de; }
+.light-theme .mm-head { border-bottom-color: #d0d7de; }
+.light-theme .mm-head span { color: #24292f; }
+.light-theme .mm-x { color: #57606a; }
+.light-theme .mm-a { color: #57606a; }
+.light-theme .mm-a:hover { background: #eaeef2; color: #24292f; }
+.light-theme .mm-a.active { color: #0969da; background: rgba(9,105,218,.06); border-left-color: #0969da; }
+.light-theme .mm-foot { border-top-color: #d0d7de; }
+.light-theme .mm-theme { color: #57606a; }
+
+/* --- Mobile breakpoint --- */
+@media (max-width: 768px) {
+    .hamburger { display: flex; }
+    h1 .nav { display: none; }
+    h1 .theme-toggle { display: none; }
+    h1 .logo { display: none; }
+    .mm-edge { display: block; }
+}
