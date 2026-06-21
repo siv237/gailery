@@ -7,7 +7,7 @@ function render() {
     if (!el) return;
     el.innerHTML = `
         <div class="card">
-            <div class="card-header"><h2>🔍 AI-лог</h2></div>
+            <div class="card-header"><h2 style="display:flex;align-items:center;gap:8px">🔍 AI-лог <label style="font-size:12px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px;margin-left:auto"><input type="checkbox" id="ailogAutoRefresh" checked> автообновление</label></h2></div>
             <div style="padding:12px 16px">
                 <p class="c-dim" style="margin:0 0 12px">Введите content_hash фото — увидите всю хронологию: полные JSON запросов в модели, ответы, reasoning, tool-calls, параметры.</p>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -27,6 +27,8 @@ function render() {
     `;
     A.$('ailogBtn').addEventListener('click', function() { search(A.$('ailogInput').value.trim(), A.$('ailogType').value); });
     A.$('ailogInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') search(A.$('ailogInput').value.trim(), A.$('ailogType').value); });
+    var arCb = document.getElementById('ailogAutoRefresh');
+    if (arCb) arCb.addEventListener('change', function() { _ailogAutoRefresh = this.checked; });
 }
 
 var TYPE_LABELS = {
@@ -45,11 +47,12 @@ var TYPE_COLORS = {
 var _ailogTimer = null;
 var _ailogQuery = null;
 var _ailogType = null;
+var _ailogAutoRefresh = true;
 
 function startAilogRefresh() {
     if (_ailogTimer) clearInterval(_ailogTimer);
     _ailogTimer = setInterval(function() {
-        if (_ailogQuery || _ailogType) search(_ailogQuery, _ailogType);
+        if (_ailogAutoRefresh && (_ailogQuery || _ailogType)) search(_ailogQuery, _ailogType);
     }, 5000);
 }
 function stopAilogRefresh() {

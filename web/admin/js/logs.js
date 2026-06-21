@@ -4,16 +4,19 @@
 var _logFilter = '';
 var _logFilterMap = {};
 var _logTimer = null;
+var _logAutoRefresh = {};
+var _logRefreshCid = null;
 
 function startLogRefresh(cid) {
+    _logRefreshCid = cid;
     if (_logTimer) clearInterval(_logTimer);
-    _logTimer = setInterval(function() { loadLogInto(cid); }, 3000);
+    _logTimer = setInterval(function() { if (_logAutoRefresh[cid] !== false) loadLogInto(cid); }, 3000);
 }
 function stopLogRefresh() {
     if (_logTimer) { clearInterval(_logTimer); _logTimer = null; }
 }
 
-A.registerBlock('logs', 'Логи', '📋', function(cid) { A.renderBlock_logs(cid); }, function(cid) { loadLogInto(cid); });
+A.registerBlock('logs', 'Логи', '📋', function(cid) { A.renderBlock_logs(cid); }, function(cid) { if (_logAutoRefresh[cid] !== false) loadLogInto(cid); });
 
 function buildUI() {
     var el = A.$('page-logs');
@@ -30,8 +33,10 @@ A.renderBlock_logs = function(containerId) {
     var fId = 'logFilter_'+containerId;
     var cId = 'logC_'+containerId;
     var iId = 'logInfo_'+containerId;
+    var arId = 'logAutoRefresh_'+containerId;
+    _logAutoRefresh[containerId] = true;
     el.innerHTML =
-        '<div class="log-sec"><h3>Лог <span id="'+iId+'"></span></h3>'+
+        '<div class="log-sec"><h3 style="display:flex;align-items:center;gap:8px">Лог <span id="'+iId+'"></span><label style="font-size:12px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px;margin-left:auto"><input type="checkbox" id="'+arId+'" checked> автообновление</label></h3>'+
         '<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center">'+
         '<input id="'+fId+'" type="text" placeholder="Фильтр..." class="log-filter-input">'+
         '<button class="fbtn" data-f="DESCRIBE" data-cid="'+containerId+'">VLM</button>'+
@@ -49,6 +54,11 @@ A.renderBlock_logs = function(containerId) {
         });
     });
 
+    var arCb = document.getElementById(arId);
+    if (arCb) arCb.addEventListener('change', function() {
+        _logAutoRefresh[containerId] = this.checked;
+    });
+
     var inp = document.getElementById(fId);
     if (inp) inp.addEventListener('input', function() {
         var v = this.value.trim();
@@ -61,13 +71,28 @@ A.renderBlock_logs = function(containerId) {
     if (containerId === 'logsBlock') startLogRefresh(containerId);
 };
 
+var _logActiveFilters = {};
+
 function setFilter(cid, f) {
-    _logFilterMap[cid] = f;
+    if (!_logActiveFilters[cid]) _logActiveFilters[cid] = {};
+    var active = _logActiveFilters[cid];
+    if (!f) {
+        active = {};
+        _logActiveFilters[cid] = active;
+    } else {
+        if (active[f]) delete active[f];
+        else active[f] = true;
+    }
+    var filterStr = Object.keys(active).join(',');
+    _logFilterMap[cid] = filterStr;
     var el = document.getElementById(cid);
     var fId = 'logFilter_'+cid;
     var inp = document.getElementById(fId);
-    if (inp) inp.value = f.indexOf(',')>=0 ? '' : f;
-    if (el) el.querySelectorAll('.fbtn').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-f')===f); });
+    if (inp) inp.value = '';
+    if (el) el.querySelectorAll('.fbtn').forEach(function(b) {
+        var bf = b.getAttribute('data-f');
+        b.classList.toggle('active', !bf ? Object.keys(active).length === 0 : !!active[bf]);
+    });
     applyFilter(cid);
 }
 
