@@ -8,6 +8,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gailery - Персоны</title>
     <link rel="stylesheet" href="/shared.css">
+    <link rel="stylesheet" href="/viewer.css">
     <style>
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
         h1 { position: relative; }
@@ -651,7 +652,7 @@ function loadPersonaFaces(personaId, grid) {
             preview.appendChild(img);
             preview.appendChild(conf);
             preview.onclick = (function(photoId) {
-                return function() { window.open(API + '/photos/?path=' + encodeURIComponent(photoId), '_blank'); };
+                return function() { Viewer.openSingle({photo_id: photoId, date: ''}); };
             })(face.photo_id);
 
             grid.appendChild(preview);
@@ -797,5 +798,6 @@ document.addEventListener('keydown', function(e) {
 loadPersonas();
 </script>
 <script src="/shared.js"></script>
+<script src="/viewer.js"></script>
 </body>
 </html>
