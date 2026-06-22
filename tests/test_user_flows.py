@@ -599,11 +599,11 @@ class TestConfigAndControl:
 
 # ═══════════════════════════════════════════════════════════════
 # Flow 9: Navigation between pages
-# User: uses top nav to switch between gallery/map/monitor/persons
+# User: uses top nav to switch between gallery/map/persons
 # ═══════════════════════════════════════════════════════════════
 
 class TestPageNavigation:
-    @pytest.mark.parametrize("page", ["/gallery", "/map", "/catalog", "/monitor", "/persons", "/admin", "/log"])
+    @pytest.mark.parametrize("page", ["/gallery", "/map", "/catalog", "/persons", "/admin", "/log"])
     def test_page_loads(self, page):
         code, body, elapsed = _get(page)
         assert code == 200, f"page {page} returned {code}"

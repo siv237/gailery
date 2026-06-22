@@ -162,17 +162,6 @@ async def persons_page():
     return {"error": "Page not found"}
 
 
-@app.get("/monitor")
-async def monitor_page():
-    from pathlib import Path
-    from fastapi.responses import HTMLResponse
-    monitor_html = Path(__file__).parent.parent / "web" / "photos.html"
-    if monitor_html.exists():
-        with open(monitor_html) as f:
-            return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
-    return {"error": "Page not found"}
-
-
 @app.get("/log")
 async def log_page():
     from pathlib import Path

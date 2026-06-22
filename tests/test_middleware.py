@@ -66,7 +66,7 @@ class TestSpaFallback:
 
 class TestPageRoutes:
     @pytest.mark.parametrize("path", [
-        "/gallery", "/catalog", "/persons", "/monitor",
+        "/gallery", "/catalog", "/persons",
         "/admin", "/map"
     ])
     def test_page_serves_html(self, app_client, path):

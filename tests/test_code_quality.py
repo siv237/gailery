@@ -41,7 +41,6 @@ HTML_FILES = [
     "web/gallery.html",
     "web/map.html",
     "web/personas.html",
-    "web/photos.html",
     "web/catalog.html",
 ]
 
