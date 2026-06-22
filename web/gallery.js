@@ -1398,9 +1398,13 @@ function _tlNavigateAt(clickX) {
         loadAfter(null, null);
     } else {
         _canLoadMore = true;
-        _canLoadPrev = false;
+        _canLoadPrev = true;
         _updateSentinel();
-        loadAfter(navDate, null, true);
+        loadAfter(navDate, null, true, null, function() {
+            if (_canLoadPrev && _firstDate && currentPhotos.length > 0) {
+                loadBefore(_firstDate, _firstPath);
+            }
+        });
     }
 }
 function fracToISO(frac) {
