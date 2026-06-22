@@ -31,6 +31,9 @@ function closePhotoModal() {
     if (cvs) { cvs.style.display = 'none'; cvs.onmousedown = null; }
     _flirVisImg.src = '';
     _flirThImg.src = '';
+    if (_embeddedMode && window.parent) {
+        window.parent.postMessage({type: 'closeModal'}, '*');
+    }
 }
 
 function goToTimeline() {
@@ -412,6 +415,7 @@ function restoreFilters() {
 
 var _restoreNeedleDate = null;
 var _restorePhotoId = null;
+var _openViewerOnLoad = false;
 var _tlMonthFrom = null;
 var _tlMonthTo = null;
 var _needleDateISO = null;
@@ -432,6 +436,18 @@ document.getElementById('chkCatOther').checked = true;
 updateCatFilterLabel();
 
 restoreFilters();
+var _urlParams = new URLSearchParams(window.location.search);
+var _urlPhotoId = _urlParams.get('photo_id');
+var _urlDate = _urlParams.get('date');
+var _embeddedMode = _urlParams.get('embedded') === '1';
+if (_urlPhotoId) {
+    _restorePhotoId = _urlPhotoId;
+    _openViewerOnLoad = true;
+    if (_urlDate) _restoreNeedleDate = _urlDate;
+}
+if (_embeddedMode) {
+    document.documentElement.classList.add('embedded');
+}
 _initTimeline();
 doSearch();
 

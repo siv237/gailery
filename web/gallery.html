@@ -7,10 +7,14 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Gailery - Галерея</title>
+    <script>if (new URLSearchParams(location.search).get('embedded')==='1') document.documentElement.classList.add('embedded');</script>
     <link rel="stylesheet" href="/shared.css">
+    <link rel="stylesheet" href="/viewer.css">
     <style>
         :root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
+        html.embedded, html.embedded body { background: transparent; }
+        html.embedded .page-header, html.embedded .search-bar, html.embedded .filter-sheet-overlay, html.embedded .filter-sheet, html.embedded #timelineWrap, html.embedded #grid, html.embedded #gridTools, html.embedded .info-bar, html.embedded .hamburger { display: none !important; }
         h1 { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 16px; color: #58a6ff; display: flex; align-items: center; justify-content: space-between; position: relative; }
         h1 .nav { font-size: 13px; padding-right: 50px; }
         h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
@@ -116,74 +120,6 @@
         .top-sentinel.at-end .ts-end { display: block; }
         .top-sentinel.loading .ts-loadbar { display: block; }
 
-        .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 1010; justify-content: center; align-items: center; }
-        .modal-bg.show { display: flex; }
-        .modal-img-wrap { position: relative; display: inline-block; transform-origin: center center; transition: transform .1s; }
-        .modal-content { display: flex; flex-direction: column; align-items: center; max-width: 90svw; max-height: 90svh; }
-        .modal-bg.fs .modal-content { max-width: 100svw; max-height: 100svh; }
-        .modal-bg .modal-img-wrap img, .modal-bg .modal-img-wrap video, .modal-bg .modal-img-wrap canvas { max-width: 90svw; max-height: 90svh; object-fit: contain; border-radius: 4px; }
-        .modal-bg.fs .modal-img-wrap img, .modal-bg.fs .modal-img-wrap video, .modal-bg.fs .modal-img-wrap canvas { width: 100svw; height: 100svh; object-fit: contain; border-radius: 0; }
-        .modal-bg .modal-img-wrap img.cover, .modal-bg .modal-img-wrap video.cover { max-width: none; max-height: none; width: 90svw; height: 90svh; object-fit: cover; border-radius: 4px; }
-        .modal-bg.fs .modal-img-wrap img.cover, .modal-bg.fs .modal-img-wrap video.cover { width: 100svw; height: 100svh; object-fit: cover; border-radius: 0; }
-        .modal-bg .modal-img-wrap.cover-wrap { display: block; width: 90svw; height: 90svh; }
-        .modal-bg.fs .modal-img-wrap.cover-wrap { display: block; width: 100svw; height: 100svh; }
-        .modal-bg.fs { background: #000; }
-        .modal-bg.fs .modal-topbar { border-radius: 6px; }
-        .modal-bg .modal-topbar.zoomed { border-radius: 6px 6px 6px 6px; }
-        .vid-modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 1020; justify-content: center; align-items: center; flex-direction: column; }
-        .vid-modal-bg.show { display: flex; }
-        .vid-modal-close { position: absolute; top: 12px; right: 16px; color: #8b949e; font-size: 32px; cursor: pointer; z-index: 1; line-height: 1; }
-        .vid-modal-close:hover { color: #f85149; }
-        .vid-modal-bar { height: 36px; color: #c9d1d9; font-size: 12px; font-family: monospace; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0; }
-        #vidModalPlayer { width: 90vw; height: calc(90vh - 36px); background: #000; border-radius: 6px; }
-        .light-theme .vid-modal-bg { background: rgba(0,0,0,.87); }
-        .light-theme .vid-modal-close { color: #57606a; }
-        .light-theme .vid-modal-bar { color: #24292f; }
-        .face-overlays { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; overflow: visible; }
-        .face-box { position: absolute; border: 2px solid rgba(88,166,255,.8); border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: auto; cursor: pointer; background: transparent; }
-        .face-overlays:hover .face-box { opacity: 1; }
-        .face-box:hover { border-color: #58a6ff; }
-        .face-box-label { position: absolute; bottom: calc(100% + 4px); left: 0; background: rgba(88,166,255,.9); color: #fff; font-size: 13px; font-weight: 600; padding: 3px 8px; border-radius: 3px; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
-        .modal-btns { position: absolute; z-index: 1001; display: flex; gap: 4px; pointer-events: auto; transition: top .15s ease-out, right .15s ease-out; }
-        .modal-btns > * { color: #fff; font-size: 20px; cursor: pointer; line-height: 1; height: 30px; min-width: 30px; display: flex; align-items: center; justify-content: center; border-radius: 5px; opacity: .35; transition: opacity .15s, background .15s, transform .15s; user-select: none; }
-        .modal-btns:hover > * { opacity: 1; background: rgba(0,0,0,.65); -webkit-text-stroke: 1.5px #000; text-shadow: 0 0 3px #000, 0 0 6px #000; }
-        .modal-btns > *:hover { background: rgba(88,166,255,.9) !important; transform: scale(1.15); }
-        .modal-close { font-size: 24px; }
-        .modal-close:hover { background: rgba(248,81,73,.9) !important; }
-        .modal-nav { position: absolute; top: 50%; color: #fff; font-size: 44px; cursor: pointer; z-index: 1001; opacity: .4; user-select: none; padding: 20px 12px; transform: translateY(-50%); transition: opacity .15s, background .15s, transform .15s; border-radius: 6px; -webkit-text-stroke: 1.5px #000; text-shadow: 0 0 4px #000, 0 0 8px #000; }
-        .modal-nav:hover { opacity: 1; background: rgba(255,255,255,.85); color: #000; -webkit-text-stroke: 0; text-shadow: none; transform: translateY(-50%) scale(1.15); }
-        .modal-prev { left: 8px; }
-        .modal-next { right: 8px; }
-        .fit-icon { position: relative; transition: width .2s, height .2s; width: 18px; height: 10px; }
-        .fit-icon i { position: absolute; width: 5px; height: 5px; border: 1.5px solid #fff; font-style: normal; transition: top .2s, left .2s, right .2s, bottom .2s; }
-        .fit-icon i.tl { top: 0; left: 0; border-top: 1.5px solid #fff; border-left: 1.5px solid #fff; }
-        .fit-icon i.tr { top: 0; right: 0; border-top: 1.5px solid #fff; border-right: 1.5px solid #fff; }
-        .fit-icon i.bl { bottom: 0; left: 0; border-bottom: 1.5px solid #fff; border-left: 1.5px solid #fff; }
-        .fit-icon i.br { bottom: 0; right: 0; border-bottom: 1.5px solid #fff; border-right: 1.5px solid #fff; }
-        .fit-icon.outer i.tl { top: -2px; left: -2px; }
-        .fit-icon.outer i.tr { top: -2px; right: -2px; }
-        .fit-icon.outer i.bl { bottom: -2px; left: -2px; }
-        .fit-icon.outer i.br { bottom: -2px; right: -2px; }
-        .modal-topbar { position: absolute; z-index: 1001; background: rgba(0,0,0,.6); padding: 4px 12px; border-radius: 0 0 6px 6px; display: flex; align-items: center; gap: 10px; color: #c9d1d9; font-size: 13px; transition: top .15s ease-out, left .15s ease-out, width .15s ease-out, opacity .5s; box-sizing: border-box; pointer-events: auto; }
-        .modal-cam { color: #8b949e; font-size: 11px; margin-left: 6px; }
-        .modal-raw { background: #f0883e; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 6px; letter-spacing: 0.5px; }
-        .modal-topbar .sep { color: rgba(255,255,255,.2); margin: 0 2px; }
-        .modal-gps { color: #58a6ff; font-size: 11px; font-weight: 600; background: rgba(88,166,255,.15); padding: 1px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
-        .modal-gps:hover { background: rgba(88,166,255,.3); }
-        .modal-gps-manual { color: #fff; font-size: 10px; font-weight: 600; background: rgba(218,54,51,.8); padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
-        .modal-add-gps { color: #fff; font-size: 11px; font-weight: 600; background: rgba(35,134,54,.8); padding: 2px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
-        .modal-add-gps:hover { background: rgba(35,134,54,1); }
-        .modal-clear-gps { color: #fff; font-size: 11px; font-weight: 600; background: rgba(218,54,51,.7); padding: 2px 6px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
-        .modal-clear-gps:hover { background: rgba(218,54,51,.9); }
-        .modal-topbar button { background: none; border: none; color: rgba(255,255,255,.35); font-size: 16px; cursor: pointer; padding: 0 3px; transition: color .2s; vertical-align: middle; }
-        .modal-topbar button:hover { color: #fff; }
-        .modal-topbar .ss-stop { display: none; }
-        .modal-topbar .ss-stop:hover { color: #f85149; }
-        .modal-topbar.playing .ss-stop { display: inline; }
-        .modal-topbar.playing .ss-dir { display: none; }
-        .modal-topbar .modal-del { font-size: 15px; }
-        .modal-topbar .modal-del:hover { color: #f85149; }
-        .modal-btns > .hidden, .modal-topbar.hidden { opacity: 0; pointer-events: none; }
         .card .expand-btn { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #c9d1d9; border: none; border-radius: 3px; width: 28px; height: 28px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s; z-index: 3; }
         .card:hover .expand-btn { opacity: .8; }
         .card .expand-btn:hover { opacity: 1; background: rgba(0,0,0,.8); }
@@ -379,45 +315,6 @@
         .light-theme .dp-pchip:hover { background: #eaeef2; }
         .light-theme .dp-pchip .nm { color: #0969da; }
         .light-theme .dp-pchip.has-name .nm { color: #1f883d; }
-        .light-theme .modal-bg { background: rgba(0,0,0,.85); }
-        .light-theme .fm-inner { background: #f6f8fa; color: #24292f; }
-        .light-theme .fm-right { border-left: 1px solid #d0d7de; }
-        .light-theme .fm-right h2 { color: #0969da; }
-        .light-theme .fm-right label { color: #57606a; }
-        .light-theme .fm-right input, .light-theme .fm-right textarea { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; }
-        .light-theme .fm-right input:focus, .light-theme .fm-right textarea:focus { border-color: #0969da; }
-        .light-theme .fm-right .cluster-info { color: #57606a; }
-        .light-theme .ac-list { background: #ffffff; border: 1px solid #d0d7de; }
-        .light-theme .ac-item:hover { background: #eaeef2; }
-        .light-theme .rel-chip { background: #ffffff; }
-        .light-theme .rel-chip:hover { background: #eaeef2; }
-        .light-theme .rel-chip .lbl { color: #57606a; }
-        .light-theme .rel-chip.current { outline: 2px solid #0969da; }
-        .light-theme .rd-box { background: #f6f8fa; border: 1px solid #d0d7de; color: #24292f; }
-        .light-theme .pf-box { background: #f6f8fa; border: 1px solid #d0d7de; color: #24292f; }
-        .light-theme .pf-box h3 { color: #0969da; }
-        .light-theme .pf-item:hover { background: #eaeef2; }
-        .light-theme .pf-item .nm { color: #24292f; }
-        .light-theme .pf-item .cnt { color: #57606a; }
-        .light-theme .loading, .light-theme .empty { color: #57606a; }
-        .light-theme .pf-box input[type=text] { background: #ffffff !important; color: #24292f !important; border-color: #d0d7de !important; }
-        .light-theme .modal-close { color: #57606a; }
-        .light-theme .modal-nav { color: #57606a; }
-        .light-theme .modal-fs { color: #57606a; }
-        .light-theme .modal-rot { color: #57606a; }
-        .light-theme .modal-fit .fit-icon i { border-color: #57606a; }
-        .light-theme .modal-topbar { background: rgba(255,255,255,.8); color: #24292f; }
-        .light-theme .modal-topbar button { color: rgba(36,41,47,.35); }
-        .light-theme .modal-topbar button:hover { color: #24292f; }
-        .light-theme .modal-topbar .ss-stop:hover { color: #cf222e; }
-        .light-theme .modal-gps { background: rgba(9,105,218,.15); color: #0969da; }
-        .light-theme .modal-gps:hover { background: rgba(9,105,218,.3); }
-        .light-theme .modal-gps-manual { background: rgba(218,54,51,.9); color: #fff; }
-        .light-theme .modal-add-gps { background: rgba(31,136,61,.9); color: #fff; }
-        .light-theme .modal-add-gps:hover { background: rgba(31,136,61,1); }
-        .light-theme .modal-clear-gps { background: rgba(207,34,46,.8); color: #fff; }
-        .light-theme .modal-clear-gps:hover { background: rgba(207,34,46,1); }
-
         .light-theme .card .expand-btn { background: rgba(0,0,0,.5); color: #c9d1d9; }
         .light-theme .card .expand-btn:hover { background: rgba(0,0,0,.8); }
         .light-theme .card .goto-btn { background: rgba(0,0,0,.5); color: #c9d1d9; }
@@ -742,53 +639,6 @@
     <div class="grid" id="grid"></div>
     <div id="scroll-sentinel" class="scroll-sentinel"><div class="ss-loadbar"></div></div>
 
-    <div class="modal-bg" id="photoModal">
-        <div class="modal-nav modal-prev" onclick="modalNav(-1)">&#8249;</div>
-        <div class="modal-nav modal-next" onclick="modalNav(1)">&#8250;</div>
-        <div class="modal-content" id="modalContent">
-            <div class="modal-img-wrap" id="modalImgWrap" style="cursor:grab">
-                <img id="photoModalImg" src="" onclick="event.stopPropagation()">
-                <canvas id="photoModalCanvas" style="display:none;max-width:100%;max-height:100%;object-fit:contain" onclick="event.stopPropagation()"></canvas>
-                <video id="photoModalVideo" src="" controls preload="metadata" onclick="event.stopPropagation()" style="display:none"></video>
-                <div class="face-overlays" id="faceOverlays"></div>
-            </div>
-        </div>
-        <div class="modal-btns" id="modalBtns">
-            <div class="modal-rot modal-rot-l" onclick="rotatePhoto(-90)" title="Повернуть влево">&#8634;</div>
-            <div class="modal-rot modal-rot-r" onclick="rotatePhoto(90)" title="Повернуть вправо">&#8635;</div>
-            <div class="modal-fit" onclick="smartFit()" title="Растянуть"><div class="fit-icon" id="fitIcon"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div></div>
-            <div class="modal-fs" onclick="toggleFullscreen()">&#x26F6;</div>
-            <div class="modal-close" onclick="closePhotoModal()">&times;</div>
-        </div>
-        <div class="modal-topbar" id="modalTopbar">
-            <span id="modalDate"></span>
-            <span class="sep">|</span>
-            <span id="modalFlirBar" style="display:none">
-                <button class="flir-mbtn active" onclick="setModalFlir('thermal')" title="Тепловизор">&#127777;</button>
-                <button class="flir-mbtn" onclick="setModalFlir('visual')" title="Видимый свет">&#128247;</button>
-                <button class="flir-mbtn" onclick="setModalFlir('overlay')" title="Наложение">&#128270;</button>
-                <span class="sep" style="margin:0 2px">|</span>
-                <span id="flirOverlayControls" style="display:none;font-size:11px;gap:6px;align-items:center">
-                    A <input type="range" id="flirA" min="0.1" max="0.9" step="0.05" value="0.50" style="width:50px;vertical-align:middle" oninput="drawFlirOverlay()">
-                    <span id="flirAv" style="color:#0f0;width:30px;display:inline-block;text-align:right">0.50</span>
-                </span>
-            </span>
-            <button class="modal-del" id="modalDelBtn" onclick="markDeleted(_viewIdx !== null ? currentPhotos[_viewIdx].photo_id : '')" title="Удалить">&#128465;</button>
-            <span class="sep">|</span>
-            <span id="modalLoc"></span>
-            <span class="sep">|</span>
-            <button class="ss-dir" onclick="slideshowToggle(-1)" title="Автопрокрутка назад">&#9664;</button>
-            <button class="ss-stop" onclick="slideshowStop()" title="Стоп">&#9632;</button>
-            <button class="ss-dir" onclick="slideshowToggle(1)" title="Автопрокрутка вперёд">&#9654;</button>
-        </div>
-    </div>
-
-    <div class="vid-modal-bg" id="vidModal">
-        <div class="vid-modal-close" onclick="closeVideoModal()">×</div>
-        <div class="vid-modal-bar" id="vidModalBar"></div>
-        <video id="vidModalPlayer" src="" controls preload="metadata" onclick="event.stopPropagation()"></video>
-    </div>
-
     <div class="detail-panel" id="detailPanel">
         <span class="dp-close" onclick="closeDetail()">&times;</span>
         <div id="dpContent"></div>
@@ -853,6 +703,8 @@
         </div>
     </div>
 
+<script src="/shared.js"></script>
+<script src="/viewer.js"></script>
 <script src="/gallery.js"></script>
 <script src="/gallery-detail.js"></script>
 <script src="/gallery-ui.js"></script>
@@ -1029,6 +881,5 @@ function startReprocess() {
     });
 }
 </script>
-<script src="/shared.js"></script>
 </body>
 </html>

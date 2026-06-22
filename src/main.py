@@ -968,6 +968,20 @@ async def shared_js():
         return FileResponse(str(p), media_type="application/javascript")
     raise HTTPException(status_code=404)
 
+@app.get("/viewer.css")
+async def viewer_css():
+    p = web_dir / "viewer.css"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/css")
+    raise HTTPException(status_code=404)
+
+@app.get("/viewer.js")
+async def viewer_js():
+    p = web_dir / "viewer.js"
+    if p.exists():
+        return FileResponse(str(p), media_type="application/javascript")
+    raise HTTPException(status_code=404)
+
 @app.get("/gallery.js")
 async def gallery_js():
     p = web_dir / "gallery.js"

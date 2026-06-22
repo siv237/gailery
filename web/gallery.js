@@ -337,18 +337,25 @@ function _applyBatch(data) {
     saveFilters();
      if (startIdx === 0) {
          if (_needleMode) {
-             if (_restorePhotoId) {
-                 var rid = _restorePhotoId;
-                 _restorePhotoId = null;
-                 var scrollAttempts = 0;
-                 function scrollToPhoto() {
-                     var el = document.querySelector('.card[data-photo-id="' + CSS.escape(rid) + '"]');
-                     if (el) el.scrollIntoView({ block: 'start' });
-                     scrollAttempts++;
-                     if (scrollAttempts < 5) setTimeout(scrollToPhoto, 400);
-                 }
-                 setTimeout(scrollToPhoto, 300);
-             }
+              if (_restorePhotoId) {
+                  var rid = _restorePhotoId;
+                  _restorePhotoId = null;
+                  var scrollAttempts = 0;
+                  function scrollToPhoto() {
+                      var el = document.querySelector('.card[data-photo-id="' + CSS.escape(rid) + '"]');
+                      if (el) {
+                          el.scrollIntoView({ block: 'start' });
+                          if (_openViewerOnLoad) {
+                              _openViewerOnLoad = false;
+                              var idx = currentPhotos.findIndex(function(p) { return p.photo_id === rid; });
+                              if (idx >= 0) setTimeout(function() { openViewer(idx); }, 200);
+                          }
+                      }
+                      scrollAttempts++;
+                      if (scrollAttempts < 5) setTimeout(scrollToPhoto, 400);
+                  }
+                  setTimeout(scrollToPhoto, 300);
+              }
              _needleMode = false;
          } else {
              setTimeout(function() { updateTimelinePosition(); }, 100);
@@ -605,6 +612,7 @@ function _monthDividerHtml(dateStr) {
 }
 
 function appendGrid(photos, startIdx) {
+    if (typeof _embeddedMode !== 'undefined' && _embeddedMode) return;
     var grid = document.getElementById('grid');
     var html = '';
     var lastMonth = null;

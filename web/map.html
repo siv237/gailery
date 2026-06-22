@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/lib/leaflet/MarkerCluster.css" />
     <link rel="stylesheet" href="/lib/leaflet/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="/shared.css">
+    <link rel="stylesheet" href="/viewer.css">
     <style>
         body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
         h1 { position: relative; }
@@ -27,13 +28,6 @@
         .light-theme .nav a:hover { background: #eaeef2; color: #24292f; }
         .light-theme .nav a.active { color: #0969da; }
         .light-theme .info-bar { background: #f6f8fa; border-color: #d0d7de; color: #57606a; }
-        .light-theme .modal-close { color: #57606a; }
-        .light-theme .modal-nav { color: #57606a; }
-        .light-theme .modal-fs { color: #57606a; }
-        .light-theme .modal-date { background: rgba(255,255,255,.8); color: #24292f; }
-        .light-theme .modal-loc { background: rgba(255,255,255,.8); color: #24292f; }
-        .light-theme .modal-gps { background: rgba(9,105,218,.15); color: #0969da; }
-        .light-theme .modal-gps:hover { background: rgba(9,105,218,.3); }
         .light-theme .thumb-wrap { background: #eaeef2; border-color: #ffffff; box-shadow: 0 0 6px rgba(0,0,0,.2); }
         .light-theme .thumb-ph { background: #d0d7de; }
         .light-theme .thumb-ph svg { fill: #8c949e; }
@@ -48,24 +42,6 @@
         .nav a.active { color: #58a6ff; }
         #map { flex: 1; width: 100%; }
         .info-bar { background: #161b22; border-top: 1px solid #30363d; padding: 6px 20px; font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; }
-        .modal-bg { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.9); z-index: 2000; justify-content: center; align-items: center; }
-        .modal-bg.show { display: flex; }
-        .modal-bg img { max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px; }
-        .modal-bg.fs { background: #000; }
-        .modal-bg.fs img { max-width: 100vw; max-height: 100vh; border-radius: 0; }
-        .modal-fs { position: absolute; top: 12px; right: 56px; color: #fff; font-size: 22px; cursor: pointer; z-index: 2001; opacity: .7; }
-        .modal-fs:hover { opacity: 1; }
-        .modal-close { position: absolute; top: 12px; right: 16px; color: #fff; font-size: 30px; cursor: pointer; z-index: 2001; line-height: 1; opacity: .7; }
-        .modal-close:hover { opacity: 1; }
-        .modal-nav { position: absolute; top: 50%; color: #fff; font-size: 44px; cursor: pointer; z-index: 2001; opacity: .5; user-select: none; padding: 20px 12px; transform: translateY(-50%); }
-        .modal-nav:hover { opacity: .9; }
-        .modal-prev { left: 8px; }
-        .modal-next { right: 8px; }
-        .modal-date { position: absolute; top: 14px; left: 16px; color: #c9d1d9; font-size: 14px; z-index: 2001; background: rgba(0,0,0,.6); padding: 3px 10px; border-radius: 4px; }
-        .modal-cam { color: #8b949e; font-size: 11px; margin-left: 8px; }
-        .modal-loc { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); color: #e0e0e0; font-size: 14px; z-index: 2001; background: rgba(0,0,0,.6); padding: 3px 12px; border-radius: 4px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
-        .modal-gps { color: #58a6ff; font-size: 11px; font-weight: 600; background: rgba(88,166,255,.15); padding: 1px 6px; border-radius: 3px; cursor: pointer; }
-        .modal-gps:hover { background: rgba(88,166,255,.3); }
         .marker-cluster-small { background: rgba(35, 134, 54, 0.4); }
         .marker-cluster-small div { background: rgba(35, 134, 54, 0.7); color: #fff; font-size: 11px; }
         .marker-cluster-medium { background: rgba(31, 111, 235, 0.4); }
@@ -110,11 +86,6 @@
     h1 { padding-right: 12px; }
     h1 span { font-size: 14px; }
     .info-bar { font-size: 10px; padding: 4px 12px; }
-    .modal-nav { font-size: 36px; padding: 30px 16px; }
-    .modal-close { font-size: 30px; min-width: 44px; min-height: 44px; }
-    .modal-fs { font-size: 24px; min-width: 44px; min-height: 44px; right: 50px; }
-    .modal-loc { font-size: 12px; padding: 2px 8px; }
-    .modal-date { font-size: 12px; padding: 2px 8px; }
     .pick-dialog-box { max-width: 90vw; padding: 16px; }
     .pick-dialog-btns button { min-height: 44px; font-size: 14px; padding: 10px 18px; }
 }
@@ -152,15 +123,6 @@
         <span id="infoLeft">Загрузка...</span>
         <span id="infoRight"></span>
     </div>
-    <div class="modal-bg" id="photoModal">
-        <div class="modal-close" onclick="closePhotoModal()">&times;</div>
-        <div class="modal-fs" id="modalFsBtn" onclick="toggleFullscreen()">&#x26F6;</div>
-        <div class="modal-nav modal-prev" onclick="modalNav(-1)">&#8249;</div>
-        <div class="modal-nav modal-next" onclick="modalNav(1)">&#8250;</div>
-        <img id="photoModalImg" src="" onclick="event.stopPropagation()" style="transition:transform .1s;cursor:grab">
-        <div class="modal-date" id="modalDate"></div>
-        <div class="modal-loc" id="modalLoc"></div>
-    </div>
 
     <div class="pick-panel" id="pickPanel" style="display:none;">
         Кликните на карте для установки точки
@@ -185,18 +147,11 @@
         var API = '/api';
         var mapPhotos = [];
         var THUMB_ZOOM = 12;
-        var modalDate = '';
         var pickMode = false;
         var pickPhotoId = null;
         var pickTempMarker = null;
         var pickLat = null;
         var pickLon = null;
-        var modalZoom = 1;
-        var modalPx = 0;
-        var modalPy = 0;
-        var modalDragging = false;
-        var modalDragX = 0;
-        var modalDragY = 0;
         var map = L.map('map').setView([55.75, 37.62], 5);
 
         var osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -561,189 +516,18 @@
             return ru;
         }
 
-        function showPhoto(p) {
-            modalDate = p.date || '';
-            var fullUrl = API + '/photos/?path=' + encodeURIComponent(p.rel_path || p.path);
-            var img = document.getElementById('photoModalImg');
-            img.src = fullUrl;
-            img.style.transform = '';
-            img.style.transformOrigin = 'center center';
-            modalZoom = 1;
-            modalPx = 0;
-            modalPy = 0;
-            var dateEl = document.getElementById('modalDate');
-            var txt = formatDate(p.date);
-            if (p.camera) txt += '<span class="modal-cam">' + esc(p.camera) + '</span>';
-            dateEl.innerHTML = txt;
-            var locEl = document.getElementById('modalLoc');
-            if (p.lat && p.lon) {
-                var locText = '';
-                var key = p.lat.toFixed(3) + ',' + p.lon.toFixed(3);
-                if (window._rgCache && window._rgCache[key]) locText = window._rgCache[key];
-                locEl.innerHTML = '<span class="modal-gps" onclick="goToGps(' + p.lat + ',' + p.lon + ')">GPS</span>' + esc(locText);
-                locEl.style.display = '';
-            } else {
-                locEl.innerHTML = '';
-                locEl.style.display = 'none';
-            }
-        }
-
         function openModal(p) {
-            showPhoto(p);
-            document.getElementById('photoModal').classList.add('show');
+            Viewer.openSingle(p);
             map.closePopup();
         }
 
-        function modalNav(dir) {
-            if (!modalDate) return;
-            var d = dir > 0 ? 'next' : 'prev';
-            fetch(API + '/photos/neighbor?date=' + encodeURIComponent(modalDate) + '&dir=' + d)
-                .then(function(r) { return r.json(); })
-                .then(function(p) {
-                    if (p && p.rel_path) showPhoto(p);
-                });
-        }
-
         function goToGps(lat, lon) {
-            closePhotoModal();
+            Viewer.close();
             map.setView([lat, lon], 18, { animate: true });
         }
 
-        function applyModalTransform() {
-            var img = document.getElementById('photoModalImg');
-            img.style.transform = 'translate(' + modalPx + 'px,' + modalPy + 'px) scale(' + modalZoom + ')';
-        }
-
-        function toggleFullscreen() {
-            var el = document.getElementById('photoModal');
-            if (el.classList.contains('fs')) {
-                el.classList.remove('fs');
-                if (document.exitFullscreen) document.exitFullscreen();
-            } else {
-                el.classList.add('fs');
-                var fsEl = document.documentElement;
-                if (fsEl.requestFullscreen) fsEl.requestFullscreen();
-                else if (fsEl.webkitRequestFullscreen) fsEl.webkitRequestFullscreen();
-            }
-        }
-
-        function closePhotoModal() {
-            document.getElementById('photoModal').classList.remove('show');
-            document.getElementById('photoModalImg').src = '';
-            modalDate = '';
-        }
-
-        document.getElementById('photoModal').addEventListener('click', function(e) {
-            if (e.target === this) closePhotoModal();
-        });
-
-        document.getElementById('photoModal').addEventListener('wheel', function(e) {
-            e.preventDefault();
-            var rect = document.getElementById('photoModalImg').getBoundingClientRect();
-            var cx = e.clientX - rect.left - rect.width / 2 - modalPx;
-            var cy = e.clientY - rect.top - rect.height / 2 - modalPy;
-            var oldZ = modalZoom;
-            var delta = e.deltaY > 0 ? 0.8 : 1.25;
-            modalZoom = Math.max(1, Math.min(20, modalZoom * delta));
-            var ratio = modalZoom / oldZ;
-            modalPx -= cx * (ratio - 1);
-            modalPy -= cy * (ratio - 1);
-            if (modalZoom <= 1) { modalPx = 0; modalPy = 0; }
-            applyModalTransform();
-        });
-
-        document.getElementById('photoModalImg').addEventListener('mousedown', function(e) {
-            if (modalZoom > 1) {
-                e.preventDefault();
-                modalDragging = true;
-                modalDragX = e.clientX - modalPx;
-                modalDragY = e.clientY - modalPy;
-                e.target.style.cursor = 'grabbing';
-            }
-        });
-
-        document.addEventListener('mousemove', function(e) {
-            if (modalDragging) {
-                modalPx = e.clientX - modalDragX;
-                modalPy = e.clientY - modalDragY;
-                applyModalTransform();
-            }
-        });
-
-        document.addEventListener('mouseup', function() {
-            if (modalDragging) {
-                modalDragging = false;
-                document.getElementById('photoModalImg').style.cursor = 'grab';
-            }
-        });
-
-        document.addEventListener('fullscreenchange', function() {
-            if (!document.fullscreenElement) {
-                document.getElementById('photoModal').classList.remove('fs');
-            }
-        });
-
-        (function() {
-            var modal = document.getElementById('photoModal');
-            var sx = 0, sy = 0, st = 0;
-            var pinchStartDist = 0, pinchStartZoom = 1;
-            var panStartX = 0, panStartY = 0, isPanning = false;
-
-            modal.addEventListener('touchstart', function(e) {
-                if (e.touches.length === 2) {
-                    pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                    pinchStartZoom = modalZoom;
-                    return;
-                }
-                if (e.touches.length === 1) {
-                    sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
-                    if (modalZoom > 1) {
-                        isPanning = true;
-                        panStartX = e.touches[0].clientX - modalPx;
-                        panStartY = e.touches[0].clientY - modalPy;
-                    }
-                }
-            }, { passive: true });
-
-            modal.addEventListener('touchmove', function(e) {
-                if (e.touches.length === 2 && pinchStartDist > 0) {
-                    var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                    var scale = dist / pinchStartDist;
-                    modalZoom = Math.max(1, Math.min(20, pinchStartZoom * scale));
-                    if (modalZoom <= 1) { modalPx = 0; modalPy = 0; }
-                    applyModalTransform();
-                    return;
-                }
-                if (isPanning && e.touches.length === 1) {
-                    modalPx = e.touches[0].clientX - panStartX;
-                    modalPy = e.touches[0].clientY - panStartY;
-                    applyModalTransform();
-                }
-            }, { passive: true });
-
-            modal.addEventListener('touchend', function(e) {
-                isPanning = false;
-                pinchStartDist = 0;
-                if (e.touches.length > 0) return;
-                if (modalZoom > 1) return;
-                var dx = e.changedTouches[0].clientX - sx;
-                var dy = e.changedTouches[0].clientY - sy;
-                var dt = Date.now() - st;
-                if (dt < 500 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                    if (dx < 0) modalNav(1);
-                    else modalNav(-1);
-                }
-            }, { passive: true });
-        })();
-
-        document.addEventListener('keydown', function(e) {
-            if (!modalDate) return;
-            if (e.key === 'ArrowLeft') modalNav(-1);
-            else if (e.key === 'ArrowRight') modalNav(1);
-            else if (e.key === 'Escape') closePhotoModal();
-        });
-    
     </script>
     <script src="/shared.js"></script>
+    <script src="/viewer.js"></script>
 </body>
 </html>

@@ -1148,7 +1148,7 @@ async def get_map_photos():
         db = get_db()
         cur = db.sqlite.cursor()
         rows = cur.execute("""
-            SELECT photo_id, path, description, gps_lat, gps_lon, COALESCE(manual_date, date) as date, camera_make, camera_model, img_width, img_height, manual_gps
+            SELECT photo_id, path, description, gps_lat, gps_lon, COALESCE(manual_date, date) as date, camera_make, camera_model, img_width, img_height, manual_gps, media_type
             FROM photos
             WHERE gps_lat IS NOT NULL AND gps_lon IS NOT NULL
               AND gps_lat != 0 AND gps_lon != 0
@@ -1161,7 +1161,7 @@ async def get_map_photos():
             cam_parts = []
             if r[6]: cam_parts.append(r[6])
             if r[7]: cam_parts.append(r[7])
-            result.append({
+            p = {
                 "photo_id": r[0],
                 "path": abs_path,
                 "rel_path": rel,
@@ -1173,7 +1173,10 @@ async def get_map_photos():
                 "w": r[8],
                 "h": r[9],
                 "manual_gps": r[10] or 0,
-            })
+                "media_type": r[11] or "photo",
+            }
+            p["needs_stream"] = _video_needs_stream(p)
+            result.append(p)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1191,13 +1194,13 @@ async def get_neighbor(date: str, dir: str = "next"):
 
     if dir == "next":
         row = cur.execute(
-            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon "
+            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type "
             "FROM photos WHERE COALESCE(manual_date, date) > ? AND deleted = 0 ORDER BY effective_date ASC LIMIT 1",
             (date,)
         ).fetchone()
     else:
         row = cur.execute(
-            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon "
+            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type "
             "FROM photos WHERE COALESCE(manual_date, date) < ? AND deleted = 0 ORDER BY effective_date DESC LIMIT 1",
             (date,)
         ).fetchone()
@@ -1211,7 +1214,7 @@ async def get_neighbor(date: str, dir: str = "next"):
     if row[4]: cam_parts.append(row[4])
     if row[5]: cam_parts.append(row[5])
 
-    return {
+    p = {
         "photo_id": row[0],
         "path": abs_path,
         "rel_path": rel,
@@ -1220,7 +1223,10 @@ async def get_neighbor(date: str, dir: str = "next"):
         "camera": " ".join(cam_parts) if cam_parts else "",
         "lat": row[6],
         "lon": row[7],
+        "media_type": row[8] or "photo",
     }
+    p["needs_stream"] = _video_needs_stream(p)
+    return p
 
 
 @router.post("/reverse_geocode")
