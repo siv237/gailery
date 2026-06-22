@@ -216,11 +216,10 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
                 "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "
                 "f.bbox_x2, f.bbox_y2, p.display_name, p.name "
                 "FROM faces f "
-                "JOIN catalog_files cf ON (cf.rel_path = f.photo_id OR cf.abs_path = f.photo_id) "
+                "JOIN catalog_files cf ON cf.content_hash = f.content_hash "
+                "JOIN photos ph ON ph.path = cf.abs_path "
                 "LEFT JOIN personas p ON p.persona_id = f.persona_id "
-                "WHERE cf.abs_path IN ("
-                "  SELECT path FROM photos WHERE photo_id IN (" + uh + ")"
-                ")",
+                "WHERE ph.photo_id IN (" + uh + ") AND cf.is_canonical = 1",
                 uuids
             ).fetchall()
             for fr in face_rows:

@@ -1154,6 +1154,40 @@ async def get_map_photos():
               AND gps_lat != 0 AND gps_lon != 0
               AND deleted = 0
         """).fetchall()
+
+        photo_ids = [r[0] for r in rows]
+        faces_map = {}
+        if photo_ids:
+            batch_size = 500
+            for i in range(0, len(photo_ids), batch_size):
+                batch = photo_ids[i:i+batch_size]
+                ph = ",".join("?" * len(batch))
+                face_rows = cur.execute(
+                    "SELECT p.photo_id, f.face_id, f.persona_id, "
+                    "f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, "
+                    "per.display_name, per.name "
+                    "FROM faces f "
+                    "JOIN catalog_files cf ON cf.content_hash = f.content_hash "
+                    "JOIN photos p ON p.path = cf.abs_path "
+                    "LEFT JOIN personas per ON per.persona_id = f.persona_id "
+                    "WHERE p.photo_id IN (" + ph + ") AND cf.is_canonical = 1",
+                    batch
+                ).fetchall()
+                for fr in face_rows:
+                    pid = fr[0]
+                    if pid not in faces_map:
+                        faces_map[pid] = []
+                    faces_map[pid].append({
+                        "face_id": fr[1],
+                        "persona_id": fr[2],
+                        "bbox_x1": fr[3],
+                        "bbox_y1": fr[4],
+                        "bbox_x2": fr[5],
+                        "bbox_y2": fr[6],
+                        "display_name": fr[7],
+                        "name": fr[8],
+                    })
+
         result = []
         for r in rows:
             abs_path = r[1] or ""
@@ -1161,8 +1195,9 @@ async def get_map_photos():
             cam_parts = []
             if r[6]: cam_parts.append(r[6])
             if r[7]: cam_parts.append(r[7])
+            pid = r[0]
             p = {
-                "photo_id": r[0],
+                "photo_id": pid,
                 "path": abs_path,
                 "rel_path": rel,
                 "description": r[2] or "",
@@ -1174,10 +1209,14 @@ async def get_map_photos():
                 "h": r[9],
                 "manual_gps": r[10] or 0,
                 "media_type": r[11] or "photo",
+                "img_width": r[8],
+                "img_height": r[9],
+                "faces": faces_map.get(pid, []),
             }
             p["needs_stream"] = _video_needs_stream(p)
             result.append(p)
-        return result
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=result, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1194,13 +1233,13 @@ async def get_neighbor(date: str, dir: str = "next"):
 
     if dir == "next":
         row = cur.execute(
-            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type "
+            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
             "FROM photos WHERE COALESCE(manual_date, date) > ? AND deleted = 0 ORDER BY effective_date ASC LIMIT 1",
             (date,)
         ).fetchone()
     else:
         row = cur.execute(
-            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type "
+            "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
             "FROM photos WHERE COALESCE(manual_date, date) < ? AND deleted = 0 ORDER BY effective_date DESC LIMIT 1",
             (date,)
         ).fetchone()
@@ -1214,8 +1253,27 @@ async def get_neighbor(date: str, dir: str = "next"):
     if row[4]: cam_parts.append(row[4])
     if row[5]: cam_parts.append(row[5])
 
+    pid = row[0]
+    face_rows = cur.execute(
+        "SELECT f.face_id, f.persona_id, f.bbox_x1, f.bbox_y1, "
+        "f.bbox_x2, f.bbox_y2, per.display_name, per.name "
+        "FROM faces f "
+        "JOIN catalog_files cf ON cf.content_hash = f.content_hash "
+        "LEFT JOIN personas per ON per.persona_id = f.persona_id "
+        "WHERE cf.abs_path = ? AND cf.is_canonical = 1",
+        (abs_path,)
+    ).fetchall()
+    faces = []
+    for fr in face_rows:
+        faces.append({
+            "face_id": fr[0], "persona_id": fr[1],
+            "bbox_x1": fr[2], "bbox_y1": fr[3],
+            "bbox_x2": fr[4], "bbox_y2": fr[5],
+            "display_name": fr[6], "name": fr[7],
+        })
+
     p = {
-        "photo_id": row[0],
+        "photo_id": pid,
         "path": abs_path,
         "rel_path": rel,
         "description": row[2] or "",
@@ -1224,6 +1282,9 @@ async def get_neighbor(date: str, dir: str = "next"):
         "lat": row[6],
         "lon": row[7],
         "media_type": row[8] or "photo",
+        "img_width": row[9],
+        "img_height": row[10],
+        "faces": faces,
     }
     p["needs_stream"] = _video_needs_stream(p)
     return p

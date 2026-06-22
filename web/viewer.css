@@ -21,7 +21,7 @@
 .vid-modal-close:hover { color: #f85149; }
 .vid-modal-bar { height: 36px; color: #c9d1d9; font-size: 12px; font-family: monospace; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0; }
 #vidModalPlayer { width: 90vw; height: calc(90vh - 36px); background: #000; border-radius: 6px; }
-.face-overlays { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; overflow: visible; }
+.face-overlays { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: auto; overflow: visible; }
 .face-box { position: absolute; border: 2px solid rgba(88,166,255,.8); border-radius: 3px; opacity: 0; transition: opacity .2s; pointer-events: auto; cursor: pointer; background: transparent; }
 .face-overlays:hover .face-box { opacity: 1; }
 .face-box:hover { border-color: #58a6ff; }

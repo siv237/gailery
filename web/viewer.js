@@ -188,7 +188,7 @@ function openViewer(idx) {
             }
         } else { vid.style.objectPosition = ''; }
     } else {
-        vid.style.display = 'none'; vid.src = '';
+        vid.style.display = 'none'; vid.pause(); vid.removeAttribute('src');
         img.style.display = 'block'; img.src = url;
         img.classList.remove('cover'); vid.classList.remove('cover');
         wrap.classList.remove('cover-wrap'); img.style.objectPosition = '';
@@ -293,7 +293,7 @@ function closePhotoModal() {
     document.getElementById('photoModal').classList.remove('show');
     var img = document.getElementById('photoModalImg');
     var vid = document.getElementById('photoModalVideo');
-    img.src = ''; img.classList.remove('cover'); img.style.display = 'block';
+    img.removeAttribute('src'); img.classList.remove('cover'); img.style.display = 'block';
     vid.pause(); vid.removeAttribute('src'); vid.onended = null;
     vid.classList.remove('cover'); vid.style.display = 'none';
     _mCoverMode = false; _mDate = ''; _mPhotoId = ''; Viewer.modalOpen = false;
