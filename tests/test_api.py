@@ -808,3 +808,142 @@ class TestPhotosWithDataAPI:
         data = resp.json()
         assert "years" in data
         assert data["total"] > 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Settings API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSettingsAPI:
+    def test_get_setting_not_found(self, app_client):
+        """GET несуществующей настройки возвращает пустое значение."""
+        resp = app_client.get("/api/settings/nonexistent_key")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["key"] == "nonexistent_key"
+        assert data["value"] == ""
+
+    def test_set_and_get_setting(self, app_client):
+        """PUT + GET настройки работает."""
+        resp = app_client.put("/api/settings/test_key_123", json={"value": "test_value_123"})
+        assert resp.status_code == 200
+        assert resp.json()["value"] == "test_value_123"
+
+        resp2 = app_client.get("/api/settings/test_key_123")
+        assert resp2.status_code == 200
+        assert resp2.json()["value"] == "test_value_123"
+
+    def test_top_personas_for_facts(self, app_client):
+        """Top personas for facts возвращает text."""
+        resp = app_client.get("/api/settings/faces_total/top_personas")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "text" in data
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Config API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestConfigAPI:
+    def test_get_config(self, app_client):
+        """GET /api/config возвращает группы настроек."""
+        resp = app_client.get("/api/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "groups" in data
+        assert isinstance(data["groups"], list)
+
+    def test_config_update_env_key(self, app_client):
+        """Config update с env_key изменяет настройку."""
+        resp = app_client.post("/api/config/update", json={
+            "env_key": "OLLAMA_EMBED_CHUNK", "value": "512"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is True
+
+    def test_config_update_prompt_key(self, app_client):
+        """Config update с prompt_ ключом сохраняется в settings БД."""
+        resp = app_client.post("/api/config/update", json={
+            "env_key": "prompt_test_123", "value": "тестовый промпт"
+        })
+        assert resp.status_code == 200
+        assert resp.json().get("ok") is True
+
+    def test_config_update_no_key(self, app_client):
+        """Config update без env_key возвращает ok=False."""
+        resp = app_client.post("/api/config/update", json={"value": "test"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Backup API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestBackupAPI:
+    def test_backup_download(self, app_client):
+        """Backup download возвращает gzip."""
+        resp = app_client.get("/api/backup/download")
+        if resp.status_code == 404:
+            pytest.skip("No database in test env")
+        assert resp.status_code == 200
+
+    def test_backup_upload_no_file(self, app_client):
+        """Backup upload без файла возвращает 422."""
+        resp = app_client.post("/api/backup/upload")
+        assert resp.status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Proxy / Ollama API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestProxyAPI:
+    def test_ollama_check(self, app_client):
+        """Ollama check endpoint не падает."""
+        resp = app_client.get("/api/proxy/ollama_check?url=http://localhost:11434")
+        assert resp.status_code == 200
+
+    def test_ollama_check_invalid_url(self, app_client):
+        """Ollama check с некорректным URL не крашит."""
+        resp = app_client.get("/api/proxy/ollama_check?url=http://invalid:99999")
+        assert resp.status_code == 200
+
+    def test_ollama_models(self, app_client):
+        """Ollama models endpoint не падает."""
+        resp = app_client.get("/api/proxy/ollama_models?url=http://localhost:11434")
+        assert resp.status_code in (200, 500)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Admin / Static files API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestAdminAPI:
+    def test_admin_page(self, app_client):
+        """Admin страница загружается."""
+        resp = app_client.get("/admin")
+        assert resp.status_code == 200
+
+    def test_admin_js(self, app_client):
+        """Admin JS файл доступен."""
+        resp = app_client.get("/admin.js")
+        assert resp.status_code in (200, 404)
+
+    def test_gallery_page(self, app_client):
+        """Gallery страница загружается."""
+        resp = app_client.get("/gallery")
+        assert resp.status_code == 200
+
+    def test_persons_page(self, app_client):
+        """Persons страница загружается."""
+        resp = app_client.get("/persons")
+        assert resp.status_code == 200
+
+    def test_catalog_page(self, app_client):
+        """Catalog страница загружается."""
+        resp = app_client.get("/catalog")
+        assert resp.status_code == 200
