@@ -635,6 +635,9 @@ function loadPersonaFaces(personaId, grid) {
             grid.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:4px">0 лиц</div>';
             return;
         }
+        var photos = faces.map(function(f) {
+            return {photo_id: f.photo_id, date: f.date || '', media_type: f.media_type || 'photo'};
+        });
         for (var i = 0; i < faces.length; i++) {
             var face = faces[i];
             var preview = document.createElement('div');
@@ -651,9 +654,9 @@ function loadPersonaFaces(personaId, grid) {
 
             preview.appendChild(img);
             preview.appendChild(conf);
-            preview.onclick = (function(photoId) {
-                return function() { Viewer.openSingle({photo_id: photoId, date: ''}); };
-            })(face.photo_id);
+            preview.onclick = (function(idx) {
+                return function() { Viewer.open(photos, idx); };
+            })(i);
 
             grid.appendChild(preview);
         }

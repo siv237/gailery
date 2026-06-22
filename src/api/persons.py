@@ -193,9 +193,19 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
 
         result = []
         for face in faces:
+            row = db.sqlite.execute(
+                "SELECT p.photo_id, p.date, p.media_type FROM photos p "
+                "JOIN catalog_files cf ON cf.abs_path = p.path "
+                "WHERE cf.rel_path = ? OR cf.abs_path = ? OR p.path = ? "
+                "ORDER BY cf.is_canonical DESC LIMIT 1",
+                (face["photo_id"], face["photo_id"], face["photo_id"])
+            ).fetchone()
             result.append({
                 "face_id": face["face_id"],
-                "photo_id": face["photo_id"],
+                "photo_id": row[0] if row else face["photo_id"],
+                "photo_path": face["photo_id"],
+                "date": row[1] if row else "",
+                "media_type": row[2] if row else "photo",
                 "bbox_x1": face["bbox_x1"],
                 "bbox_y1": face["bbox_y1"],
                 "bbox_x2": face["bbox_x2"],
