@@ -191,21 +191,72 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
 
         faces = sorted(faces, key=lambda f: float(f.get("confidence", 0.0)), reverse=True)
 
+        photo_paths = list(set(f["photo_id"] for f in faces))
+        photo_map = {}
+        if photo_paths:
+            ph = ",".join("?" * len(photo_paths))
+            rows = db.sqlite.execute(
+                "SELECT cf.rel_path, cf.abs_path, p.photo_id, p.date, p.media_type "
+                "FROM catalog_files cf "
+                "LEFT JOIN photos p ON p.path = cf.abs_path "
+                "WHERE cf.rel_path IN (" + ph + ") OR cf.abs_path IN (" + ph + ") "
+                "ORDER BY cf.is_canonical DESC",
+                photo_paths + photo_paths
+            ).fetchall()
+            for r in rows:
+                key = r[0] or r[1]
+                if key and key not in photo_map:
+                    photo_map[key] = {"uuid": r[2], "date": r[3], "media_type": r[4]}
+
+        uuids = list(set(info["uuid"] for info in photo_map.values() if info.get("uuid")))
+        all_faces_map = {}
+        if uuids:
+            uh = ",".join("?" * len(uuids))
+            face_rows = db.sqlite.execute(
+                "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "
+                "f.bbox_x2, f.bbox_y2, p.display_name, p.name "
+                "FROM faces f "
+                "JOIN catalog_files cf ON (cf.rel_path = f.photo_id OR cf.abs_path = f.photo_id) "
+                "LEFT JOIN personas p ON p.persona_id = f.persona_id "
+                "WHERE cf.abs_path IN ("
+                "  SELECT path FROM photos WHERE photo_id IN (" + uh + ")"
+                ")",
+                uuids
+            ).fetchall()
+            for fr in face_rows:
+                pid = fr[1]
+                if pid not in all_faces_map:
+                    all_faces_map[pid] = []
+                all_faces_map[pid].append({
+                    "face_id": fr[0],
+                    "persona_id": fr[2],
+                    "bbox_x1": fr[3],
+                    "bbox_y1": fr[4],
+                    "bbox_x2": fr[5],
+                    "bbox_y2": fr[6],
+                    "display_name": fr[7],
+                    "name": fr[8],
+                })
+
         result = []
         for face in faces:
-            row = db.sqlite.execute(
-                "SELECT p.photo_id, p.date, p.media_type FROM photos p "
-                "JOIN catalog_files cf ON cf.abs_path = p.path "
-                "WHERE cf.rel_path = ? OR cf.abs_path = ? OR p.path = ? "
-                "ORDER BY cf.is_canonical DESC LIMIT 1",
-                (face["photo_id"], face["photo_id"], face["photo_id"])
-            ).fetchone()
+            info = photo_map.get(face["photo_id"], {})
+            all_faces = all_faces_map.get(face["photo_id"], [])
+            if not all_faces:
+                all_faces = [{
+                    "face_id": face["face_id"],
+                    "bbox_x1": face["bbox_x1"],
+                    "bbox_y1": face["bbox_y1"],
+                    "bbox_x2": face["bbox_x2"],
+                    "bbox_y2": face["bbox_y2"],
+                }]
             result.append({
                 "face_id": face["face_id"],
-                "photo_id": row[0] if row else face["photo_id"],
+                "photo_id": info.get("uuid") or face["photo_id"],
                 "photo_path": face["photo_id"],
-                "date": row[1] if row else "",
-                "media_type": row[2] if row else "photo",
+                "date": info.get("date") or "",
+                "media_type": info.get("media_type") or "photo",
+                "all_faces": all_faces,
                 "bbox_x1": face["bbox_x1"],
                 "bbox_y1": face["bbox_y1"],
                 "bbox_x2": face["bbox_x2"],

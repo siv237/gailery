@@ -9,6 +9,7 @@
     <title>Gailery - Персоны</title>
     <link rel="stylesheet" href="/shared.css">
     <link rel="stylesheet" href="/viewer.css">
+    <link rel="stylesheet" href="/face-modal.css">
     <style>
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
         h1 { position: relative; }
@@ -636,7 +637,12 @@ function loadPersonaFaces(personaId, grid) {
             return;
         }
         var photos = faces.map(function(f) {
-            return {photo_id: f.photo_id, date: f.date || '', media_type: f.media_type || 'photo'};
+            return {
+                photo_id: f.photo_id,
+                date: f.date || '',
+                media_type: f.media_type || 'photo',
+                faces: f.all_faces || []
+            };
         });
         for (var i = 0; i < faces.length; i++) {
             var face = faces[i];
@@ -802,5 +808,6 @@ loadPersonas();
 </script>
 <script src="/shared.js"></script>
 <script src="/viewer.js"></script>
+<script src="/face-modal.js"></script>
 </body>
 </html>

@@ -193,134 +193,7 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
-function openFaceModal(personaId, faceId) {
-    fmCurrentPid = personaId;
-    document.getElementById('fmImg').src = API + '/photos/face_context/' + faceId;
-    document.getElementById('fmTitle').textContent = personaId;
-    document.getElementById('fmClusterInfo').textContent = 'Кластер: ' + personaId;
-    document.getElementById('fmName').value = '';
-    document.getElementById('fmComment').value = '';
-    document.getElementById('fmSaved').style.display = 'none';
-    document.getElementById('fmRelatedBlock').style.display = 'none';
-    document.getElementById('fmRelatedGrid').innerHTML = '';
-    fmRelatedClusters = [];
-
-    fetch(API + '/persons/' + personaId).then(function(r) { return r.json(); }).then(function(p) {
-        fmOriginalName = p.display_name || '';
-        fmOriginalComment = p.comment || '';
-        document.getElementById('fmName').value = fmOriginalName;
-        document.getElementById('fmComment').value = fmOriginalComment;
-        document.getElementById('fmTitle').textContent = p.display_name || p.name || personaId;
-        document.getElementById('fmClusterInfo').textContent = 'Кластер: ' + personaId + ' | Лиц: ' + (p.face_count || 0);
-        if (p.display_name) {
-            fmLoadRelated(personaId, p.display_name);
-        }
-    });
-
-    document.getElementById('faceModal').classList.add('show');
-    closeDetail();
-    fmLoadAcNames();
-}
-
-function fmLoadRelated(currentId, name) {
-    fetch(API + '/persons/by_name/' + encodeURIComponent(name)).then(function(r) { return r.json(); }).then(function(list) {
-        fmRelatedClusters = list;
-        if (list.length <= 1) {
-            document.getElementById('fmRelatedBlock').style.display = 'none';
-            return;
-        }
-        var html = '';
-        for (var i = 0; i < list.length; i++) {
-            var c = list[i];
-            var isCurrent = c.persona_id === currentId;
-            var faceUrl = c.face_id ? (API + '/photos/face/' + c.face_id + '?margin=0.5') : '';
-            var cls = isCurrent ? 'rel-chip current' : 'rel-chip';
-            html += '<div class="' + cls + '" onclick="openFaceModal(\'' + esc(c.persona_id) + '\',\'' + esc(c.face_id || '') + '\')">';
-            if (faceUrl) html += '<img src="' + faceUrl + '" loading="lazy">';
-            html += '<div class="lbl">' + esc(c.persona_id) + ' (' + c.face_count + 'л)</div></div>';
-        }
-        document.getElementById('fmRelatedGrid').innerHTML = html;
-        document.getElementById('fmRelatedBlock').style.display = 'block';
-    });
-}
-
-function closeFaceModal() {
-    document.getElementById('faceModal').classList.remove('show');
-    fmCurrentPid = null;
-}
-
-function fmLoadAcNames() {
-    fetch(API + '/persons/names').then(function(r) { return r.json(); }).then(function(n) { fmAcNames = n; });
-}
-
-function fmAcSearch() {
-    var val = document.getElementById('fmName').value.toLowerCase();
-    var list = document.getElementById('fmAcList');
-    if (!val) { list.classList.remove('show'); return; }
-    var matches = fmAcNames.filter(function(n) { return n.toLowerCase().indexOf(val) >= 0; });
-    if (matches.length === 0) { list.classList.remove('show'); return; }
-    var html = '';
-    for (var i = 0; i < matches.length; i++) {
-        html += '<div class="ac-item" onmousedown="fmAcSelect(\'' + esc(matches[i]) + '\')">' + esc(matches[i]) + '</div>';
-    }
-    list.innerHTML = html;
-    list.classList.add('show');
-}
-
-function fmAcHideDelayed() {
-    setTimeout(function() { document.getElementById('fmAcList').classList.remove('show'); }, 200);
-}
-
-function fmAcSelect(name) {
-    document.getElementById('fmName').value = name;
-    document.getElementById('fmAcList').classList.remove('show');
-}
-
-function fmSave() {
-    if (!fmCurrentPid) return;
-    var newName = document.getElementById('fmName').value.trim();
-    var newComment = document.getElementById('fmComment').value.trim();
-    if (fmOriginalName && fmOriginalName !== newName && fmRelatedClusters.length > 1) {
-        document.getElementById('rdText').textContent = 'Имя меняется с "' + fmOriginalName + '" на "' + newName + '". Применить:';
-        document.getElementById('renameDialog').classList.add('show');
-        return;
-    }
-    fmDoSaveOne();
-}
-
-function fmDoSaveOne() {
-    document.getElementById('renameDialog').classList.remove('show');
-    if (!fmCurrentPid) return;
-    var name = document.getElementById('fmName').value.trim();
-    var comment = document.getElementById('fmComment').value.trim();
-    fetch(API + '/persons/' + fmCurrentPid, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name || null, comment: comment || null, clear_display_name: !name, clear_comment: !comment }),
-    }).then(function(r) { return r.json(); }).then(function() {
-        document.getElementById('fmSaved').style.display = 'block';
-        setTimeout(function() { document.getElementById('fmSaved').style.display = 'none'; }, 2000);
-        _updatePersonaName(fmCurrentPid, name);
-    });
-}
-
-function fmDoSaveAll() {
-    document.getElementById('renameDialog').classList.remove('show');
-    if (!fmCurrentPid) return;
-    var name = document.getElementById('fmName').value.trim();
-    var comment = document.getElementById('fmComment').value.trim();
-    fetch(API + '/persons/batch/by_name?old_name=' + encodeURIComponent(fmOriginalName), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: name || null, comment: comment || null, clear_display_name: !name, clear_comment: !comment }),
-    }).then(function(r) { return r.json(); }).then(function() {
-        document.getElementById('fmSaved').style.display = 'block';
-        setTimeout(function() { document.getElementById('fmSaved').style.display = 'none'; }, 2000);
-        _updatePersonaName(fmCurrentPid, name);
-    });
-}
-
-function _updatePersonaName(personaId, displayName) {
+FaceModalHooks.onSaved = function(personaId, displayName) {
     for (var i = 0; i < currentPhotos.length; i++) {
         var p = currentPhotos[i];
         var faces = p.faces || [];
@@ -347,11 +220,7 @@ function _updatePersonaName(personaId, displayName) {
         var cp = currentPhotos.find(function(ph) { return ph.photo_id === _mPhotoId; });
         if (cp) _drawFaceBoxes(cp, img);
     }
-}
-
-function fmDoSaveAbort() {
-    document.getElementById('renameDialog').classList.remove('show');
-}
+};
 
 loadTimeline();
 onModeChange();

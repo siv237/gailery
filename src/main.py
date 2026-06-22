@@ -982,6 +982,20 @@ async def viewer_js():
         return FileResponse(str(p), media_type="application/javascript")
     raise HTTPException(status_code=404)
 
+@app.get("/face-modal.css")
+async def face_modal_css():
+    p = web_dir / "face-modal.css"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/css")
+    raise HTTPException(status_code=404)
+
+@app.get("/face-modal.js")
+async def face_modal_js():
+    p = web_dir / "face-modal.js"
+    if p.exists():
+        return FileResponse(str(p), media_type="application/javascript")
+    raise HTTPException(status_code=404)
+
 @app.get("/gallery.js")
 async def gallery_js():
     p = web_dir / "gallery.js"

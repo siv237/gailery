@@ -10,6 +10,7 @@
     <script>if (new URLSearchParams(location.search).get('embedded')==='1') document.documentElement.classList.add('embedded');</script>
     <link rel="stylesheet" href="/shared.css">
     <link rel="stylesheet" href="/viewer.css">
+    <link rel="stylesheet" href="/face-modal.css">
     <style>
         :root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
@@ -192,49 +193,6 @@
         .pf-close { text-align: center; margin-top: 12px; }
         .pf-close button { background: #21262d; color: #c9d1d9; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; }
 
-        .face-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.9); z-index: 1020; }
-        .face-modal.show { display: flex; justify-content: center; align-items: center; }
-        .fm-inner { width: 90vw; max-width: 900px; max-height: 90vh; display: grid; grid-template-columns: 1fr 320px; background: #161b22; border-radius: 8px; padding: 16px; color: #c9d1d9; overflow: hidden; }
-        .fm-left { display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .fm-left img.face-ctx { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; display: block; }
-        .fm-right { padding-left: 16px; overflow-y: auto; border-left: 1px solid #30363d; display: flex; flex-direction: column; }
-        .fm-right h2 { color: #58a6ff; font-size: 15px; margin-bottom: 8px; }
-        .fm-right label { display: block; color: #8b949e; font-size: 11px; margin-top: 10px; margin-bottom: 3px; }
-        .fm-right input, .fm-right textarea { width: 100%; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 13px; }
-        .fm-right input:focus, .fm-right textarea:focus { outline: none; border-color: #58a6ff; }
-        .fm-right textarea { height: 50px; resize: vertical; }
-        .fm-right .btn-row { margin-top: 12px; display: flex; gap: 8px; }
-        .fm-right button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .fm-right .btn-save { background: #238636; color: #fff; }
-        .fm-right .btn-save:hover { background: #2ea043; }
-        .fm-right .btn-cancel { background: #21262d; color: #c9d1d9; }
-        .fm-right .btn-cancel:hover { background: #30363d; }
-        .fm-right .saved { color: #3fb950; font-size: 12px; margin-top: 6px; display: none; }
-        .ac-wrap { position: relative; }
-        .ac-list { position: absolute; top: 100%; left: 0; right: 0; background: #0d1117; border: 1px solid #30363d; border-top: none; border-radius: 0 0 4px 4px; max-height: 150px; overflow-y: auto; z-index: 10; display: none; }
-        .ac-list.show { display: block; }
-        .ac-item { padding: 5px 8px; cursor: pointer; font-size: 12px; }
-        .ac-item:hover { background: #21262d; }
-        .fm-right .cluster-info { color: #8b949e; font-size: 11px; margin-bottom: 8px; }
-        .related { margin-top: 10px; border-top: 1px solid #30363d; padding-top: 8px; }
-        .related-title { color: #8b949e; font-size: 10px; margin-bottom: 4px; }
-        .related-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-        .rel-chip { display: inline-flex; align-items: center; gap: 3px; background: #0d1117; border-radius: 3px; padding: 2px 4px; cursor: pointer; font-size: 10px; }
-        .rel-chip:hover { background: #21262d; }
-        .rel-chip.current { outline: 2px solid #58a6ff; }
-        .rel-chip img { width: 24px; height: 24px; border-radius: 2px; object-fit: cover; }
-        .rel-chip .lbl { color: #8b949e; }
-
-        .rename-dialog { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.7); z-index: 1040; justify-content: center; align-items: center; }
-        .rename-dialog.show { display: flex; }
-        .rd-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 400px; color: #c9d1d9; font-size: 13px; }
-        .rd-box p { margin-bottom: 12px; }
-        .rd-box .rd-btns { display: flex; gap: 8px; }
-        .rd-box button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .rd-all { background: #238636; color: #fff; }
-        .rd-one { background: #58a6ff; color: #fff; }
-        .rd-abort { background: #21262d; color: #c9d1d9; }
-
         .del-dialog { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.7); z-index: 1050; justify-content: center; align-items: center; }
         .del-dialog.show { display: flex; }
         .dd-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 400px; color: #c9d1d9; font-size: 13px; }
@@ -321,28 +279,9 @@
         .light-theme .card .goto-btn:hover { background: rgba(0,0,0,.8); }
         .light-theme .card .overlay .faces { display: flex; gap: 3px; margin-top: 3px; }
         .light-theme .card .face-thumb { border-color: #d0d7de; }
-        .light-theme .fm-left { background: #f6f8fa; }
-        .light-theme .fm-right .btn-save { background: #1f883d; color: #fff; }
-        .light-theme .fm-right .btn-save:hover { background: #29994a; }
-        .light-theme .fm-right .btn-cancel { background: #eaeef2; color: #24292f; }
-        .light-theme .fm-right .btn-cancel:hover { background: #d0d7de; }
-        .light-theme .fm-right .saved { color: #1f883d; }
-        .light-theme .ac-face { border-color: #d0d7de; }
-        .light-theme .ac-name { color: #24292f; }
-        .light-theme .ac-cnt { color: #57606a; }
-        .light-theme .related-title { color: #57606a; }
         .light-theme .pf-close button { background: #eaeef2; color: #24292f; }
         .light-theme .pf-close button:hover { background: #d0d7de; }
-        .light-theme .rd-box button { color: #fff; }
-        .light-theme .rd-all { background: #1f883d; }
-        .light-theme .rd-all:hover { background: #29994a; }
-        .light-theme .rd-one { background: #0969da; }
-        .light-theme .rd-one:hover { background: #0860ca; }
-        .light-theme .rd-abort { background: #eaeef2; color: #24292f; }
-        .light-theme .rd-abort:hover { background: #d0d7de; }
         .light-theme .person-filter { background: rgba(0,0,0,.5); }
-        .light-theme .face-modal { background: rgba(0,0,0,.85); }
-        .light-theme .rename-dialog { background: rgba(0,0,0,.5); }
         .light-theme .del-dialog { background: rgba(0,0,0,.5); }
         .light-theme .dd-box { background: #f6f8fa; border: 1px solid #d0d7de; color: #24292f; }
         .light-theme .dd-hint { color: #57606a; }
@@ -435,12 +374,7 @@
             .face-overlays:hover .face-box { opacity: 1; }
             .face-box-label { max-width: 120px; font-size: 11px; }
 
-            .face-modal.show { align-items: flex-end; }
-            .fm-inner { width: 100%; max-width: 100%; max-height: 90svh; grid-template-columns: 1fr; border-radius: 16px 16px 0 0; overflow-y: auto; }
-            .fm-left img.face-ctx { max-height: 40svh; }
-            .fm-right { padding: 12px 16px; border-left: none; border-top: 1px solid #30363d; }
             .fm-right .btn-row button { min-height: 44px; font-size: 14px; padding: 10px 18px; }
-            .fm-right input, .fm-right textarea { font-size: 16px; }
 
             .person-filter.show { align-items: flex-end; }
             .pf-box { width: 100%; max-height: 80svh; border-radius: 16px 16px 0 0; }
@@ -653,45 +587,6 @@
         </div>
     </div>
 
-    <div class="face-modal" id="faceModal" onclick="closeFaceModal()">
-        <div class="fm-inner" onclick="event.stopPropagation()">
-            <div class="fm-left">
-                <img class="face-ctx" id="fmImg" src="">
-            </div>
-            <div class="fm-right">
-                <h2 id="fmTitle">Персона</h2>
-                <div class="cluster-info" id="fmClusterInfo"></div>
-                <label>ФИО / Имя</label>
-                <div class="ac-wrap">
-                    <input id="fmName" autocomplete="off" oninput="fmAcSearch()" onfocus="fmAcSearch()" onblur="fmAcHideDelayed()">
-                    <div class="ac-list" id="fmAcList"></div>
-                </div>
-                <label>Комментарий (кто это, родство, заметки)</label>
-                <textarea id="fmComment" placeholder="Мама, бабушка, друг семьи..." style="height:60px"></textarea>
-                <div id="fmRelatedBlock" class="related" style="display:none">
-                    <div class="related-title">Кластера с этим именем:</div>
-                    <div class="related-grid" id="fmRelatedGrid"></div>
-                </div>
-                <div class="btn-row">
-                    <button class="btn-save" onclick="fmSave()">Сохранить</button>
-                    <button class="btn-cancel" onclick="closeFaceModal()">Закрыть</button>
-                </div>
-                <div class="saved" id="fmSaved">Сохранено!</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="rename-dialog" id="renameDialog">
-        <div class="rd-box">
-            <p id="rdText"></p>
-            <div class="rd-btns">
-                <button class="rd-all" onclick="fmDoSaveAll()">Ко всем кластерам</button>
-                <button class="rd-one" onclick="fmDoSaveOne()">Только этот</button>
-                <button class="rd-abort" onclick="fmDoSaveAbort()">Отмена</button>
-            </div>
-        </div>
-    </div>
-
     <div class="del-dialog" id="delDialog">
         <div class="dd-box">
             <p class="dd-title">Скрыть фото из галереи?</p>
@@ -705,6 +600,7 @@
 
 <script src="/shared.js"></script>
 <script src="/viewer.js"></script>
+<script src="/face-modal.js"></script>
 <script src="/gallery.js"></script>
 <script src="/gallery-detail.js"></script>
 <script src="/gallery-ui.js"></script>
