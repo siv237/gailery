@@ -850,13 +850,14 @@ async def get_changes(limit: int = 100):
     return {"changes": result, "server_time": datetime.now().isoformat()}
 
 
-from api import photos, persons, catalog, models, video, search
+from api import photos, persons, catalog, models, video, search, flir
 app.include_router(photos.router)
 app.include_router(persons.router)
 app.include_router(catalog.router)
 app.include_router(models.router)
 app.include_router(video.router)
 app.include_router(search.router)
+app.include_router(flir.router)
 
 
 @app.get("/api/settings/{key}")
