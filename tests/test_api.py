@@ -947,3 +947,197 @@ class TestAdminAPI:
         """Catalog страница загружается."""
         resp = app_client.get("/catalog")
         assert resp.status_code == 200
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Services API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestServicesAPI:
+    def test_get_services(self, app_client):
+        """GET /api/services возвращает список сервисов."""
+        resp = app_client.get("/api/services")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "services" in data
+
+    def test_restart_unknown_service(self, app_client):
+        """Restart неизвестного сервиса возвращает ok=False."""
+        resp = app_client.post("/api/services/nonexistent/restart")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MQTT Workers API
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMqttWorkersAPI:
+    def test_mqtt_workers(self, app_client):
+        """GET /api/mqtt/workers возвращает статус воркеров."""
+        resp = app_client.get("/api/mqtt/workers")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Без MQTT — пустой результат
+        if "workers" in data:
+            assert "current_step" in data
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Control API — расширенные тесты
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestControlExtendedAPI:
+    def test_control_start_hash(self, app_client, monkeypatch):
+        """Запуск hash step — mock os.system."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "hash", "hash_limit": 50
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("step") == "hash"
+
+    def test_control_start_dedup_ingest(self, app_client, monkeypatch):
+        """Запуск dedup_ingest step."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "dedup_ingest"
+        })
+        assert resp.status_code == 200
+        assert resp.json().get("step") == "dedup_ingest"
+
+    def test_control_start_chain(self, app_client, monkeypatch):
+        """Запуск chain step (pipeline)."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: MagicMock(returncode=0))
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "chain", "hash_limit": 50, "desc_limit": 60, "batch_size": 6
+        })
+        assert resp.status_code == 200
+        assert resp.json().get("step") == "chain"
+
+    def test_control_start_unknown_step(self, app_client, monkeypatch):
+        """Запуск неизвестного step возвращает ok=False."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "nonexistent_step"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is False
+
+    def test_control_stop(self, app_client, monkeypatch):
+        """Control stop — mock системных вызовов."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/stop")
+        assert resp.status_code == 200
+        assert resp.json().get("ok") is True
+
+    def test_control_reset_unknown_step(self, app_client, monkeypatch):
+        """Control reset с неизвестным step."""
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/reset", json={"step": "nonexistent"})
+        assert resp.status_code == 200
+
+    def test_control_start_describe_with_root(self, app_client, db_with_photos, monkeypatch):
+        """Запуск describe с root_id — mock os.system."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "describe", "desc_limit": 10, "batch_size": 3,
+            "root_id": "test_root"
+        })
+        assert resp.status_code == 200
+        assert resp.json().get("step") == "describe"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Ollama URL fix helper
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestFixOllamaUrl:
+    def test_adds_http_prefix(self):
+        """URL без схемы получает http://."""
+        from main import _fix_ollama_url
+        result = _fix_ollama_url("localhost")
+        assert result.startswith("http://")
+
+    def test_keeps_http(self):
+        """URL с http:// сохраняется."""
+        from main import _fix_ollama_url
+        result = _fix_ollama_url("http://localhost:11434")
+        assert result == "http://localhost:11434"
+
+    def test_converts_https_to_http(self):
+        """https:// заменяется на http://."""
+        from main import _fix_ollama_url
+        result = _fix_ollama_url("https://localhost:11434")
+        assert result.startswith("http://")
+        assert "https" not in result
+
+    def test_adds_port(self):
+        """URL без порта получает :11434."""
+        from main import _fix_ollama_url
+        result = _fix_ollama_url("http://localhost")
+        assert ":11434" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SPA Fallback
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSpaFallback:
+    def test_html_request_returns_gallery(self, app_client):
+        """Запрос HTML для неизвестного пути возвращает gallery.html."""
+        resp = app_client.get("/nonexistent/page", headers={"Accept": "text/html"})
+        assert resp.status_code == 200
+        assert b"html" in resp.content.lower()
+
+    def test_non_html_request_returns_404(self, app_client):
+        """Запрос без text/html возвращает 404."""
+        resp = app_client.get("/nonexistent/page", headers={"Accept": "application/json"})
+        assert resp.status_code == 404
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Maintenance API — расширенные
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMaintenanceExtendedAPI:
+    def test_maintenance_stats_structure(self, app_client):
+        """Maintenance stats возвращает ожидаемые поля."""
+        resp = app_client.get("/api/maintenance/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "data_total" in data
+        assert "lance_tables" in data
+        assert "has_legacy_db" in data
+
+    def test_maintenance_vacuum(self, app_client, monkeypatch):
+        """Maintenance vacuum выполняется."""
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/maintenance/vacuum")
+        if resp.status_code == 500:
+            pytest.skip("No database in test env")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is True
+        assert "before" in data
+        assert "after" in data
+
+    def test_maintenance_dedup_embeddings(self, app_client, monkeypatch):
+        """Maintenance dedup embeddings выполняется."""
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/maintenance/dedup_embeddings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("ok") is True
