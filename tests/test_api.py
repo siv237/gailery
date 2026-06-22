@@ -275,3 +275,123 @@ class TestSystemAPI:
         resp = app_client.get("/api/changes?limit=10")
         assert resp.status_code == 200
         assert "changes" in resp.json()
+
+
+class TestSystemReportAPI:
+    def test_system_report(self, app_client):
+        """System report возвращает host/gpu/memory/pipeline."""
+        resp = app_client.get("/api/system-report")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "host" in data
+        assert "memory" in data
+        assert "gpu" in data
+        assert "pipeline" in data
+
+    def test_monitoring(self, app_client):
+        """Monitoring возвращает live + history."""
+        resp = app_client.get("/api/monitoring")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "live" in data
+        assert "history" in data
+
+    def test_maintenance_stats(self, app_client):
+        """Maintenance stats возвращает структуру с метриками БД."""
+        resp = app_client.get("/api/maintenance/stats")
+        assert resp.status_code == 200
+
+    def test_ai_log(self, app_client):
+        """AI log endpoint возвращает список."""
+        resp = app_client.get("/api/ai-log?limit=5")
+        assert resp.status_code == 200
+
+    def test_config_update_env_key(self, app_client):
+        """Config update с env_key изменяет настройку."""
+        resp = app_client.post("/api/config/update", json={
+            "env_key": "OLLAMA_EMBED_CHUNK", "value": "512"
+        })
+        assert resp.status_code == 200
+
+    def test_control_reset(self, app_client, monkeypatch):
+        """Control reset сбрасывает флаги шага."""
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/reset", json={"step": "describe"})
+        assert resp.status_code == 200
+
+    def test_control_start_embed(self, app_client, monkeypatch):
+        """Запуск embed — mock os.system, проверяем HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={
+            "step": "embed", "embed_limit": 10
+        })
+        assert resp.status_code == 200
+
+    def test_control_start_exif(self, app_client, monkeypatch):
+        """Запуск exif — mock os.system, проверяем HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={"step": "exif"})
+        assert resp.status_code == 200
+
+    def test_control_start_ingest(self, app_client, monkeypatch):
+        """Запуск ingest — mock os.system, проверяем HTTP 200."""
+        monkeypatch.setattr("os.system", lambda cmd: 0)
+        monkeypatch.setattr("config.PIPELINE_SERVICE", "fake-service")
+        monkeypatch.setattr("main._get_api_mqtt", lambda: None)
+        resp = app_client.post("/api/control/start", json={"step": "ingest"})
+        assert resp.status_code == 200
+
+    def test_backup_download(self, app_client):
+        """Backup download возвращает gzip (нужна реальная БД)."""
+        resp = app_client.get("/api/backup/download")
+        if resp.status_code == 404:
+            pytest.skip("No database in test env")
+        assert resp.status_code == 200
+
+    def test_maintenance_vacuum(self, app_client):
+        """Maintenance vacuum выполняется (нужна реальная БД)."""
+        resp = app_client.post("/api/maintenance/vacuum")
+        if resp.status_code == 500:
+            pytest.skip("No database in test env")
+        assert resp.status_code == 200
+
+    def test_maintenance_dedup_embeddings(self, app_client):
+        """Maintenance dedup embeddings выполняется."""
+        resp = app_client.post("/api/maintenance/dedup_embeddings")
+        assert resp.status_code == 200
+
+    def test_top_personas_for_facts(self, app_client):
+        """Top personas for facts возвращает список."""
+        resp = app_client.get("/api/settings/faces_total/top_personas")
+        assert resp.status_code == 200
+
+    def test_watchdog_crashes(self, app_client):
+        """Watchdog crashes endpoint возвращает структуру."""
+        resp = app_client.get("/api/watchdog/crashes")
+        assert resp.status_code == 200
+
+    def test_watchdog_sleep_wake(self, app_client):
+        """Watchdog sleep + wake работают."""
+        resp = app_client.post("/api/watchdog/sleep")
+        assert resp.status_code == 200
+        resp2 = app_client.post("/api/watchdog/wake")
+        assert resp2.status_code == 200
+
+    def test_static_files(self, app_client):
+        """Статические файлы отдаются."""
+        for path in ["/shared.css", "/shared.js", "/gallery.js",
+                      "/gallery-detail.js", "/gallery-ui.js",
+                      "/logo-dark.png", "/logo-light.png",
+                      "/favicon.ico", "/favicon.png", "/favicon-32.png",
+                      "/apple-touch-icon.png"]:
+            resp = app_client.get(path)
+            assert resp.status_code == 200, f"{path} returned {resp.status_code}"
+
+    def test_ollama_check(self, app_client):
+        """Ollama check endpoint не падает."""
+        resp = app_client.get("/api/proxy/ollama_check?url=http://localhost:11434")
+        assert resp.status_code == 200

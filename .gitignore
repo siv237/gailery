@@ -85,3 +85,4 @@ deploy/
 
 # Screenshots
 web/screenshots/
+.coverage
