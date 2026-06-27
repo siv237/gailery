@@ -137,8 +137,10 @@ def _stream_ffmpeg(process):
 
 def _estimate_transcode_size(duration, width, height):
     pixels = (width or 640) * (height or 480)
-    if pixels <= 640 * 480:
-        vbr = 2_800_000
+    if pixels <= 320 * 240:
+        vbr = 1_000_000
+    elif pixels <= 640 * 480:
+        vbr = 1_500_000
     elif pixels <= 1280 * 720:
         vbr = 4_500_000
     elif pixels <= 1920 * 1080:
@@ -185,7 +187,7 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
         width = photo.get("img_width", 640) or 640
         height = photo.get("img_height", 480) or 480
 
-    MAX_TRANSCODE_SIZE = 500 * 1024 * 1024
+    MAX_TRANSCODE_SIZE = 2048 * 1024 * 1024
     estimated_size = _estimate_transcode_size(duration, width, height)
     if strategy == "transcode" and estimated_size > MAX_TRANSCODE_SIZE:
         raise HTTPException(status_code=413, detail=f"Video too large to transcode on-the-fly ({estimated_size // 1024 // 1024}MB estimated)")
