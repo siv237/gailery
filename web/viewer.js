@@ -71,7 +71,7 @@ var _viewerHTML = `
             <button class="flir-mbtn" onclick="setModalFlir('overlay')" title="Наложение">&#128270;</button>
             <span class="sep" style="margin:0 2px">|</span>
             <span id="flirOverlayControls" style="display:none;font-size:11px;gap:6px;align-items:center">
-                A <input type="range" id="flirA" min="0.1" max="0.9" step="0.05" value="0.50" style="width:50px;vertical-align:middle" oninput="drawFlirOverlay()">
+                A <input type="range" id="flirA" min="0.1" max="1.0" step="0.05" value="0.50" style="width:50px;vertical-align:middle" oninput="drawFlirOverlay()">
                 <span id="flirAv" style="color:#0f0;width:30px;display:inline-block;text-align:right">0.50</span>
             </span>
         </span>
@@ -245,7 +245,7 @@ function openViewer(idx) {
         var py = (e.clientY - r.top) * (cvs.height / r.height);
         var tw = _flirThImg.naturalWidth || 640, th = _flirThImg.naturalHeight || 480;
         var sw = Math.round(tw * _flirScaleX), sh = Math.round(th * _flirScaleY);
-        var hit = 15;
+        var hit = 20;
         var corners = [{cx:_flirOX,cy:_flirOY,corner:'tl'},{cx:_flirOX+sw,cy:_flirOY,corner:'tr'},{cx:_flirOX,cy:_flirOY+sh,corner:'bl'},{cx:_flirOX+sw,cy:_flirOY+sh,corner:'br'}];
         var edges = [{cx:_flirOX+sw/2,cy:_flirOY,corner:'t'},{cx:_flirOX+sw/2,cy:_flirOY+sh,corner:'b'},{cx:_flirOX,cy:_flirOY+sh/2,corner:'l'},{cx:_flirOX+sw,cy:_flirOY+sh/2,corner:'r'}];
         _flirScaleCorner = null;
@@ -262,7 +262,10 @@ function openViewer(idx) {
         e.stopPropagation();
         _flirDrag = true; _flirDX = e.clientX; _flirDY = e.clientY;
         _flirStartX = e.clientX; _flirStartY = e.clientY;
-        cvs.style.cursor = _flirScaleCorner ? 'nwse-resize' : 'grabbing';
+        if (_flirScaleCorner === 't' || _flirScaleCorner === 'b') cvs.style.cursor = 'ns-resize';
+        else if (_flirScaleCorner === 'l' || _flirScaleCorner === 'r') cvs.style.cursor = 'ew-resize';
+        else if (_flirScaleCorner) cvs.style.cursor = 'nwse-resize';
+        else cvs.style.cursor = 'grabbing';
     };
     cvs.onmouseup = function(e) {
         if (_mFlirMode !== 'overlay') return;
