@@ -44,6 +44,24 @@ HTML_FILES = [
     "web/catalog.html",
 ]
 
+JS_SKIP_FILES = {
+    # Сторонние библиотеки — не наш код
+    "leaflet.js", "leaflet.markercluster.js",
+}
+
+# DOM-свойства и event handlers — не функции, пропускаем
+JS_DOM_NAMES = {
+    "onclick", "onload", "onended", "onmousedown", "onmouseup",
+    "onmousemove", "onchange", "oninput", "onerror", "onplay",
+    "onpause", "onseeked", "onseeking", "onwaiting", "oncanplay",
+}
+
+# Паттерн декоратора: file сохраняет оригинал и переназначает функцию
+# для расширения behaviour. Это НЕ дубль — это расширение.
+JS_DECORATOR_REASSIGNS = {
+    "openDetail",  # gallery-ui.js оборачивает gallery-detail.js openDetail
+}
+
 # ─── Пороги ───
 FILE_MAX_LINES = 1500        # fail
 FILE_WARN_LINES = 800        # warning
@@ -420,3 +438,216 @@ def test_dead_code_report():
               "\n".join(f"  {l}" for l in filtered[:30]))
     else:
         print("\n✅ Мёртвый код не найден")
+
+
+# ─── 8. JS: дублирование функций между файлами ───
+
+def _collect_web_js_files():
+    """JS файлы в web/ (включая подпапки), исключая сторонние библиотеки."""
+    web_dir = ROOT / "web"
+    result = []
+    for dirpath, dirnames, filenames in os.walk(web_dir):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and d != "lib"]
+        for f in filenames:
+            if f.endswith(".js") and f not in JS_SKIP_FILES:
+                result.append(Path(dirpath) / f)
+    return sorted(result)
+
+
+def _extract_js_functions(path):
+    """Извлекает имена топ-уровневых функций из JS файла.
+
+    Только функции в начале строки (0-1 уровень отступа) — не вложенные.
+    Вложенные функции (внутри других функций) не учитываются.
+    """
+    funcs = set()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except Exception:
+        return funcs
+    # Топ-уровневые: function name( в начале строки (до 2 пробелов отступа)
+    for m in re.finditer(r'^\s{0,2}function\s+(\w+)\s*\(', content, re.MULTILINE):
+        name = m.group(1)
+        if name not in JS_DOM_NAMES:
+            funcs.add(name)
+    # var/let/const name = function( на топ-уровне
+    for m in re.finditer(r'^\s{0,2}(?:var|let|const)\s+(\w+)\s*=\s*function\s*\(', content, re.MULTILINE):
+        name = m.group(1)
+        if name not in JS_DOM_NAMES:
+            funcs.add(name)
+    # name = function( на топ-уровне (переназначение, напр. openDetail = function...)
+    for m in re.finditer(r'^\s{0,2}(\w+)\s*=\s*function\s*\(', content, re.MULTILINE):
+        name = m.group(1)
+        if name not in JS_DOM_NAMES:
+            funcs.add(name)
+    return funcs
+
+
+def test_no_duplicate_js_functions():
+    """Функции определённые в нескольких JS файлах — дублирование кода.
+
+    Глобальный отчёт по всем JS. FAIL только для gallery-модулей
+    (viewer.js / gallery-detail.js / gallery-ui.js) — они загружаются
+    вместе и конфликты там критичны. Админка — warning.
+    """
+    js_files = _collect_web_js_files()
+    func_locations = defaultdict(list)
+    for path in js_files:
+        for fn in _extract_js_functions(path):
+            func_locations[fn].append(path.name)
+
+    dups = {fn: sorted(set(files)) for fn, files in func_locations.items()
+            if len(set(files)) > 1 and fn not in JS_DECORATOR_REASSIGNS}
+
+    # Критичные дубли — между gallery-модулями (загружаются на одной странице)
+    gallery_mods = {"viewer.js", "gallery-detail.js", "gallery-ui.js",
+                    "gallery.js", "face-modal.js", "shared.js"}
+    critical = {fn: files for fn, files in dups.items()
+                if all(f in gallery_mods for f in files)}
+    other = {fn: files for fn, files in dups.items() if fn not in critical}
+
+    if other:
+        lines = [f"  {fn}  →  {', '.join(files)}"
+                 for fn, files in sorted(other.items())[:30]]
+        print(f"\n⚠ Дублирование JS-функций вне gallery ({len(other)} шт):\n"
+              + "\n".join(lines))
+
+    if critical:
+        lines = [f"  {fn}  →  {', '.join(files)}"
+                 for fn, files in sorted(critical.items())]
+        pytest.fail(
+            f"Дублирование JS-функций в gallery-модулях ({len(critical)} шт) — "
+            f"эти файлы загружаются на одной странице, последний <script> "
+            f"перекрывает ранее определённые:\n"
+            + "\n".join(lines) + "\n"
+            "Вынеси общую логику в один модуль (viewer.js), удали из других."
+        )
+
+
+def test_no_duplicate_js_functions_report():
+    """Отчёт по дублированию — warning (даже если функция в одном файле, но >1 раза)."""
+    js_files = _collect_web_js_files()
+    func_counts = defaultdict(lambda: defaultdict(int))
+    for path in js_files:
+        for fn in _extract_js_functions(path):
+            func_counts[fn][path.name] += 1
+
+    intra = {fn: dict(files) for fn, files in func_counts.items()
+             if any(c > 1 for c in files.values())}
+    if intra:
+        lines = [f"  {fn}  →  {files}" for fn, files in sorted(intra.items())[:20]]
+        print(f"\n⚠ Функции определённые >1 раза в одном файле:\n" + "\n".join(lines))
+
+
+# ─── 9. JS: конфликты функций на одной HTML странице ───
+
+def _html_script_srcs(html_path):
+    """Извлекает src из <script src="..."> тегов HTML (порядок сохраняется)."""
+    try:
+        with open(html_path, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except Exception:
+        return []
+    srcs = []
+    for m in re.finditer(r'<script\s+[^>]*src="([^"]+)"', content):
+        src = m.group(1).split('?')[0].lstrip('/')
+        srcs.append(src)
+    return srcs
+
+
+def test_no_js_conflicts_per_html_page():
+    """Конфликты функций на одной HTML странице.
+
+    Если два <script> файла определяют функцию с одним именем,
+    последний побеждает — правки в первом молча игнорируются.
+    Это最难 для отладки: код выглядит правильно, но не работает.
+    """
+    js_funcs = {}
+    for path in _collect_web_js_files():
+        js_funcs[path.name] = _extract_js_functions(path)
+
+    conflicts = []
+    for html_rel in HTML_FILES:
+        html_path = ROOT / html_rel
+        if not html_path.exists():
+            continue
+        srcs = _html_script_srcs(html_path)
+        # Проходим в порядке загрузки, последняя победившая функция
+        winners = {}  # func_name -> (src, load_order)
+        for order, src in enumerate(srcs):
+            if src in js_funcs:
+                for fn in js_funcs[src]:
+                    if fn in JS_DECORATOR_REASSIGNS:
+                        continue  # паттерн декоратора — расширение, не дубль
+                    if fn in winners and winners[fn][0] != src:
+                        conflicts.append((html_rel, fn, winners[fn][0], src))
+                    winners[fn] = (src, order)
+
+    if conflicts:
+        lines = []
+        for html, fn, first, last in sorted(conflicts):
+            lines.append(f"  {html}: {fn}  [{first} → перекрыт → {last}]")
+        pytest.fail(
+            f"Конфликты JS-функций на HTML страницах ({len(conflicts)} шт) — "
+            f"последний <script> перекрывает ранее определённые:\n"
+            + "\n".join(lines) + "\n"
+            "Раздели ответственность: каждая функция — в одном модуле. "
+            "Удали дубль из проигрывающего файла."
+        )
+
+
+# ─── 10. JS: конфликты глобальных var ───
+
+def _extract_js_globals(path):
+    """Извлекает глобальные var (на верхнем уровне, не внутри функции)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return set()
+    globals_set = set()
+    for line in lines:
+        m = re.match(r'^var\s+([\w,\s]+)\s*[=;]', line)
+        if m:
+            for name in re.findall(r'\b\w+\b', m.group(1)):
+                if name not in ('var', 'true', 'false', 'null', 'new'):
+                    globals_set.add(name)
+    return globals_set
+
+
+def test_no_js_global_conflicts_per_html_page():
+    """Конфликты глобальных var на одной HTML странице.
+
+    Два <script> файла с одинаковым глобальным var — последний перезаписывает.
+    Состояние (_mZoom, _flirOX и т.д.) рассинхронизируется между модулями.
+    """
+    js_globals = {}
+    for path in _collect_web_js_files():
+        js_globals[path.name] = _extract_js_globals(path)
+
+    conflicts = []
+    for html_rel in HTML_FILES:
+        html_path = ROOT / html_rel
+        if not html_path.exists():
+            continue
+        srcs = _html_script_srcs(html_path)
+        seen = {}  # var_name -> first_src
+        for src in srcs:
+            if src in js_globals:
+                for vname in js_globals[src]:
+                    if vname in seen and seen[vname] != src:
+                        conflicts.append((html_rel, vname, seen[vname], src))
+                    seen[vname] = src
+
+    if conflicts:
+        lines = []
+        for html, vn, first, last in sorted(conflicts)[:30]:
+            lines.append(f"  {html}: var {vn}  [{first} → перезаписан → {last}]")
+        pytest.fail(
+            f"Конфликты глобальных JS-переменных ({len(conflicts)} шт) — "
+            f"последний <script> перезаписывает:\n"
+            + "\n".join(lines) + "\n"
+            "Состояние рассинхронизируется. Объедини в один модуль "
+            "или используй пространства имён (объекты)."
+        )

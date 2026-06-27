@@ -979,7 +979,7 @@ async def viewer_css():
 async def viewer_js():
     p = web_dir / "viewer.js"
     if p.exists():
-        return FileResponse(str(p), media_type="application/javascript")
+        return FileResponse(str(p), media_type="application/javascript", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     raise HTTPException(status_code=404)
 
 @app.get("/face-modal.css")
@@ -1007,7 +1007,7 @@ async def gallery_js():
 async def gallery_detail_js():
     p = web_dir / "gallery-detail.js"
     if p.exists():
-        return FileResponse(str(p), media_type="application/javascript")
+        return FileResponse(str(p), media_type="application/javascript", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     raise HTTPException(status_code=404)
 
 @app.get("/gallery-ui.js")

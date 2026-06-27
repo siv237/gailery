@@ -6,6 +6,38 @@ function videoSrc(p) {
     return p.photo_id ? (API + '/photos/?path=' + encodeURIComponent(p.photo_id)) : '';
 }
 
+ViewerHooks.onNavBoundary = function(dir, callback) {
+    if (dir < 0) {
+        loadBefore(_firstDate, _firstPath, function(batch) {
+            callback(batch.length);
+        });
+    } else {
+        var prevLen = currentPhotos.length;
+        loadAfter(_lastDate, _lastPath, false, false, function() {
+            callback(currentPhotos.length - prevLen);
+        });
+    }
+};
+ViewerHooks.syncTimeline = function(p) {
+    if (typeof _syncTimelineToPhoto === 'function') _syncTimelineToPhoto(p);
+};
+ViewerHooks.onDelete = function(photoId) { markDeleted(photoId); };
+ViewerHooks.onUndelete = function(photoId) { undeletePhoto(photoId); };
+ViewerHooks.onClearGps = function(photoId) { clearPhotoGps(photoId); };
+ViewerHooks.onAddGps = function(photoId) { addPhotoGps(photoId); };
+ViewerHooks.onRotate = function(contentHash, saveAngle) { saveRotate(contentHash, saveAngle); };
+ViewerHooks.onClose = function() {
+    _modalOpen = false;
+    var lastPid = currentPhotos[_mIdx] && currentPhotos[_mIdx].photo_id;
+    if (lastPid) {
+        var c = document.querySelector('.card[data-photo-id="' + CSS.escape(lastPid) + '"]');
+        if (c) c.scrollIntoView({block:'center'});
+    }
+    if (typeof _embeddedMode !== 'undefined' && _embeddedMode && window.parent) {
+        window.parent.postMessage({type: 'closeModal'}, '*');
+    }
+};
+
 var _videoPreviewTimer = null;
 var _videoPreviewEl = null;
 function startVideoPreview(card, idx) {
@@ -101,11 +133,6 @@ function _observeThumbs() {
     var faces = document.querySelectorAll('.lazy-face[data-src]');
     for (var i = 0; i < faces.length; i++) _faceLazyObs.observe(faces[i]);
 }
-var fmAcNames = [];
-var fmCurrentPid = null;
-var fmOriginalName = '';
-var fmOriginalComment = '';
-var fmRelatedClusters = [];
 
 function esc(s) {
     if (!s) return '';
@@ -348,7 +375,7 @@ function _applyBatch(data) {
                           if (_openViewerOnLoad) {
                               _openViewerOnLoad = false;
                               var idx = currentPhotos.findIndex(function(p) { return p.photo_id === rid; });
-                              if (idx >= 0) setTimeout(function() { openViewer(idx); }, 200);
+                              if (idx >= 0) setTimeout(function() { Viewer.open(currentPhotos, idx); }, 200);
                           }
                       }
                       scrollAttempts++;
@@ -658,11 +685,11 @@ function reindexAll() {
         var p = currentPhotos[i] || {};
         var isVid = p.media_type === 'video';
         var btn = cards[i].querySelector('.expand-btn');
-        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();openViewer(' + i + ')');
+        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();Viewer.open(currentPhotos,' + i + ')');
         if (isMobile) {
             cards[i].removeAttribute('ondblclick');
         } else {
-            cards[i].setAttribute('ondblclick', 'event.stopPropagation();openViewer(' + i + ');toggleFullscreen()');
+            cards[i].setAttribute('ondblclick', 'event.stopPropagation();Viewer.open(currentPhotos,' + i + ');toggleFullscreen()');
         }
     }
 }
@@ -706,8 +733,8 @@ function buildCardHtml(p, idx) {
          badge = '<div class="' + fcls + '"' + ftop + '>' + p.personas.length + ' лиц</div>';
      }
      var _videoHover = p.media_type === 'video' ? ' onmouseenter="startVideoPreview(this,' + idx + ')" onmouseleave="stopVideoPreview(this)"' : '';
-     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();openViewer(' + idx + ');toggleFullscreen()">';
-    html += '<button class="expand-btn" onclick="event.stopPropagation();openViewer(' + idx + ')">' + (p.media_type === 'video' ? '&#9654;' : '&#x2922;') + '</button>';
+     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
+    html += '<button class="expand-btn" onclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ')">' + (p.media_type === 'video' ? '&#9654;' : '&#x2922;') + '</button>';
     var q = document.getElementById('searchInput').value.trim();
     if (q) html += '<button class="goto-btn" onclick="event.stopPropagation();goToTimelineFromCard(' + idx + ')" title="Найти в хронологии">&#x21E1;</button>';
     if (thumbBase) {
@@ -755,13 +782,6 @@ function playVideoCard(idx) {
         if (v) v.play();
     }, 200);
 }
-function closeVideoModal() {
-    document.getElementById('vidModal').classList.remove('show');
-    var video = document.getElementById('vidModalPlayer');
-    video.pause();
-    video.removeAttribute('src');
-}
-
 function toggleTypeDropdown(e) {
     e.stopPropagation();
     document.getElementById('typeDropdownMenu').classList.toggle('open');

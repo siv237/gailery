@@ -50,7 +50,7 @@ var _viewerHTML = `
     <div class="modal-content" id="modalContent">
         <div class="modal-img-wrap" id="modalImgWrap" style="cursor:grab">
             <img id="photoModalImg" src="" onclick="event.stopPropagation()">
-            <canvas id="photoModalCanvas" style="display:none;max-width:100%;max-height:100%;object-fit:contain" onclick="event.stopPropagation()"></canvas>
+            <canvas id="photoModalCanvas" style="display:none" onclick="event.stopPropagation()"></canvas>
             <video id="photoModalVideo" src="" controls preload="metadata" onclick="event.stopPropagation()" style="display:none"></video>
             <div class="face-overlays" id="faceOverlays"></div>
         </div>
@@ -382,18 +382,21 @@ function rotatePhoto(deg) {
     }
     var saveAngle = ((_mRot % 360) + 360) % 360;
     if (p.content_hash) {
-        fetch(_vAPI() + '/photos/edits/' + encodeURIComponent(p.content_hash), {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'rotate', params: {angle: saveAngle}, replace: true})
-        }).then(function(){
-            if (typeof currentPhotos !== 'undefined') {
-                for (var i = 0; i < currentPhotos.length; i++) {
-                    if (currentPhotos[i].content_hash === p.content_hash) {
-                        currentPhotos[i].edits = [{action:'rotate',params:{angle:saveAngle},edit_id:0,action_order:0,enabled:1}];
+        if (ViewerHooks.onRotate) ViewerHooks.onRotate(p.content_hash, saveAngle);
+        else {
+            fetch(_vAPI() + '/photos/edits/' + encodeURIComponent(p.content_hash), {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'rotate', params: {angle: saveAngle}, replace: true})
+            }).then(function(){
+                if (typeof currentPhotos !== 'undefined') {
+                    for (var i = 0; i < currentPhotos.length; i++) {
+                        if (currentPhotos[i].content_hash === p.content_hash) {
+                            currentPhotos[i].edits = [{action:'rotate',params:{angle:saveAngle},edit_id:0,action_order:0,enabled:1}];
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
     }
     setTimeout(_positionModalControls, 50);
 }
@@ -470,7 +473,9 @@ function _positionModalControls() {
     var modal = document.getElementById('photoModal');
     if (!btns || !bar || !modal || !modal.classList.contains('show')) return;
     var isVideo = vid && vid.style.display !== 'none';
-    var el = isVideo ? vid : img;
+    var cvs = document.getElementById('photoModalCanvas');
+    var isCanvas = cvs && cvs.style.display !== 'none';
+    var el = isVideo ? vid : (isCanvas ? cvs : img);
     if (!el || !el.offsetWidth) return;
     var rect = el.getBoundingClientRect();
     var vpW = window.innerWidth, vpH = window.innerHeight, pad = 10;
@@ -592,6 +597,7 @@ function _drawFaceBoxesCover(p, img) {
 
 function _vFaceClick(personaId, faceId) {
     if (ViewerHooks.onFaceClick) ViewerHooks.onFaceClick(personaId, faceId);
+    else if (typeof openFaceModal === 'function') openFaceModal(personaId, faceId);
 }
 
 // ─── GPS in modal ───
@@ -669,6 +675,9 @@ function setModalFlir(mode) {
     if (!img || !cvs) return;
     if (mode === 'overlay') {
         img.style.display = 'none'; cvs.style.display = 'block'; flirCtrl.style.display = 'inline-flex';
+        var ov = document.getElementById('faceOverlays'); if (ov) ov.style.pointerEvents = 'none';
+        cvs.style.cursor = 'crosshair';
+        applyModalTransform();
         _flirToken++; var tok = _flirToken;
         _flirVisImg.onload = function() { if (tok !== _flirToken) return; if (_flirThImg.complete && _flirThImg.naturalWidth > 0) drawFlirOverlay(); else _flirThImg.onload = function() { if (tok === _flirToken) drawFlirOverlay(); }; };
         var ts = Date.now();
@@ -676,8 +685,10 @@ function setModalFlir(mode) {
         _flirThImg.src = _vAPI()+'/photos/flir_raw_palette?path='+pid+'&_t='+ts;
     } else {
         img.style.display = 'block'; cvs.style.display = 'none'; flirCtrl.style.display = 'none'; _flirToken++;
+        var ov2 = document.getElementById('faceOverlays'); if (ov2) { ov2.style.pointerEvents = 'auto'; _drawFaceBoxes(p, img); }
         if (mode === 'thermal') img.src = _vAPI()+'/photos/?path='+pid;
         else if (mode === 'visual') img.src = _vAPI()+'/photos/flir_visual?path='+pid;
+        applyModalTransform();
     }
     var flirBar = document.getElementById('modalFlirBar');
     var btns = flirBar.querySelectorAll('.flir-mbtn');
@@ -706,7 +717,6 @@ function drawFlirOverlay() {
     ctx.strokeRect(_flirOX, _flirOY, sw, sh);
     var hs = 6; ctx.fillStyle = '#0f0';
     [[_flirOX,_flirOY],[_flirOX+sw,_flirOY],[_flirOX,_flirOY+sh],[_flirOX+sw,_flirOY+sh]].forEach(function(p) { ctx.fillRect(p[0]-hs/2, p[1]-hs/2, hs, hs); });
-    cvs.style.width = '100%'; cvs.style.height = '100%';
     ctx.font = '12px monospace'; ctx.lineWidth = 2;
     for (var i = 0; i < _flirProbes.length; i++) {
         var pr = _flirProbes[i];
