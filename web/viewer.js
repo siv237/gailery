@@ -251,6 +251,9 @@ function openViewer(idx) {
         for (var i = 0; i < corners.length; i++) {
             if (Math.abs(px - corners[i].cx) < hit && Math.abs(py - corners[i].cy) < hit) { _flirScaleCorner = corners[i].corner; break; }
         }
+        var onMask = (px >= _flirOX - hit && px <= _flirOX + sw + hit && py >= _flirOY - hit && py <= _flirOY + sh + hit);
+        if (!onMask) return;
+        e.stopPropagation();
         _flirDrag = true; _flirDX = e.clientX; _flirDY = e.clientY;
         _flirStartX = e.clientX; _flirStartY = e.clientY;
         cvs.style.cursor = _flirScaleCorner ? 'nwse-resize' : 'grabbing';
