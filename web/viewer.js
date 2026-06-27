@@ -37,7 +37,7 @@ var _imgCache = {};
 var _mFlirMode = null;
 var _flirVisImg = new Image();
 var _flirThImg = new Image();
-var _flirOX = 219, _flirOY = 141, _flirScale = 1.5;
+var _flirOX = 219, _flirOY = 141, _flirScaleX = 1.5, _flirScaleY = 1.5;
 var _flirDrag = false, _flirDX = 0, _flirDY = 0, _flirStartX = 0, _flirStartY = 0;
 var _flirScaleCorner = null, _flirProbes = [], _flirToken = 0;
 var _topbarHideTimer = null;
@@ -244,12 +244,18 @@ function openViewer(idx) {
         var px = (e.clientX - r.left) * (cvs.width / r.width);
         var py = (e.clientY - r.top) * (cvs.height / r.height);
         var tw = _flirThImg.naturalWidth || 640, th = _flirThImg.naturalHeight || 480;
-        var sw = Math.round(tw * _flirScale), sh = Math.round(th * _flirScale);
+        var sw = Math.round(tw * _flirScaleX), sh = Math.round(th * _flirScaleY);
         var hit = 15;
         var corners = [{cx:_flirOX,cy:_flirOY,corner:'tl'},{cx:_flirOX+sw,cy:_flirOY,corner:'tr'},{cx:_flirOX,cy:_flirOY+sh,corner:'bl'},{cx:_flirOX+sw,cy:_flirOY+sh,corner:'br'}];
+        var edges = [{cx:_flirOX+sw/2,cy:_flirOY,corner:'t'},{cx:_flirOX+sw/2,cy:_flirOY+sh,corner:'b'},{cx:_flirOX,cy:_flirOY+sh/2,corner:'l'},{cx:_flirOX+sw,cy:_flirOY+sh/2,corner:'r'}];
         _flirScaleCorner = null;
         for (var i = 0; i < corners.length; i++) {
             if (Math.abs(px - corners[i].cx) < hit && Math.abs(py - corners[i].cy) < hit) { _flirScaleCorner = corners[i].corner; break; }
+        }
+        if (!_flirScaleCorner) {
+            for (var i = 0; i < edges.length; i++) {
+                if (Math.abs(px - edges[i].cx) < hit && Math.abs(py - edges[i].cy) < hit) { _flirScaleCorner = edges[i].corner; break; }
+            }
         }
         var onMask = (px >= _flirOX - hit && px <= _flirOX + sw + hit && py >= _flirOY - hit && py <= _flirOY + sh + hit);
         if (!onMask) return;
@@ -306,7 +312,7 @@ function closePhotoModal() {
     document.getElementById('modalTopbar').classList.remove('playing');
     window.onmousemove = null; window.onmouseup = null;
     _flirDrag = false; _flirScaleCorner = null;
-    _flirOX = 219; _flirOY = 141; _flirScale = 1.5; _flirProbes = [];
+    _flirOX = 219; _flirOY = 141; _flirScaleX = 1.5; _flirScaleY = 1.5; _flirProbes = [];
     document.getElementById('flirOverlayControls').style.display = 'none';
     var cvs = document.getElementById('photoModalCanvas');
     if (cvs) { cvs.style.display = 'none'; cvs.onmousedown = null; }
@@ -712,7 +718,7 @@ function drawFlirOverlay() {
     var ctx = cvs.getContext('2d');
     ctx.clearRect(0, 0, vw, vh);
     ctx.drawImage(_flirVisImg, 0, 0, vw, vh);
-    var sw = Math.round(tw * _flirScale), sh = Math.round(th * _flirScale);
+    var sw = Math.round(tw * _flirScaleX), sh = Math.round(th * _flirScaleY);
     ctx.globalAlpha = alpha;
     ctx.drawImage(_flirThImg, _flirOX, _flirOY, sw, sh);
     ctx.globalAlpha = 1.0;
@@ -720,10 +726,11 @@ function drawFlirOverlay() {
     ctx.strokeRect(_flirOX, _flirOY, sw, sh);
     var hs = 6; ctx.fillStyle = '#0f0';
     [[_flirOX,_flirOY],[_flirOX+sw,_flirOY],[_flirOX,_flirOY+sh],[_flirOX+sw,_flirOY+sh]].forEach(function(p) { ctx.fillRect(p[0]-hs/2, p[1]-hs/2, hs, hs); });
+    [[_flirOX+sw/2,_flirOY],[_flirOX+sw/2,_flirOY+sh],[_flirOX,_flirOY+sh/2],[_flirOX+sw,_flirOY+sh/2]].forEach(function(p) { ctx.fillRect(p[0]-hs/2, p[1]-hs/2, hs, hs); });
     ctx.font = '12px monospace'; ctx.lineWidth = 2;
     for (var i = 0; i < _flirProbes.length; i++) {
         var pr = _flirProbes[i];
-        var px = _flirOX + pr.tx * _flirScale, py = _flirOY + pr.ty * _flirScale;
+        var px = _flirOX + pr.tx * _flirScaleX, py = _flirOY + pr.ty * _flirScaleY;
         ctx.fillStyle = '#ff0'; ctx.beginPath(); ctx.arc(px, py, 4, 0, 2*Math.PI); ctx.fill();
         var txt = pr.temp + '\u00B0C';
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeText(txt, px + 8, py + 4);
@@ -739,19 +746,44 @@ function _flirOnMove(e) {
     var px = (e.clientX - r.left) * (cvs.width / r.width), py = (e.clientY - r.top) * (cvs.height / r.height);
     var tw = _flirThImg.naturalWidth || 640, th = _flirThImg.naturalHeight || 480;
     if (_flirScaleCorner) {
-        var oppX, oppY;
-        switch (_flirScaleCorner) {
-            case 'tl': oppX=_flirOX+Math.round(tw*_flirScale); oppY=_flirOY+Math.round(th*_flirScale); break;
-            case 'tr': oppX=_flirOX; oppY=_flirOY+Math.round(th*_flirScale); break;
-            case 'bl': oppX=_flirOX+Math.round(tw*_flirScale); oppY=_flirOY; break;
-            case 'br': oppX=_flirOX; oppY=_flirOY; break;
-        }
-        var newDist = Math.sqrt((px-oppX)*(px-oppX)+(py-oppY)*(py-oppY));
-        _flirScale = Math.max(0.3, Math.min(5.0, newDist / Math.sqrt(tw*tw+th*th)));
-        switch (_flirScaleCorner) {
-            case 'tl': _flirOX=oppX-Math.round(tw*_flirScale); _flirOY=oppY-Math.round(th*_flirScale); break;
-            case 'tr': _flirOY=oppY-Math.round(th*_flirScale); break;
-            case 'bl': _flirOX=oppX-Math.round(tw*_flirScale); break;
+        var corner = _flirScaleCorner;
+        if (corner === 'tl' || corner === 'tr' || corner === 'bl' || corner === 'br') {
+            var oppX, oppY;
+            switch (corner) {
+                case 'tl': oppX=_flirOX+Math.round(tw*_flirScaleX); oppY=_flirOY+Math.round(th*_flirScaleY); break;
+                case 'tr': oppX=_flirOX; oppY=_flirOY+Math.round(th*_flirScaleY); break;
+                case 'bl': oppX=_flirOX+Math.round(tw*_flirScaleX); oppY=_flirOY; break;
+                case 'br': oppX=_flirOX; oppY=_flirOY; break;
+            }
+            var newDist = Math.sqrt((px-oppX)*(px-oppX)+(py-oppY)*(py-oppY));
+            var newScale = Math.max(0.3, Math.min(5.0, newDist / Math.sqrt(tw*tw+th*th)));
+            _flirScaleX = newScale; _flirScaleY = newScale;
+            switch (corner) {
+                case 'tl': _flirOX=oppX-Math.round(tw*_flirScaleX); _flirOY=oppY-Math.round(th*_flirScaleY); break;
+                case 'tr': _flirOY=oppY-Math.round(th*_flirScaleY); break;
+                case 'bl': _flirOX=oppX-Math.round(tw*_flirScaleX); break;
+            }
+        } else {
+            switch (corner) {
+                case 't': {
+                    var bottom = _flirOY + Math.round(th*_flirScaleY);
+                    _flirScaleY = Math.max(0.3, Math.min(5.0, (bottom - py) / th));
+                    _flirOY = bottom - Math.round(th*_flirScaleY);
+                    break;
+                }
+                case 'b':
+                    _flirScaleY = Math.max(0.3, Math.min(5.0, (py - _flirOY) / th));
+                    break;
+                case 'l': {
+                    var rightEdge = _flirOX + Math.round(tw*_flirScaleX);
+                    _flirScaleX = Math.max(0.3, Math.min(5.0, (rightEdge - px) / tw));
+                    _flirOX = rightEdge - Math.round(tw*_flirScaleX);
+                    break;
+                }
+                case 'r':
+                    _flirScaleX = Math.max(0.3, Math.min(5.0, (px - _flirOX) / tw));
+                    break;
+            }
         }
     } else {
         var dx = (e.clientX - _flirDX) * (cvs.width / r.width), dy = (e.clientY - _flirDY) * (cvs.height / r.height);
@@ -771,7 +803,7 @@ function _flirProbeClick(e) {
     var r = cvs.getBoundingClientRect();
     var px = (e.clientX - r.left) * (cvs.width / r.width), py = (e.clientY - r.top) * (cvs.height / r.height);
     var tw = _flirThImg.naturalWidth || 640, th = _flirThImg.naturalHeight || 480;
-    var tx = (px - _flirOX) / _flirScale, ty = (py - _flirOY) / _flirScale;
+    var tx = (px - _flirOX) / _flirScaleX, ty = (py - _flirOY) / _flirScaleY;
     if (tx < 0 || ty < 0 || tx >= tw || ty >= th) return;
     var p = Viewer.photos[_mIdx]; if (!p) return;
     var pid = encodeURIComponent(p.photo_id);
