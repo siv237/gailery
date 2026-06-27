@@ -73,9 +73,15 @@ _DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT
 def get_system_prompt(has_names=False):
     try:
         from database import get_db
-        custom = get_db().get_setting("prompt_vlm_system")
-        if custom:
-            return custom
+        db = get_db()
+        if has_names:
+            custom = db.get_setting("prompt_vlm_system_names")
+            if custom:
+                return custom
+        else:
+            custom = db.get_setting("prompt_vlm_system")
+            if custom:
+                return custom
     except Exception:
         pass
     return SYSTEM_PROMPT_WITH_NAMES if has_names else SYSTEM_PROMPT

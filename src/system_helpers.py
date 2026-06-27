@@ -241,13 +241,15 @@ def _get_prompts():
     try:
         vd = importlib.import_module("vision_describe")
         vlm_prompt = db.get_setting("prompt_vlm_system") or vd.SYSTEM_PROMPT.strip()
-        prompts.append({"k": "VLM SYSTEM_PROMPT", "v": vlm_prompt, "d": "Системный промт описания фото", "env_key": "prompt_vlm_system", "editable": True})
+        prompts.append({"k": "VLM SYSTEM_PROMPT", "v": vlm_prompt, "d": "Системный промт описания фото (без имён)", "env_key": "prompt_vlm_system", "editable": True, "default": vd.SYSTEM_PROMPT.strip()})
+        vlm_prompt_names = db.get_setting("prompt_vlm_system_names") or vd.SYSTEM_PROMPT_WITH_NAMES.strip()
+        prompts.append({"k": "VLM SYSTEM_PROMPT (с именами)", "v": vlm_prompt_names, "d": "Промт когда есть распознанные лица", "env_key": "prompt_vlm_system_names", "editable": True, "default": vd.SYSTEM_PROMPT_WITH_NAMES.strip()})
     except Exception as e:
         prompts.append({"k": "VLM SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт описания фото"})
     try:
         ed = importlib.import_module("enrich_description")
         enrich_prompt = db.get_setting("prompt_enrich_system") or ed.SYSTEM_PROMPT.strip()
-        prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": enrich_prompt, "d": "Системный промт обогащения описания", "env_key": "prompt_enrich_system", "editable": True})
+        prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": enrich_prompt, "d": "Системный промт обогащения описания", "env_key": "prompt_enrich_system", "editable": True, "default": ed.SYSTEM_PROMPT.strip()})
         tools = getattr(ed, "TOOLS", None)
         if tools:
             for t in tools:
@@ -258,7 +260,8 @@ def _get_prompts():
                 param_str = ", ".join(f"{p}: {d.get('type','?')}" for p, d in params.items()) if params else "нет"
                 env_key = f"prompt_enrich_tool_{name}"
                 tool_val = db.get_setting(env_key) or f"{desc} | Параметры: {param_str}"
-                prompts.append({"k": f"Enrich tool: {name}", "v": tool_val, "d": "Инструмент обогащения", "env_key": env_key, "editable": True})
+                tool_default = f"{desc} | Параметры: {param_str}"
+                prompts.append({"k": f"Enrich tool: {name}", "v": tool_val, "d": "Инструмент обогащения", "env_key": env_key, "editable": True, "default": tool_default})
     except Exception as e:
         prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт обогащения описания"})
     return prompts
