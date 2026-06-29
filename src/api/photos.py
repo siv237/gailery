@@ -446,6 +446,7 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
             return buf.getvalue()
         import pyvips
         img = pyvips.Image.new_from_file(str(photo_path), access="random")
+        img = img.autorot()
         x1, y1, x2, y2 = bbox
         fw = x2 - x1
         fh = y2 - y1
@@ -520,6 +521,7 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         else:
             import pyvips
             vimg = pyvips.Image.new_from_file(str(photo_path), access="random")
+            vimg = vimg.autorot()
             crop_buf = vimg.write_to_buffer(".png")
             img = PILImage.open(io.BytesIO(crop_buf))
             bbox = bbox_raw

@@ -114,10 +114,12 @@ def _check_existing_faces(db, photo_id, path):
 
 
 def _load_and_detect(app, img_path):
-    from PIL import Image
+    from PIL import Image, ImageOps
     import numpy as np
     t_read = time.time()
-    img = Image.open(img_path).convert("RGB")
+    img = Image.open(img_path)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
     img_array = np.array(img)
     dt_read = time.time() - t_read
 
