@@ -537,6 +537,7 @@ function loadBefore(beforeDate, beforePath, onComplete) {
         _updateSentinel();
         var newScrollH = document.documentElement.scrollHeight;
         window.scrollBy(0, newScrollH - oldScrollH);
+        _lastScrollY = window.scrollY;
         _isLoading = false;
         updateInfo();
         if (onComplete) onComplete(data.photos || []);
@@ -1409,6 +1410,7 @@ function _tlNavigateAt(clickX) {
             _needleMode = false;
             setTimeout(function() {
                 window.scrollTo(0, document.documentElement.scrollHeight);
+                _lastScrollY = window.scrollY;
                 updateTimelinePosition();
             }, 100);
         }).catch(function(e) {
