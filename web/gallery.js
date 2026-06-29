@@ -479,7 +479,7 @@ function _fillPrefetch() {
                 if (req.path) par += '&path_after=' + encodeURIComponent(req.path);
             }
         }
-        var key = par + '|' + (req.date || '') + '|' + (req.path || '');
+        var key = par + '|' + (req.date || '') + '|' + (req.path || '') + '|';
         fetch(API + '/photos/search?' + par).then(function(r) { return r.json(); }).then(function(data) {
             _prefetchQueue.push({ key: key, data: data });
             if (data.photos.length > 0) {
