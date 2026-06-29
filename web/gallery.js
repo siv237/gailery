@@ -691,6 +691,11 @@ function reindexAll() {
         } else {
             cards[i].setAttribute('ondblclick', 'event.stopPropagation();Viewer.open(currentPhotos,' + i + ');toggleFullscreen()');
         }
+        if (isVid) {
+            cards[i].setAttribute('onmouseenter', 'startVideoPreview(this,' + i + ')');
+        } else {
+            cards[i].removeAttribute('onmouseenter');
+        }
     }
 }
 
