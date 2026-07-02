@@ -86,7 +86,7 @@ elif [[ $COVERAGE -eq 1 ]]; then
   [[ $WRITE -eq 0 ]] && EXCLUDES="$EXCLUDES and not write"
   [[ $AI -eq 0 ]]    && EXCLUDES="$EXCLUDES and not ai and not gpu"
   MARK_FILTER="-k '$EXCLUDES'"
-  COV_FLAGS="--cov=src --cov-branch --cov-report=term-missing --cov-fail-under=38"
+  COV_FLAGS="--cov=src --cov-branch --cov-report=term-missing --cov-fail-under=39"
   FLAGS="$FLAGS $COV_FLAGS"
   echo "  mode: coverage (branch coverage, baseline 38%)"
 elif [[ $FAST -eq 1 ]]; then

@@ -589,9 +589,9 @@ class DatabaseManager:
                       media_type=None,
                       sort="date_desc", limit=60, offset=0):
         ed = "COALESCE(manual_date, date)"
-        base_sql = ("SELECT photos.*, " + ed + " as effective_date, cf.content_hash "
+        base_sql = ("SELECT photos.*, " + ed + " as effective_date, cf.content_hash "  # nosec B608 — SQL column names, values parameterized through ?
                     "FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
-                    "WHERE cf.is_canonical = 1 AND cf.deleted = 0")  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    "WHERE cf.is_canonical = 1 AND cf.deleted = 0")
         filter_sql, params = self._build_search_filters(
             ed, q, person, date_from, date_to, date_after, date_before,
             path_after, path_before, has_faces, no_description, has_issues,

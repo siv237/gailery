@@ -875,7 +875,9 @@ def test_coupling_backlog():
 # Запуск с покрытием: ./run_tests.sh --coverage
 # --cov-fail-under=38 в run_tests.sh блокирует падение ниже baseline.
 
-BRANCH_COVERAGE_BASELINE = 38  # % (зафиксирован 2026-07-02)
+BRANCH_COVERAGE_BASELINE = 39  # % общий (зафиксирован 2026-07-02)
+# Production coverage (без GPU-воркеров и утилит): 66%
+# GPU-воркеры (1450 строк, 0%) и утилиты (420 строк, 0%) тянут общий вниз
 
 
 def test_branch_coverage_baseline_documented():

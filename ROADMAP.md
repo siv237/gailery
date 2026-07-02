@@ -251,15 +251,39 @@
 | 2026-07-02 | MODULES.md + generate_modules.py | --map режим, 83 модуля |
 | 2026-07-02 | pytest маркеры (10/10) | arch,router,executor,fuzz,slow,security |
 | 2026-07-02 | ESLint 8.57.1 + .eslintrc.json | baseline 77 errors, тест ловит регрессию |
+| 2026-07-02 | Этап 1: F401+F841 cleanup | 86 нарушений → 0 |
+| 2026-07-02 | Этап 2: ESLint no-redeclare | 77 errors → 0 |
+| 2026-07-02 | Этап 3: BLE001 blind except | 238 → 0 (конкретные типы) |
+| 2026-07-02 | Этап 4: C901 complexity | 20 функций → 0 (разбиение) |
+| 2026-07-02 | Coverage анализ | Production 66%, общий 39% |
 
 ## Оставшийся backlog
 
-| Приоритет | Задача | Блокировка |
+| Приоритет | Задача | Блокировка | Объём |
+|---|---|---|---|
+| ДОЛГОСРОЧ | God Object DatabaseManager (91 метод) | Архитектурный рефакторинг | Отдельный спринт |
+| ПОСТОЯННО | Branch coverage (39% общий, 66% production) | Написание тестов | Постепенно |
+| ЗАБЛКИРОВАНО | ESLint warnings (428, curly/no-unused-vars) | Косметика | Фоново |
+
+### Coverage по модулям (snapshot 2026-07-02)
+
+| Модуль | Coverage | Характер |
 |---|---|---|
-| СРЕДНЕ | ESLint no-redeclare (75 ошибок) | Backlog, тест ловит регрессию |
-| СРЕДНЕ | ESLint no-use-before-define (2) | Backlog, тест ловит регрессию |
-| СРЕДНЕ | BLE001 рефакторинг (238→0) | Долг, по мере рефакторинга |
-| СРЕДНЕ | F401 cleanup (70→0) | Долг, unused imports |
-| СРЕДНЕ | C901 рефакторинг (21 функция >15) | Долг, разбиение функций |
-| НИЗКО | Контракт роутера (все эндпоинты) | Расширение с 11 до ~40 |
-| НИЗКО | Контракт исполнителя (stubs) | Реестр + stub-тесты |
+| src/api/catalog.py | 100% | Хорошо покрыто |
+| src/config.py | 95% | Хорошо покрыто |
+| src/system_monitor.py | 87% | Хорошо покрыто |
+| src/database.py | 79% | Хорошо покрыто |
+| src/api/persons.py | 71% | Хорошо покрыто |
+| src/main.py | 68% | Хорошо покрыто |
+| src/system_helpers.py | 66% | Хорошо покрыто |
+| src/api/photos.py | 60% | Средне |
+| src/mqtt_client.py | 52% | Средне |
+| src/api/validators.py | 44% | Слабо — новый код, нужны тесты |
+| src/api/video.py | 42% | Слабо — video_meta refactored |
+| src/api/models.py | 37% | Слабо |
+| src/api/search.py | 35% | Слабо — semantic_search, mock нужен |
+| src/api/flir.py | 33% | Слабо — FLIR parsing |
+| GPU-воркеры (7 файлов) | 0% | Не покрываемо без GPU (1450 строк) |
+| Утилиты (4 файла) | 0% | Не production (420 строк) |
+
+**Production coverage: 66%.** Общий 39% объясняется GPU-кодом и утилитами.
