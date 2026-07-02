@@ -11,7 +11,7 @@
      FaceModalHooks.onSaved(personaId, name) — после сохранения (обновить карточки)
 ===== */
 
-var FaceModalHooks = FaceModalHooks || {};
+var FaceModalHooks = window.FaceModalHooks || {};
 
 var _fmHTML = `
 <div class="face-modal" id="faceModal" onclick="closeFaceModal()">

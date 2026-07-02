@@ -60,7 +60,7 @@ def _get_flir_temps(photo_path):
     """Extract RawThermalImage, byte-swap, compute Planck temps.
     Returns (temps_2d, t_min, t_max, meta) or raises HTTPException."""
     from flir_parser import _exiftool_extract
-    import cv2, numpy as np, json, re, math, subprocess, io
+    import numpy as np, json, re, math, subprocess, io
     from PIL import Image as PILImage
 
     raw_bytes = _exiftool_extract(photo_path, 'RawThermalImage')

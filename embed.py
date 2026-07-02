@@ -29,7 +29,6 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 import config as app_config
-from config import PHOTO_SHARE_PATH
 LOG_FILE = str(Path(__file__).parent / "logs" / "pipeline.log")
 FLAG_FILE = str(Path(__file__).parent / "data" / "pipeline_flags" / "embed")
 

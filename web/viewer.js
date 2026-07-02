@@ -28,7 +28,7 @@ var Viewer = {
     modalOpen: false,
 };
 
-var ViewerHooks = ViewerHooks || {};
+var ViewerHooks = window.ViewerHooks || {};
 
 // ─── State ───
 var _mZoom = 1, _mPx = 0, _mPy = 0, _mDrag = false, _mDX = 0, _mDY = 0;
@@ -254,7 +254,7 @@ function openViewer(idx) {
             if (Math.abs(px - corners[i].cx) < hit && Math.abs(py - corners[i].cy) < hit) { _flirScaleCorner = corners[i].corner; break; }
         }
         if (!_flirScaleCorner) {
-            for (var i = 0; i < edges.length; i++) {
+            for (let i = 0; i < edges.length; i++) {
                 if (Math.abs(px - edges[i].cx) < hit && Math.abs(py - edges[i].cy) < hit) { _flirScaleCorner = edges[i].corner; break; }
             }
         }
@@ -469,7 +469,7 @@ function _updateFitIcon(p, isCover) {
         w = maxW; h = Math.max(4, Math.round(maxW / ratio));
         icon.classList.add('outer'); if (btn) btn.title = 'Сжать';
     } else {
-        var pw = p.img_width || 4, ph = p.img_height || 3, ratio = pw / ph;
+        let pw = p.img_width || 4, ph = p.img_height || 3, ratio = pw / ph;
         if (ratio >= 1) { w = maxW; h = Math.max(4, Math.round(maxW / ratio)); }
         else { h = maxH; w = Math.max(4, Math.round(h * ratio)); }
         icon.classList.remove('outer'); if (btn) btn.title = 'Растянуть';

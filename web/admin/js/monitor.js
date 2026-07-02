@@ -209,10 +209,10 @@ MonP.renderCard = function(p, idx, containerId, compact) {
 
         if (p.personas && p.personas.length) {
             h += '<div class="mpers-list">';
-            for (var j = 0; j < p.personas.length; j++) {
-                var per = p.personas[j];
-                var faceUrl = (per.face_ids && per.face_ids.length) ? ('/api/photos/face/' + per.face_ids[0]) : '';
-                var pName = per.display_name || per.name || '';
+            for (let j = 0; j < p.personas.length; j++) {
+                let per = p.personas[j];
+                let faceUrl = (per.face_ids && per.face_ids.length) ? ('/api/photos/face/' + per.face_ids[0]) : '';
+                let pName = per.display_name || per.name || '';
                 h += '<div class="mpers-card" onclick="event.stopPropagation();MonP.openPersonaModal(\''+Admin.esc(per.persona_id)+'\',\''+Admin.esc(pName)+'\',\''+Admin.esc(per.comment||'')+'\',\''+Admin.esc(faceUrl)+'\')">';
                 if (faceUrl) h += '<img class="mpers-face" src="'+faceUrl+'" loading="lazy">';
                 else h += '<div class="mpers-face mpers-face-empty">?</div>';

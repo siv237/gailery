@@ -3,9 +3,8 @@ import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -235,7 +234,7 @@ class TestWorkerMQTT:
 class TestApiMQTT:
     def _make_api(self):
         """Создаёт ApiMQTT с моком."""
-        from mqtt_client import ApiMQTT, WORKER_NAMES
+        from mqtt_client import ApiMQTT
         with patch("mqtt_client.mqtt"):
             mq = ApiMQTT()
             mq.client = MagicMock()

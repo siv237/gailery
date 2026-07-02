@@ -1,17 +1,13 @@
 """API endpoints for photos"""
 
 from fastapi import APIRouter, HTTPException, Response, Request
-from fastapi.responses import StreamingResponse, FileResponse
 
 from pathlib import Path
 from typing import Optional, List
 import logging
 import os
-import re
 import subprocess
-import time
-import threading
-from config import PHOTO_SHARE_PATH, THUMBNAILS_DIR, LLAMA_CPP_DIR, PROJECT_ROOT, LOG_FILE, VIDEO_EXTS
+from config import PHOTO_SHARE_PATH, LLAMA_CPP_DIR, PROJECT_ROOT, VIDEO_EXTS
 import config
 
 from .video import _video_needs_stream
@@ -338,9 +334,9 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
         raise HTTPException(status_code=404, detail="Photo not found")
 
     try:
-        rel = str(photo_path.relative_to(PHOTO_SHARE_PATH))
+        str(photo_path.relative_to(PHOTO_SHARE_PATH))
     except ValueError:
-        rel = photo_path.name
+        pass
 
     from thumbnails import ThumbnailGenerator, SIZES
     gen = ThumbnailGenerator()
@@ -476,7 +472,6 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
 @router.get("/face_context/{face_id}")
 async def get_face_context(face_id: str, zoom: float = 3.0):
     from database import get_db
-    import io
 
     db = get_db()
     face = db.get_face(face_id)
@@ -562,7 +557,6 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
 
     db = get_db()
 
-    actual_sort = "created_desc" if sort not in ("changed_desc", "changed_asc") else sort
 
     if sort == "changed_desc":
         recent_rows = db.sqlite.execute(
@@ -910,7 +904,7 @@ async def search_photos(
     result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
 
     for p in result:
-        abs_path = p.get("path", "")
+        p.get("path", "")
         hash_val = p.get("content_hash")
         try:
             if hash_val:
@@ -929,7 +923,6 @@ async def search_photos(
 
 def _get_mqtt_api():
     try:
-        from mqtt_client import create_api_mqtt
         from main import _get_api_mqtt
         return _get_api_mqtt()
     except Exception:
@@ -969,7 +962,7 @@ async def enrich_description(photo_id: str):
     else:
         logger.warning("[ENRICH] No MQTT, proceeding without GPU lock")
     try:
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+        subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
         db2 = get_db()
         updated = db2.get_photo(photo_id)
         if not updated:
@@ -1120,7 +1113,6 @@ async def get_date_histogram():
 
 @router.post("/describe")
 async def describe_photos(paths: List[str], batch_size: int = 10):
-    import subprocess
     import sys
 
     valid_paths = []
@@ -1132,7 +1124,7 @@ async def describe_photos(paths: List[str], batch_size: int = 10):
     if not valid_paths:
         raise HTTPException(status_code=400, detail="No valid photo paths")
 
-    cmd = [
+    [
         sys.executable, str(PROJECT_ROOT / "vision_describe.py"),
         "--single" if len(valid_paths) == 1 else valid_paths[0],
     ]

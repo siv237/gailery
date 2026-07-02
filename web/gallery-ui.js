@@ -76,8 +76,8 @@ function renderPersonList(list) {
     if (activePerson) {
         html += '<div class="pf-item" onclick="clearPersonFilter()"><span class="nm" style="color:#d29922">Сбросить фильтр</span></div>';
     }
-    for (var i = 0; i < named.length; i++) {
-        var p = named[i];
+    for (let i = 0; i < named.length; i++) {
+        let p = named[i];
         html += '<div class="pf-item" onclick="selectPersonFilter(\'' + esc(p.display_name) + '\')">';
         if (p.face_id) html += '<img src="' + API + '/photos/face/' + p.face_id + '?margin=0.5" loading="lazy">';
         html += '<span class="nm">' + esc(p.display_name) + '</span>';
@@ -85,8 +85,8 @@ function renderPersonList(list) {
     }
     if (unnamed.length > 0) {
         html += '<div style="color:#6e7681;font-size:10px;padding:6px 4px;margin-top:8px">Без имени:</div>';
-        for (var i = 0; i < Math.min(unnamed.length, 20); i++) {
-            var p = unnamed[i];
+        for (let i = 0; i < Math.min(unnamed.length, 20); i++) {
+            let p = unnamed[i];
             html += '<div class="pf-item" onclick="selectPersonFilter(\'' + esc(p.name || p.persona_id) + '\')">';
         if (p.face_id) html += '<img src="' + API + '/photos/face/' + p.face_id + '?margin=0.5" loading="lazy">';
             html += '<span class="nm" style="color:#6e7681">' + esc(p.name || p.persona_id) + '</span>';
@@ -425,15 +425,15 @@ function syncCatCheck(mobEl, deskId) {
          ['chkCatDocumentMob','chkCatDocument'],['chkCatMemeMob','chkCatMeme'],
          ['chkCatIconMob','chkCatIcon'],['chkCatOtherMob','chkCatOther']
      ];
-     for (var i = 0; i < catPairs.length; i++) {
-         var mob = document.getElementById(catPairs[i][0]);
-         var desk = document.getElementById(catPairs[i][1]);
-         if (mob && desk) mob.checked = desk.checked;
-     }
-     var fmtPairs = [['chkRawMob','chkRaw'],['chkJpegMob','chkJpeg'],['chkVideoMob','chkVideo']];
-     for (var i = 0; i < fmtPairs.length; i++) {
-         var mob = document.getElementById(fmtPairs[i][0]);
-         var desk = document.getElementById(fmtPairs[i][1]);
+      for (let i = 0; i < catPairs.length; i++) {
+          let mob = document.getElementById(catPairs[i][0]);
+          let desk = document.getElementById(catPairs[i][1]);
+          if (mob && desk) mob.checked = desk.checked;
+      }
+      var fmtPairs = [['chkRawMob','chkRaw'],['chkJpegMob','chkJpeg'],['chkVideoMob','chkVideo']];
+      for (let i = 0; i < fmtPairs.length; i++) {
+          let mob = document.getElementById(fmtPairs[i][0]);
+          let desk = document.getElementById(fmtPairs[i][1]);
          if (mob && desk) mob.checked = desk.checked;
      }
      var modeMob = document.getElementById('searchModeMob');
@@ -453,13 +453,13 @@ function mobClearFilters() {
      var ids = ['chkFacesMob','chkHasDescMob','chkIssuesMob','chkGpsMob','chkDeletedMob'];
      for (var i = 0; i < ids.length; i++) { var el = document.getElementById(ids[i]); if (el) el.checked = false; }
      var sortMob = document.getElementById('sortSelectMob'); if (sortMob) sortMob.value = 'date_desc';
-      var catMobs = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
-      for (var i = 0; i < catMobs.length; i++) { var el = document.getElementById(catMobs[i]); if (el) el.checked = true; }
-      document.getElementById('chkRawMob').checked = true;
-      document.getElementById('chkJpegMob').checked = true;
-      document.getElementById('chkVideoMob').checked = true;
-     var catMobs = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
-     for (var i = 0; i < catMobs.length; i++) { var el = document.getElementById(catMobs[i]); if (el) el.checked = true; }
+       let catMobs = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
+       for (let i = 0; i < catMobs.length; i++) { let el = document.getElementById(catMobs[i]); if (el) el.checked = true; }
+       document.getElementById('chkRawMob').checked = true;
+       document.getElementById('chkJpegMob').checked = true;
+       document.getElementById('chkVideoMob').checked = true;
+      let catMobs2 = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
+      for (let i = 0; i < catMobs2.length; i++) { let el = document.getElementById(catMobs2[i]); if (el) el.checked = true; }
      var modeMob = document.getElementById('searchModeMob'); if (modeMob) modeMob.value = 'exact';
      clearFilters();
  }

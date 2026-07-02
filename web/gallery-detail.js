@@ -279,7 +279,7 @@ function selectYear(year) {
             }
 
             var gid = 0;
-            for (var gName in grouped) {
+            for (let gName in grouped) {
                 var gId = 'exifGrp_' + gid;
                 html += '<div style="margin-top:6px">';
                 html += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'' + gId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">' + esc(gName) + ' (' + grouped[gName].length + ') ▾</div>';
@@ -343,10 +343,6 @@ function saveRotate(hash, angle) {
     }).catch(function(){});
 }
 
-var _dpRot = 0;
-var _dpIdx = -1;
-var _dpHash = '';
-var _flirMode = 'thermal';
 
 function rotateDetail(deg) {
     _dpRot = _dpRot + deg;

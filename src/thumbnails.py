@@ -4,7 +4,7 @@ import pyvips
 import logging as _logging
 _logging.getLogger("pyvips").setLevel(_logging.WARNING)
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 import logging
 import subprocess
 import tempfile

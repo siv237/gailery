@@ -7,12 +7,11 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any
 
 import lancedb
 import pyarrow as pa
 
-from config import LANCEDB_PATH, EMBEDDINGS_TABLE, DATA_DIR, PHOTO_SHARE_PATH, VIDEO_EXTS
+from config import LANCEDB_PATH, DATA_DIR, PHOTO_SHARE_PATH, VIDEO_EXTS
 
 logger = logging.getLogger(__name__)
 
@@ -854,7 +853,6 @@ deleted=None, deleted_only=None,
         return result
 
     def search_similar_faces(self, embedding, limit=10, threshold=0.5):
-        import numpy as np
         all_faces = self.get_all_face_embeddings()
         results = []
         for f in all_faces:
@@ -1266,7 +1264,7 @@ deleted=None, deleted_only=None,
                 "described DESC, ingested DESC, length(abs_path) ASC, abs_path ASC",
                 (h,)
             ).fetchall()
-            canonical_id = files[0][0]
+            files[0][0]
             copy_ids = [f[0] for f in files[1:]]
             if copy_ids:
                 placeholders = ",".join("?" for _ in copy_ids)

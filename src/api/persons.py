@@ -296,7 +296,7 @@ async def update_persons_by_name(old_name: str, req: PersonaUpdateRequest):
     try:
         db = get_db()
         personas = db.get_personas_by_name(old_name)
-        fc_map = db.face_count_map()
+        db.face_count_map()
         results = []
         for p in personas:
             r = _db_write("update_persona", {

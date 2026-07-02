@@ -18,7 +18,6 @@ import io
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -336,7 +335,7 @@ def _calc_age(comment, photo_date=None):
         parts = pd.split('-')
         if len(parts) != 3:
             return None
-        py, pm, pdd = int(parts[0]), int(parts[1]), int(parts[2])
+        py, pm, _pdd = int(parts[0]), int(parts[1]), int(parts[2])
     except Exception:
         return None
 
@@ -503,10 +502,9 @@ def _build_agent_context(photo_path, db):
                 comment = r[5] or ""
                 pid = r[6]
                 pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0], img_width)
-                pcnt = 0
                 if pid:
                     pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
-                    pcnt = pc[0] if pc else 0
+                    pc[0] if pc else 0
                 age_str = _calc_age(comment, photo_date) if name and comment else None
                 is_bday = _is_birthday(comment, photo_date) if name and comment else False
                 bday_date = _parse_birth_date(comment) if name and comment else None
@@ -862,7 +860,7 @@ def process_directory(photo_dir, batch_size=BATCH_SIZE, limit=0, content_hash=No
                     log(f"    marked as deleted (corrupted file)")
                 dt_save = time.time() - t_save
                 processed += 1
-                desc_len = len(parsed["description"])
+                len(parsed["description"])
                 desc_words = len(parsed["description"].split())
                 face_mark = "F" if parsed["has_faces"] else " "
                 issue_mark = "I" if parsed["has_issues"] else " "

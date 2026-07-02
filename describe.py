@@ -25,7 +25,7 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
     os.execv(VENV_PYTHON, [VENV_PYTHON, __file__] + sys.argv[1:])
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
-from config import PHOTO_SHARE_PATH, LLAMA_CPP_DIR
+from config import LLAMA_CPP_DIR
 LOG_FILE = str(Path(__file__).parent / "logs" / "pipeline.log")
 FLAG_FILE = str(Path(__file__).parent / "data" / "pipeline_flags" / "describe")
 
@@ -277,7 +277,7 @@ def main():
     parser.add_argument("--no-gpu-lock", action="store_true", help="Skip GPU lock acquire (already held by caller)")
     args = parser.parse_args()
 
-    from config import describe_backend as db_backend, OLLAMA_MODE, OLLAMA_BASE_URL, OLLAMA_DESCRIBE_MODEL
+    from config import describe_backend as db_backend, OLLAMA_MODE
     be = db_backend or OLLAMA_MODE
     count = count_undescribed()
     if count == 0:

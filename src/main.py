@@ -1,24 +1,22 @@
 """FastAPI application for Gailery Photo Gallery"""
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from urllib.parse import unquote, urlparse
 import asyncio
 import logging
-import importlib
-import sys
 import os
 import requests
 
-from database import DatabaseManager, get_db
+from database import get_db
 from config import LANCEDB_PATH, LOG_FILE, FLAG_DIR, VENV_PYTHON, PROJECT_ROOT, DATA_DIR
 from system_helpers import (
     _determine_pipeline_step, _get_git_info, _read_log_info,
     _collect_disks, _collect_gpu_processes, _collect_top_procs,
-    _collect_pipeline_stats, _get_prompts, _build_config_groups,
+    _collect_pipeline_stats, _build_config_groups,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -292,8 +290,7 @@ async def get_status():
     if _status_cache.get(cache_key) and (now - _status_cache[cache_key]["ts"]) < _STATUS_TTL:
         return _status_cache[cache_key]["data"]
 
-    import subprocess
-    from database import DatabaseManager, get_db
+    from database import get_db
     from datetime import datetime
 
     def _compute_status():
@@ -364,7 +361,7 @@ async def get_status():
 async def get_monitoring():
     import asyncio
     from system_monitor import collect_live
-    from database import DatabaseManager, get_db
+    from database import get_db
 
     def _compute():
         db = get_db()
@@ -380,7 +377,7 @@ async def get_monitoring():
 async def get_system_report():
     import asyncio
     from system_monitor import collect_live
-    from database import DatabaseManager, get_db
+    from database import get_db
     import psutil
     import os
     import subprocess
@@ -489,10 +486,8 @@ async def mqtt_workers():
             "gpu_held": state.get("gpu_held", False),
             "alive": alive,
         }
-    import json as _json
-    lock_data = None
     try:
-        lock_raw = states.get("__gpu_lock__")
+        states.get("__gpu_lock__")
     except Exception:
         pass
     return {"workers": result, "current_step": mq.get_current_step(), "db_writing": mq.is_db_writing()}
@@ -887,7 +882,7 @@ async def control_update():
 
 @app.get("/api/changes")
 async def get_changes(limit: int = 100):
-    from database import DatabaseManager, get_db
+    from database import get_db
     db = get_db()
     cur = db.sqlite.cursor()
     rows = cur.execute(
@@ -919,7 +914,7 @@ app.include_router(flir.router)
 
 @app.get("/api/settings/{key}")
 async def get_setting(key: str):
-    from database import DatabaseManager, get_db
+    from database import get_db
     db = get_db()
     value = db.get_setting(key)
     return {"key": key, "value": value or ""}
@@ -941,7 +936,7 @@ async def set_setting(key: str, request: Request):
 
 @app.get("/api/settings/{key}/top_personas")
 async def top_personas_for_facts(key: str):
-    from database import DatabaseManager, get_db
+    from database import get_db
     db = get_db()
     rows = db.sqlite.execute("""
         SELECT per.display_name, per.comment, SUM(subcnt) as total_faces
@@ -1222,7 +1217,7 @@ async def maintenance_dedup_embeddings():
         if result.get("ok"):
             return result
     try:
-        from database import DatabaseManager, get_db
+        from database import get_db
         db = get_db()
         before, after, removed = db.dedup_photo_embeddings()
         return {"ok": True, "before": before, "after": after, "removed": removed}

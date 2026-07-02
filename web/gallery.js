@@ -842,7 +842,7 @@ function _applyDateData() {
     if (!minD || !maxD) {
         var years = dateData.years || {};
         var keys = Object.keys(years).sort();
-        for (var i = 0; i < keys.length; i++) {
+        for (let i = 0; i < keys.length; i++) {
             if (keys[i] === 'no_date') continue;
             var y = parseInt(keys[i]); if (isNaN(y)) continue;
             var jan1 = y + '-01-01';
@@ -969,7 +969,7 @@ function renderTimeline() {
     if (pxD < 3) {
         var maxCnt = 1;
         for (var k in months) if (months[k] > maxCnt) maxCnt = months[k];
-        for (var k in months) {
+        for (let k in months) {
             var my = parseInt(k.substring(0, 4));
             var mm = parseInt(k.substring(5, 7)) - 1;
             if (isNaN(my) || isNaN(mm)) continue;
@@ -981,8 +981,8 @@ function renderTimeline() {
             ctx.fillRect(Math.max(0, x1), barTop + barMaxH - bh, Math.min(W, x2) - Math.max(0, x1), bh);
         }
     } else if (pxD < 20) {
-        var maxCnt = 1;
-        for (var k in days) if (days[k] > maxCnt) maxCnt = days[k];
+        let maxCnt = 1;
+        for (let k in days) if (days[k] > maxCnt) maxCnt = days[k];
         var dkeys = Object.keys(days);
         for (var i = 0; i < dkeys.length; i++) {
             var dk = dkeys[i];
@@ -992,10 +992,10 @@ function renderTimeline() {
             if (isNaN(dy) || isNaN(dm) || isNaN(dd)) continue;
             var frac1 = dy + dm / 12 + dd / 365.25;
             var frac2 = dy + dm / 12 + (dd + 1) / 365.25;
-            var x1 = _fracToX(frac1);
-            var x2 = _fracToX(frac2);
+            let x1 = _fracToX(frac1);
+            let x2 = _fracToX(frac2);
             if (x2 < 0 || x1 > W) continue;
-            var bh = Math.round(days[dk] / maxCnt * barMaxH);
+            let bh = Math.round(days[dk] / maxCnt * barMaxH);
             ctx.fillStyle = cBar;
             ctx.fillRect(Math.max(0, x1), barTop + barMaxH - bh, Math.max(1, Math.min(W, x2) - Math.max(0, x1)), bh);
         }
@@ -1029,15 +1029,15 @@ function renderTimeline() {
         if (maxCols < 1) maxCols = 1;
         var cSq = light ? 'rgba(9,105,218,0.55)' : 'rgba(88,166,255,0.55)';
         var cSqFill = light ? 'rgba(9,105,218,0.25)' : 'rgba(88,166,255,0.25)';
-        var dkeys = Object.keys(days);
-        for (var i = 0; i < dkeys.length; i++) {
-            var dk = dkeys[i];
-            var dy = parseInt(dk.substring(0, 4));
-            var dm = parseInt(dk.substring(5, 7)) - 1;
-            var dd = parseInt(dk.substring(8, 10)) - 1;
+        let dkeys = Object.keys(days);
+        for (let i = 0; i < dkeys.length; i++) {
+            let dk = dkeys[i];
+            let dy = parseInt(dk.substring(0, 4));
+            let dm = parseInt(dk.substring(5, 7)) - 1;
+            let dd = parseInt(dk.substring(8, 10)) - 1;
             if (isNaN(dy) || isNaN(dm) || isNaN(dd)) continue;
-            var frac1 = dy + dm / 12 + dd / 365.25;
-            var x = _fracToX(frac1);
+            let frac1 = dy + dm / 12 + dd / 365.25;
+            let x = _fracToX(frac1);
             if (x < -sqSize || x > W + sqSize) continue;
             var cnt = days[dk];
             var row = 0, col = 0;
@@ -1085,11 +1085,11 @@ function renderTimeline() {
     }
 
     if (pxM >= 3) {
-        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
-        for (var y = y0; y <= y1; y++) {
+        let y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (let y = y0; y <= y1; y++) {
             for (var m = 1; m <= 12; m++) {
                 if (m === 1 && pxY >= 8) continue;
-                var x = _fracToX(y + (m - 1) / 12);
+                let x = _fracToX(y + (m - 1) / 12);
                 if (x < -10 || x > W + 10) continue;
                 ctx.strokeStyle = cMonTick;
                 ctx.lineWidth = 1;
@@ -1104,8 +1104,8 @@ function renderTimeline() {
             }
         }
         if (pxM >= 12 && pxY < 50) {
-            for (var y = y0; y <= y1; y++) {
-                var x = _fracToX(y);
+            for (let y = y0; y <= y1; y++) {
+                let x = _fracToX(y);
                 if (x < -30 || x > W + 30) continue;
                 ctx.fillStyle = cDateLabel; ctx.font = '11px monospace'; ctx.textAlign = 'left';
                 ctx.fillText(y.toString(), x + 3, axisY - 12);
@@ -1114,17 +1114,17 @@ function renderTimeline() {
     }
 
     if (pxD >= 3) {
-        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
-        for (var y = y0; y <= y1; y++) {
-            for (var m = 0; m < 12; m++) {
-                var daysInM = new Date(y, m + 1, 0).getDate();
-                for (var d = 1; d <= daysInM; d++) {
-                    var frac = y + m / 12 + (d - 1) / 365.25;
-                    var x = _fracToX(frac);
+        let y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (let y = y0; y <= y1; y++) {
+            for (let m = 0; m < 12; m++) {
+                let daysInM = new Date(y, m + 1, 0).getDate();
+                for (let d = 1; d <= daysInM; d++) {
+                    let frac = y + m / 12 + (d - 1) / 365.25;
+                    let x = _fracToX(frac);
                     if (x < -5 || x > W + 5) continue;
                     ctx.strokeStyle = cDayTick; ctx.lineWidth = 1;
                     ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + 3); ctx.stroke();
-                    var step = pxD >= 30 ? 1 : (pxD >= 15 ? 2 : 5);
+                    let step = pxD >= 30 ? 1 : (pxD >= 15 ? 2 : 5);
                     if (pxD >= 15 && d % step === 0) {
                         ctx.fillStyle = cDayLabel; ctx.font = '9px monospace'; ctx.textAlign = 'center';
                         ctx.fillText(d.toString(), x, axisY - 10);
@@ -1133,9 +1133,9 @@ function renderTimeline() {
             }
         }
         if (pxD >= 10 && pxM < 30) {
-            for (var y = y0; y <= y1; y++) {
-                for (var m = 0; m < 12; m++) {
-                    var x = _fracToX(y + m / 12);
+            for (let y = y0; y <= y1; y++) {
+                for (let m = 0; m < 12; m++) {
+                    let x = _fracToX(y + m / 12);
                     if (x < -40 || x > W + 40) continue;
                     ctx.fillStyle = cDateLabel; ctx.font = '10px monospace'; ctx.textAlign = 'left';
                     ctx.fillText(MONTH_SHORT[m] + ' ' + y, x + 2, axisY - 12);
@@ -1145,19 +1145,19 @@ function renderTimeline() {
     }
 
     if (pxH >= 2) {
-        var y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
-        for (var y = y0; y <= y1; y++) {
-            for (var m = 0; m < 12; m++) {
-                var daysInM = new Date(y, m + 1, 0).getDate();
-                for (var d = 1; d <= daysInM; d++) {
+        let y0 = Math.floor(f0) - 1, y1 = Math.ceil(f1) + 1;
+        for (let y = y0; y <= y1; y++) {
+            for (let m = 0; m < 12; m++) {
+                let daysInM = new Date(y, m + 1, 0).getDate();
+                for (let d = 1; d <= daysInM; d++) {
                     for (var h = 0; h < 24; h++) {
                         if (h === 0 && pxD >= 5) continue;
-                        var frac = y + m / 12 + (d - 1) / 365.25 + h / 24 / 365.25;
-                        var x = _fracToX(frac);
+                        let frac = y + m / 12 + (d - 1) / 365.25 + h / 24 / 365.25;
+                        let x = _fracToX(frac);
                         if (x < -3 || x > W + 3) continue;
                         ctx.strokeStyle = cHourTick; ctx.lineWidth = 1;
                         ctx.beginPath(); ctx.moveTo(x, axisY); ctx.lineTo(x, axisY + 2); ctx.stroke();
-                        var step = pxH >= 20 ? 1 : (pxH >= 10 ? 2 : 6);
+                        let step = pxH >= 20 ? 1 : (pxH >= 10 ? 2 : 6);
                         if (pxH >= 10 && h % step === 0) {
                             ctx.fillStyle = cHourLabel; ctx.font = '8px monospace'; ctx.textAlign = 'center';
                             ctx.fillText(h + ':00', x, axisY - 8);
@@ -1167,12 +1167,12 @@ function renderTimeline() {
             }
         }
         if (pxH >= 5 && pxD < 15) {
-            for (var y = y0; y <= y1; y++) {
-                for (var m = 0; m < 12; m++) {
-                    var daysInM = new Date(y, m + 1, 0).getDate();
-                    for (var d = 1; d <= daysInM; d++) {
-                        var frac = y + m / 12 + (d - 1) / 365.25;
-                        var x = _fracToX(frac);
+            for (let y = y0; y <= y1; y++) {
+                for (let m = 0; m < 12; m++) {
+                    let daysInM = new Date(y, m + 1, 0).getDate();
+                    for (let d = 1; d <= daysInM; d++) {
+                        let frac = y + m / 12 + (d - 1) / 365.25;
+                        let x = _fracToX(frac);
                         if (x < -40 || x > W + 40) continue;
                         ctx.fillStyle = cDateLabel; ctx.font = '10px monospace'; ctx.textAlign = 'left';
                         ctx.fillText(('0' + d).slice(-2) + '.' + ('0' + (m + 1)).slice(-2) + '.' + y, x + 2, axisY - 12);
@@ -1299,7 +1299,7 @@ function _tlOnTouchMove(e) {
         _clampTlOffset();
         renderTimeline();
         if (_needleDateISO) {
-            var needle = document.getElementById('tlNeedle');
+            let needle = document.getElementById('tlNeedle');
             if (needle) { needle.style.transition = 'none'; needle.style.left = _dateToX(_needleDateISO) + 'px'; }
         }
     }

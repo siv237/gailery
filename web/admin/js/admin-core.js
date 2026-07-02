@@ -203,7 +203,7 @@ function renderWorkerCards(containerId, workers, dbWriting) {
     for (var i=0;i<WORKER_NAMES.length;i++) {
         var name = WORKER_NAMES[i];
         var s = workers[name] || {status:'idle',alive:false,gpu_held:false};
-        var dotCls = s.alive ? 'alive' : (s.status==='dead'?'dead':(s.status==='done'?'done':'idle'));
+        let dotCls = s.alive ? 'alive' : (s.status==='dead'?'dead':(s.status==='done'?'done':'idle'));
         var label = WORKER_LABELS[name]||name;
         h += '<div class="wcard">';
         h += '<div class="wcard-name"><span>'+esc(label)+'</span><span class="wcard-dot '+dotCls+'" title="'+esc(s.status)+'"></span></div>';
@@ -214,7 +214,7 @@ function renderWorkerCards(containerId, workers, dbWriting) {
         h += '</div>';
     }
     var wCls = dbWriting ? 'db-write-active' : '';
-    var dotCls = dbWriting ? 'alive' : 'idle';
+    let dotCls = dbWriting ? 'alive' : 'idle';
     h += '<div class="wcard '+wCls+'" id="dbWriteCard">';
     h += '<div class="wcard-name"><span>Запись в БД</span><span class="wcard-dot '+dotCls+'"></span></div>';
     h += '<div class="wcard-row">'+(dbWriting?'<b class="c-ok">⚡ пишет</b>':'<span class="c-dim">ожидание</span>')+'</div>';

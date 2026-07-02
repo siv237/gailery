@@ -264,7 +264,6 @@ class TestAPIPerformance:
     def test_api_status_no_event_loop_block(self):
         import urllib.request
         import concurrent.futures
-        url = f"{self.BASE}/api/status"
 
         def fetch(path):
             t0 = time.time()

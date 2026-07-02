@@ -612,7 +612,7 @@ def run_llm(db, photo_data):
             _log_meta["round"] = f"{round_num + 1}-after-tools"
             msg_final = llm_request(server, messages, use_tools=True, log_meta=_log_meta)
             content = (msg_final.get("content", "") or "").strip()
-            reasoning = (msg_final.get("reasoning_content", "") or "").strip()
+            (msg_final.get("reasoning_content", "") or "").strip()
             new_tool_calls = msg_final.get("tool_calls", [])
 
             if new_tool_calls:

@@ -119,8 +119,8 @@ document.getElementById('mmOverlay').addEventListener('click', closeMobileNav);
             }
         }
         if (isPanelSwipe) {
-            var tx = Math.min(0, -dx);
-            var pct = Math.min(1, Math.abs(tx) / W);
+            let tx = Math.min(0, -dx);
+            let pct = Math.min(1, Math.abs(tx) / W);
             panel.style.transform = 'translateX(' + (-pct * 100) + '%)';
             document.getElementById('mmOverlay').style.opacity = (1 - pct) * 0.5;
         }

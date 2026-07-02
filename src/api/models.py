@@ -1,11 +1,10 @@
 """API endpoints for model management"""
 
 import hashlib
-import os
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
-from config import PROJECT_ROOT, MODELS_DIR, LOG_FILE
+from config import MODELS_DIR
 from api.validators import json_body
 
 logger = logging.getLogger(__name__)

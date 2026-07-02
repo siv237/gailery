@@ -21,7 +21,6 @@ import subprocess
 import logging
 from datetime import datetime
 from pathlib import Path
-from collections import defaultdict
 
 VENV_PYTHON = os.environ.get("GALLERY_VENV_PYTHON", str(Path(__file__).parent / "venv" / "bin" / "python3"))
 if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
@@ -29,7 +28,7 @@ if os.path.exists(VENV_PYTHON) and sys.executable != VENV_PYTHON:
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from config import FLAG_DIR, LOG_FILE, WATCHDOG_LOG_FILE, PIPELINE_SERVICE
+from config import FLAG_DIR, WATCHDOG_LOG_FILE, PIPELINE_SERVICE
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [WATCHDOG] %(message)s', datefmt='%Y-%m-%dT%H:%M:%S')
 logger = logging.getLogger(__name__)

@@ -51,7 +51,6 @@ def generate_one(args):
     path_str, size_name, fmt = args
     try:
         from thumbnails import ThumbnailGenerator
-        from config import PHOTO_SHARE_PATH
 
         gen = ThumbnailGenerator()
         p = Path(path_str)

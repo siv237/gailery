@@ -86,7 +86,7 @@ def get_progress(root_id=None):
 
     canonical_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
     canonical_hashed = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
-    unhashed = canonical_total - canonical_hashed
+    canonical_total - canonical_hashed
     unhashed_nonempty = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NULL AND cf.size > 0{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
 
     base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND p.deleted = 0{root_where}"

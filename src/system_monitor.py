@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """system_monitor.py — сбор системных метрик раз в 60 секунд."""
 
-import asyncio
 import os
 import platform
 import socket

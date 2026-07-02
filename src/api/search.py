@@ -16,7 +16,6 @@ router = APIRouter(prefix="/api/photos", tags=["search"])
 
 def _get_mqtt_api():
     try:
-        from mqtt_client import create_api_mqtt
         from main import _get_api_mqtt
         return _get_api_mqtt()
     except Exception:

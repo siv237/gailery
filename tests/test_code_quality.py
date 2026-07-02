@@ -409,8 +409,8 @@ def test_no_bare_except():
 # Текущий baseline (зафиксирован 2026-07-02). НЕ повышать без явного коммита.
 # baseline = фактическое состояние на момент фиксации (манифест §3.3).
 BLE001_BASELINE = 238     # blind except Exception без re-raise
-F401_BASELINE = 70        # unused imports (после ruff.toml per-file-ignores)
-F841_BASELINE = 16        # unused local variables
+F401_BASELINE = 0         # unused imports — очищено (этап 1)
+F841_BASELINE = 0         # unused local variables — очищено (этап 1)
 C901_OVER15_BASELINE = 21 # функции с cyclomatic complexity > 15
 
 
@@ -895,7 +895,7 @@ def test_branch_coverage_baseline_documented():
 # Тест ловит РЕГРЕССИЮ — рост сверх baseline = новый баг.
 # Существующие ошибки = backlog для постепенного исправления.
 
-ESLINT_ERROR_BASELINE = 77  # зафиксирован 2026-07-02
+ESLINT_ERROR_BASELINE = 0  # очищено (этап 2)
 
 
 def _eslint_errors():

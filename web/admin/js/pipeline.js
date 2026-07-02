@@ -384,7 +384,7 @@ function renderCyclo() {
         status.textContent = 'IDLE';
         if (btnStart) btnStart.disabled = false;
         if (btnStop) btnStop.disabled = true;
-        var pte = A.$('pbPipelineTime');
+        let pte = A.$('pbPipelineTime');
         if (st.pipeline_started_at) {
             var ps2 = new Date(st.pipeline_started_at + (st.pipeline_started_at.indexOf('+')<0&&st.pipeline_started_at.indexOf('Z')<0?'+00:00':''));
             pte.textContent = 'Последний запуск: '+ps2.toLocaleTimeString();

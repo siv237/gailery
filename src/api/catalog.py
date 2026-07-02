@@ -1,7 +1,6 @@
 """API endpoints for file catalog management"""
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional
 import logging
 
 from database import get_db
@@ -118,7 +117,6 @@ async def add_root(req: AddRootRequest):
 
 @router.post("/scan/{root_id}")
 async def scan_root(root_id: str):
-    import subprocess
     import os
     cmd = f"/usr/bin/nohup {VENV_PYTHON} {PROJECT_ROOT / 'scan_catalog.py'} --scan >> {LOG_FILE} 2>&1 &"
     from datetime import datetime
@@ -268,7 +266,6 @@ async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: 
         page = direct_files[offset:offset + limit]
 
         result_files = []
-        import sqlite3 as sq
         sq_cur = db.sqlite.cursor()
         for f in page:
             rel = f.get("rel_path", "")
@@ -320,7 +317,6 @@ async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: 
 
 @router.post("/sync")
 async def sync_flags():
-    import subprocess
     import os
     cmd = f"/usr/bin/nohup {VENV_PYTHON} {PROJECT_ROOT / 'scan_catalog.py'} --sync >> {LOG_FILE} 2>&1 &"
     from datetime import datetime
@@ -398,7 +394,6 @@ async def locate_photo(path: str = ""):
 
 @router.get("/browse")
 async def browse_dirs(path: str = ""):
-    import os
     from pathlib import Path
     try:
         base = Path(path) if path else Path("/")

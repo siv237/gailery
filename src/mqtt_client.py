@@ -20,7 +20,6 @@ import logging
 import threading
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
@@ -230,7 +229,7 @@ class WorkerMQTT(GailrayMQTT):
     def _read_gpu_lock(self):
         lock_topic = gpu_lock_topic()
         try:
-            from paho.mqtt.properties import ConnectProperties
+            pass
         except Exception:
             pass
         result = {"_empty": True}

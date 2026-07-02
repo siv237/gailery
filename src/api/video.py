@@ -7,7 +7,6 @@ import logging
 import re
 import subprocess
 from config import PHOTO_SHARE_PATH, VIDEO_EXTS
-import config
 
 logger = logging.getLogger(__name__)
 

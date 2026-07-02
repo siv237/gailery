@@ -204,7 +204,7 @@ def _update_photo_flags(db, photo, saved_count, content_hash, rel_path, faces_co
         db.update_catalog_file_by_path(rel_path, faces_done=1)
     except Exception:
         pass
-    dt_cleanup = time.time() - t_cleanup
+    time.time() - t_cleanup
     return dt_sql_upd
 
 
