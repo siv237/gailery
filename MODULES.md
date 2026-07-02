@@ -3,7 +3,7 @@
 > Сгенерировано `generate_modules.py` (манифест §2.3: --map режим).
 > Не редактировать вручную — перегенерировать: `./run_tests.sh --map`
 
-Всего Python файлов: 83 | Строк: 27140 | Endpoint'ов: 117 | Публичных функций: 400
+Всего Python файлов: 83 | Строк: 27193 | Endpoint'ов: 117 | Публичных функций: 401
 
 ## Структура по директориям
 
@@ -484,7 +484,7 @@
 | `process_photos` | Process photos: InsightFace detect + embed + save to DB. |
 | `main` |  |
 
-### `src` (7282 строк, 33 файлов, 52 endpoints)
+### `src` (7283 строк, 33 файлов, 52 endpoints)
 
 | Файл | Строк | Endpoints | Публ.функций | Хелперов | Классы |
 |------|-------|-----------|-------------|----------|--------|
@@ -492,7 +492,7 @@
 | main.py | 1352 | 52 | 54 | 13 | BfcacheFixMiddleware, BrowserErrorRedirectMiddleware, BodySizeLimitMiddleware |
 | mqtt_client.py | 545 | 0 | 13 | 1 | GailrayMQTT, WorkerMQTT, ApiMQTT, _Temp |
 | cluster_personas.py | 429 | 0 | 3 | 10 | — |
-| system_helpers.py | 423 | 0 | 0 | 12 | — |
+| system_helpers.py | 424 | 0 | 0 | 12 | — |
 | thumbnails.py | 380 | 0 | 2 | 8 | ThumbnailGenerator |
 | persona.py | 271 | 0 | 1 | 0 | Persona, FacePersonaMapping, PersonaManager |
 | flir_parser.py | 231 | 0 | 4 | 5 | — |
@@ -821,7 +821,8 @@
 
 **Внутренние хелперы:** 10 (_-функций)
 
-#### `system_helpers.py` (423 строк)
+#### `system_helpers.py` (424 строк)
+*system_helpers.py — сбор системной информации: GPU, диски, логи, конфиг.*
 `src/system_helpers.py`
 
 **Зависит от:** `config`, `database`
@@ -1446,27 +1447,28 @@
 | `float_param` | Безопасно парсит query-параметр как float. |
 | `str_param` | Безопасно парсит query-параметр как str (с защитой от не-str). |
 
-### `tests` (6644 строк, 15 файлов, 0 endpoints)
+### `tests` (6696 строк, 15 файлов, 0 endpoints)
 
 | Файл | Строк | Endpoints | Публ.функций | Хелперов | Классы |
 |------|-------|-----------|-------------|----------|--------|
-| test_api.py | 1145 | 0 | 0 | 0 | TestPhotosSearchAPI, TestPhotosDateGPSAPI, TestPhotosDeleteAPI, TestPersonsAPI, TestCatalogAPI, TestMapAPI, TestPipelineControlAPI, TestSystemAPI, TestSystemReportAPI, TestCatalogTreeAPI, TestPersonsExtendedAPI, TestSemanticSearchAPI, TestVideoAPI, TestFlirAPI, TestPhotosExtendedAPI, TestPhotosWithDataAPI, TestSettingsAPI, TestConfigAPI, TestBackupAPI, TestProxyAPI, TestAdminAPI, TestServicesAPI, TestMqttWorkersAPI, TestControlExtendedAPI, TestFixOllamaUrl, TestSpaFallback, TestMaintenanceExtendedAPI |
-| test_code_quality.py | 963 | 0 | 27 | 15 | — |
+| test_api.py | 1146 | 0 | 0 | 0 | TestPhotosSearchAPI, TestPhotosDateGPSAPI, TestPhotosDeleteAPI, TestPersonsAPI, TestCatalogAPI, TestMapAPI, TestPipelineControlAPI, TestSystemAPI, TestSystemReportAPI, TestCatalogTreeAPI, TestPersonsExtendedAPI, TestSemanticSearchAPI, TestVideoAPI, TestFlirAPI, TestPhotosExtendedAPI, TestPhotosWithDataAPI, TestSettingsAPI, TestConfigAPI, TestBackupAPI, TestProxyAPI, TestAdminAPI, TestServicesAPI, TestMqttWorkersAPI, TestControlExtendedAPI, TestFixOllamaUrl, TestSpaFallback, TestMaintenanceExtendedAPI |
+| test_code_quality.py | 1008 | 0 | 28 | 15 | — |
 | test_user_flows.py | 728 | 0 | 1 | 9 | TestBrowseGallery, TestViewPhotoDetail, TestSearchWithFilters, TestPersonManagement, TestPhotoOperations, TestMapView, TestCatalogPage, TestConfigAndControl, TestPageNavigation, TestEnrichDescription, TestSemanticSearch, TestReverseGeocode, TestBackup, TestSettings |
-| test_database.py | 645 | 0 | 0 | 0 | TestDatabaseInit, TestPhotoCRUD, TestPhotoSearch, TestDateHistogram, TestPhotoUpdate, TestFaceCRUD, TestPersonaCRUD, TestCatalogCRUD, TestCatalogExtended, TestEditsCRUD, TestSettings, TestSystemMetrics, TestCanonicalDuplicates, TestGetStatus, TestInvalidateForPersona, TestFaceExtended, TestCosineSimilarity |
+| test_database.py | 646 | 0 | 0 | 0 | TestDatabaseInit, TestPhotoCRUD, TestPhotoSearch, TestDateHistogram, TestPhotoUpdate, TestFaceCRUD, TestPersonaCRUD, TestCatalogCRUD, TestCatalogExtended, TestEditsCRUD, TestSettings, TestSystemMetrics, TestCanonicalDuplicates, TestGetStatus, TestInvalidateForPersona, TestFaceExtended, TestCosineSimilarity |
 | test_performance.py | 531 | 0 | 2 | 1 | TestDatabasePerformance, TestAPIPerformance, TestDatabaseIndexCoverage, TestAntipatternDetection, TestScaleBaseline |
 | test_mqtt_unit.py | 471 | 0 | 0 | 0 | TestTopicFunctions, TestPublish, TestWorkerMQTT, TestApiMQTT, TestConstants |
 | test_environment.py | 410 | 0 | 22 | 3 | — |
 | test_gallery_ui.py | 351 | 0 | 1 | 1 | TestGallerySearchPage, TestGalleryDatesPage, TestGalleryStatusPage, TestGalleryMapPage, TestGalleryNeighbor, TestGalleryPhotoCRUD, TestGalleryPersonPage, TestGalleryCatalogPage |
-| test_pipeline_control.py | 348 | 0 | 0 | 0 | TestApiStatus, TestControlStart, TestControlStop, TestGPUArbitrationViaMQTT, TestWatchdogMode, TestControlButtonStates, TestConfigAPI, TestOllamaEmbedAI |
+| test_pipeline_control.py | 349 | 0 | 0 | 0 | TestApiStatus, TestControlStart, TestControlStop, TestGPUArbitrationViaMQTT, TestWatchdogMode, TestControlButtonStates, TestConfigAPI, TestOllamaEmbedAI |
 | test_security.py | 299 | 0 | 7 | 2 | — |
-| conftest.py | 253 | 0 | 5 | 4 | — |
+| conftest.py | 254 | 0 | 5 | 4 | — |
 | test_system_helpers.py | 226 | 0 | 0 | 0 | TestDeterminePipelineStep, TestGetGitInfo, TestReadLogInfo, TestCollectDisks, TestCollectGpuProcesses, TestCollectTopProcs, TestCollectPipelineStats |
-| test_mqtt.py | 180 | 0 | 0 | 0 | TestMQTTWorkerLifecycle, TestMQTTApiStatus, TestMQTTGPUArbitration, TestMQTTFlagFallback |
-| test_middleware.py | 93 | 0 | 0 | 0 | TestBfcacheFixMiddleware, TestBrowserErrorRedirect, TestSpaFallback, TestPageRoutes |
-| __init__.py | 1 | 0 | 0 | 0 | — |
+| test_mqtt.py | 181 | 0 | 0 | 0 | TestMQTTWorkerLifecycle, TestMQTTApiStatus, TestMQTTGPUArbitration, TestMQTTFlagFallback |
+| test_middleware.py | 94 | 0 | 0 | 0 | TestBfcacheFixMiddleware, TestBrowserErrorRedirect, TestSpaFallback, TestPageRoutes |
+| __init__.py | 2 | 0 | 0 | 0 | — |
 
-#### `test_api.py` (1145 строк)
+#### `test_api.py` (1146 строк)
+*test_api.py — функциональные тесты API эндпоинтов (search, photos, persons, catalog, control).*
 `tests/test_api.py`
 
 **Зависит от:** `main`
@@ -1723,7 +1725,7 @@
 | `test_maintenance_vacuum` | Maintenance vacuum выполняется. |
 | `test_maintenance_dedup_embeddings` | Maintenance dedup embeddings выполняется. |
 
-#### `test_code_quality.py` (963 строк)
+#### `test_code_quality.py` (1008 строк)
 *test_code_quality.py — структурная аналитика кода для ИИ-агентов.*
 `tests/test_code_quality.py`
 
@@ -1757,6 +1759,7 @@
 | `test_coupling_backlog` | Coupling — обращения к db.* из одного модуля (манифест §4.3, ≤100). |
 | `test_branch_coverage_baseline_documented` | Branch coverage baseline — документация порога (манифест §3.3). |
 | `test_eslint_errors_backlog` | ESLint: ошибки frontend (манифест §2.4 — 0 errors обязательно). |
+| `test_all_py_files_have_module_docstring` | Каждый Python файл имеет module docstring — описание ответственности. |
 
 **Внутренние хелперы:** 15 (_-функций)
 
@@ -1887,7 +1890,8 @@
 | `test_get_setting` |  |
 | `test_set_and_read_setting` | Запись и чтение setting через API — на миникопии БД. |
 
-#### `test_database.py` (645 строк)
+#### `test_database.py` (646 строк)
+*test_database.py — unit-тесты DatabaseManager: CRUD фото, лиц, персон, каталога, поиск.*
 `tests/test_database.py`
 
 **Класс `TestDatabaseInit`** (2 методов: 2 публичных, 0 внутренних)
@@ -2312,7 +2316,8 @@
 | `test_roots_200` | Корни каталога доступны. |
 | `test_stats_200` | Статистика каталога доступна. |
 
-#### `test_pipeline_control.py` (348 строк)
+#### `test_pipeline_control.py` (349 строк)
+*test_pipeline_control.py — тесты control API, watchdog mode, Ollama embed/describe settings.*
 `tests/test_pipeline_control.py`
 
 **Зависит от:** `api.photos`, `config`, `main`, `mqtt_client`
@@ -2407,7 +2412,8 @@
 
 **Внутренние хелперы:** 2 (_-функций)
 
-#### `conftest.py` (253 строк)
+#### `conftest.py` (254 строк)
+*conftest.py — pytest фикстуры: tmp_data, db, db_with_photos, app_client, minidb.*
 `tests/conftest.py`
 
 **Зависит от:** `database`, `main`
@@ -2479,7 +2485,8 @@
 | `test_stats_empty_db` | _collect_pipeline_stats на пустой БД возвращает нули. |
 | `test_stats_with_data` | _collect_pipeline_stats с данными возвращает ненулевые счётч |
 
-#### `test_mqtt.py` (180 строк)
+#### `test_mqtt.py` (181 строк)
+*test_mqtt.py — интеграционные тесты MQTT: worker lifecycle, GPU lock, API статус.*
 `tests/test_mqtt.py`
 
 **Зависит от:** `mqtt_client`
@@ -2508,7 +2515,8 @@
 | `test_status_uses_flags_when_no_mqtt_worker` | Без MQTT статус берётся из файлов-флагов. |
 | `test_mqtt_overrides_stale_flag` | MQTT-статус приоритетнее файлов-флагов. |
 
-#### `test_middleware.py` (93 строк)
+#### `test_middleware.py` (94 строк)
+*test_middleware.py — тесты middleware: BFCache-fix, SPA fallback, HEAD→GET, редиректы.*
 `tests/test_middleware.py`
 
 **Класс `TestBfcacheFixMiddleware`** (5 методов: 5 публичных, 0 внутренних)
@@ -2554,10 +2562,10 @@
 | 1535 | src/api/photos.py | 26 | 24 |
 | 1443 | src/database.py | 0 | 2 |
 | 1352 | src/main.py | 52 | 13 |
-| 1145 | tests/test_api.py | 0 | 0 |
+| 1146 | tests/test_api.py | 0 | 0 |
 | 1037 | vision_describe.py | 0 | 25 |
-| 963 | tests/test_code_quality.py | 0 | 15 |
+| 1008 | tests/test_code_quality.py | 0 | 15 |
 | 775 | enrich_description.py | 0 | 6 |
 | 746 | pipeline.py | 0 | 29 |
 | 728 | tests/test_user_flows.py | 0 | 9 |
-| 645 | embed.py | 0 | 18 |
+| 646 | tests/test_database.py | 0 | 0 |

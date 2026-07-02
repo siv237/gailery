@@ -1,3 +1,4 @@
+"""test_api.py — функциональные тесты API эндпоинтов (search, photos, persons, catalog, control)."""
 import pytest
 from unittest.mock import MagicMock
 

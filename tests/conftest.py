@@ -1,3 +1,4 @@
+"""conftest.py — pytest фикстуры: tmp_data, db, db_with_photos, app_client, minidb."""
 import sys
 import pytest
 from pathlib import Path

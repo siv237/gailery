@@ -1,3 +1,4 @@
+"""system_helpers.py — сбор системной информации: GPU, диски, логи, конфиг."""
 import os
 import sys
 import subprocess

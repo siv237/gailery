@@ -1,3 +1,4 @@
+"""test_pipeline_control.py — тесты control API, watchdog mode, Ollama embed/describe settings."""
 import pytest
 import os
 from unittest.mock import patch, MagicMock

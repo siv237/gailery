@@ -1,3 +1,4 @@
+"""test_mqtt.py — интеграционные тесты MQTT: worker lifecycle, GPU lock, API статус."""
 import pytest
 import time
 from pathlib import Path

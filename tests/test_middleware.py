@@ -1,3 +1,4 @@
+"""test_middleware.py — тесты middleware: BFCache-fix, SPA fallback, HEAD→GET, редиректы."""
 import pytest
 
 

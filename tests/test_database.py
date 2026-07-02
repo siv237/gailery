@@ -1,3 +1,4 @@
+"""test_database.py — unit-тесты DatabaseManager: CRUD фото, лиц, персон, каталога, поиск."""
 
 
 class TestDatabaseInit:

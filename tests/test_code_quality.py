@@ -960,3 +960,48 @@ def test_eslint_errors_backlog():
         print(f"\n⚠ ESLint errors: {count}/{ESLINT_ERROR_BASELINE} baseline — backlog:")
         print(f"  По правилам:\n{rule_lines}")
         print(f"  Топ-5 файлов:\n{file_lines}")
+
+
+# ─── 14. Module docstrings (SOLID: файл = один смысл = одно описание) ───
+# Каждый .py файл должен иметь module-level docstring — краткое описание
+# ответственности. Автогенерация MODULES.md извлекает его через AST.
+# Манифест §3.4: НЕ контролируем function docstrings (AI-slop), только module.
+
+def test_all_py_files_have_module_docstring():
+    """Каждый Python файл имеет module docstring — описание ответственности.
+
+    SOLID Single Responsibility: файл = один смысл = одно описание.
+    Без описания агент не понимает назначение файла при навигации.
+    Module docstring подхватывается generate_modules.py → MODULES.md.
+    """
+    missing = []
+    for path in _collect_files([".py"]):
+        # Пропускаем пустые __init__.py без кода (только docstring или пустые)
+        try:
+            with open(path, encoding="utf-8") as f:
+                source = f.read()
+        except OSError:
+            continue
+
+        # Пустые файлы — пропускаем
+        stripped = source.strip()
+        if not stripped:
+            continue
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        doc = ast.get_docstring(tree)
+        if not doc or not doc.strip():
+            rel = str(path.relative_to(ROOT))
+            missing.append(rel)
+
+    if missing:
+        lines = "\n".join(f"  {p}" for p in sorted(missing))
+        pytest.fail(
+            f"Файлы без module docstring ({len(missing)}):\n{lines}\n"
+            f"Добавь \"\"\"краткое описание ответственности файла.\"\"\" в первую строку.\n"
+            f"Это НЕ function docstrings (AI-slop) — это одна строка для MODULES.md."
+        )
