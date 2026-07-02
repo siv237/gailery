@@ -124,7 +124,7 @@ def start_llama_server():
     log(f"Starting llama-server (pid={proc.pid}, np={NP_SLOTS}, ctx={CTX_SIZE})...")
     for i in range(90):
         try:
-            resp = urllib.request.urlopen(f"http://localhost:{LLAMA_PORT}/health", timeout=3)
+            resp = urllib.request.urlopen(f"http://localhost:{LLAMA_PORT}/health", timeout=3)  # nosec B310 — urllib loading from known model URLs
             if json.loads(resp.read())["status"] == "ok":
                 log(f"llama-server ready ({i+1}s)")
                 return proc
@@ -211,7 +211,7 @@ def describe_one(img_b64, photo_path, agent_context=""):
     )
     t0 = time.time()
     try:
-        resp = urllib.request.urlopen(req, timeout=180)
+        resp = urllib.request.urlopen(req, timeout=180)  # nosec B310 — urllib loading from known model URLs
         result = json.loads(resp.read())
         elapsed = time.time() - t0
         content = result["choices"][0]["message"].get("content", "")
@@ -730,7 +730,7 @@ def get_undescribed_photos(db, photo_dir, limit=0, content_hash=None):
     if content_hash:
         where_extra += " AND cf.content_hash = ?"
         params.append(content_hash)
-    sql = ("SELECT p.path FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path "
+    sql = ("SELECT p.path FROM photos p JOIN catalog_files cf ON cf.abs_path = p.path "  # nosec B608 — SQL column names via f-string, values parameterized through ?
            "WHERE (p.description IS NULL OR p.description = '' OR cf.described = 0) AND p.deleted = 0 "
            "AND cf.is_canonical = 1 AND (p.media_type IS NULL OR p.media_type != 'video')" + where_extra + " ORDER BY RANDOM()")
     if limit > 0:

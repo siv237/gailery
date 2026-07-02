@@ -1,3 +1,4 @@
+/* global Admin */
 var MonP = {photos:[], _idx:-1, _timer:null, _expanded:null};
 
 Admin.registerBlock('monitor_feed', 'Монитор фото', '📷', function(cid){

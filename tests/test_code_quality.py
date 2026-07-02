@@ -345,11 +345,20 @@ def test_html_duplication_report():
 
 # ─── 6. Ruff: баги ───
 
-def _ruff_check(select_codes):
+def _ruff_check(select_codes, target="."):
+    """Запуск ruff check с выбранными правилами.
+
+    target: "." — весь проект (по умолчанию), "src/" — только src.
+    Сканирует весь проект т.к. BLE001/C901 нарушения концентрируются
+    в корневых воркерах (describe.py, embed.py, faces.py, pipeline.py),
+    не только в src/.
+    Использует ruff.toml в корне проекта (порог CC=15, per-file-ignores).
+    """
     try:
         result = subprocess.run(
-            [VENV_PYTHON, "-m", "ruff", "check", "src/", "--select", select_codes, "--output-format", "json"],
-            capture_output=True, text=True, cwd=str(ROOT), timeout=30
+            [VENV_PYTHON, "-m", "ruff", "check", target,
+             "--select", select_codes, "--output-format", "json"],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=60
         )
         if result.returncode == 0:
             return []
@@ -361,16 +370,6 @@ def _ruff_check(select_codes):
 def test_no_undefined_names():
     """Ruff F821 — undefined names (баг: обращение к несуществующей переменной)."""
     issues = _ruff_check("F821")
-    # Также проверяем корневые .py
-    try:
-        result = subprocess.run(
-            [VENV_PYTHON, "-m", "ruff", "check", ".", "--select", "F821", "--output-format", "json"],
-            capture_output=True, text=True, cwd=str(ROOT), timeout=30
-        )
-        issues = json.loads(result.stdout or "[]")
-    except Exception:
-        pass
-
     if issues:
         lines = []
         for i in issues:
@@ -401,6 +400,107 @@ def test_no_bare_except():
             loc = f"{i.get('filename','?')}:{i.get('location',{}).get('row','?')}"
             lines.append(f"  {loc}")
         pytest.fail("Bare except (E722) — глушат ошибки:\n" + "\n".join(lines))
+
+
+# ─── 6b. Ruff: backlog-метрики (warning, не fail) ───
+# Манифест §2.1: архитектурные тесты НЕ блокируют коммиты — это backlog.
+# Пороги только снижаются. Каждый проваленный тест = задача на рефакторинг.
+
+# Текущий baseline (зафиксирован 2026-07-02). НЕ повышать без явного коммита.
+# baseline = фактическое состояние на момент фиксации (манифест §3.3).
+BLE001_BASELINE = 238     # blind except Exception без re-raise
+F401_BASELINE = 70        # unused imports (после ruff.toml per-file-ignores)
+F841_BASELINE = 16        # unused local variables
+C901_OVER15_BASELINE = 21 # функции с cyclomatic complexity > 15
+
+
+def _ruff_count(code):
+    """Количество нарушений правила code во всём проекте."""
+    return len(_ruff_check(code))
+
+
+def _format_issues(issues, limit=30):
+    lines = []
+    for i in issues[:limit]:
+        loc = f"{i.get('filename','?')}:{i.get('location',{}).get('row','?')}"
+        msg = i.get("message", "?").split(" is too complex")[0].split(" Do not")[0]
+        lines.append(f"  {loc}  {msg}")
+    if len(issues) > limit:
+        lines.append(f"  ... и ещё {len(issues) - limit}")
+    return "\n".join(lines)
+
+
+def test_blind_except_backlog():
+    """BLE001 — blind except Exception без re-raise (AI-антипаттерн #1).
+
+    Backlog (манифест §3.2): существующий долг фиксируется, новый код
+    не должен добавлять нарушений. Порог = baseline, только снижается.
+    """
+    count = _ruff_count("BLE001")
+    if count > BLE001_BASELINE:
+        issues = _ruff_check("BLE001")
+        pytest.fail(
+            f"Blind except (BLE001) вырос: {count} > baseline {BLE001_BASELINE}.\n"
+            f"Новый код добавил нарушений — рефактори на конкретные типы исключений "
+            f"или добавь re-raise / logging:\n" + _format_issues(issues)
+        )
+    elif count > 0:
+        print(f"\n⚠ Blind except (BLE001): {count}/{BLE001_BASELINE} baseline — backlog рефакторинга")
+
+
+def test_unused_imports_backlog():
+    """F401 — unused imports. Backlog: порог = baseline, только снижается."""
+    count = _ruff_count("F401")
+    if count > F401_BASELINE:
+        issues = _ruff_check("F401")
+        pytest.fail(
+            f"Unused imports (F401) вырос: {count} > baseline {F401_BASELINE}.\n"
+            f"Удали неиспользуемые импорты:\n" + _format_issues(issues)
+        )
+    elif count > 0:
+        print(f"\n⚠ Unused imports (F401): {count}/{F401_BASELINE} baseline — cleanup backlog")
+
+
+def test_unused_vars_backlog():
+    """F841 — unused local variables. Backlog: порог = baseline, только снижается."""
+    count = _ruff_count("F841")
+    if count > F841_BASELINE:
+        issues = _ruff_check("F841")
+        pytest.fail(
+            f"Unused vars (F841) вырос: {count} > baseline {F841_BASELINE}.\n"
+            f"Удали неиспользуемые переменные:\n" + _format_issues(issues)
+        )
+    elif count > 0:
+        print(f"\n⚠ Unused vars (F841): {count}/{F841_BASELINE} baseline — cleanup backlog")
+
+
+def test_cyclomatic_complexity_backlog():
+    """C901 — функции с cyclomatic complexity > 15 (манифест §4.1).
+
+    Backlog: 21 функция > 15 (макс 35). Порог = baseline, только снижается.
+    Каждая функция > 15 — кандидат на разбиение.
+    """
+    issues = _ruff_check("C901")
+    count = len(issues)
+    if count > C901_OVER15_BASELINE:
+        pytest.fail(
+            f"Complexity >15 (C901) вырос: {count} > baseline {C901_OVER15_BASELINE}.\n"
+            f"Новая функция превысила порог — разбей на подфункции:\n"
+            + _format_issues(issues)
+        )
+    elif count > 0:
+        worst = sorted(
+            issues,
+            key=lambda i: int(i.get("message", "0").split("(")[1].split(" ")[0] or 0),
+            reverse=True
+        )[:10]
+        lines = []
+        for i in worst:
+            loc = f"{i.get('filename','?')}:{i.get('location',{}).get('row','?')}"
+            cc = i.get("message", "?").split("(")[1].split(" ")[0] if "(" in i.get("message","") else "?"
+            name = i.get("message", "?").split("`")[1].split("`")[0] if "`" in i.get("message","") else "?"
+            lines.append(f"  CC={cc:>3}  {loc}  {name}")
+        print(f"\n⚠ Complexity >15 (C901): {count}/{C901_OVER15_BASELINE} baseline — топ-10:\n" + "\n".join(lines))
 
 
 # ─── 7. Vulture: мёртвый код ───
@@ -651,3 +751,210 @@ def test_no_js_global_conflicts_per_html_page():
             "Состояние рассинхронизируется. Объедини в один модуль "
             "или используй пространства имён (объекты)."
         )
+
+
+# ─── 11. God Object + Coupling (AST-анализ, манифест §4.3, §4.4) ───
+# Backlog: пороги = baseline, только снижаются.
+
+# God Object: кол-во методов в классе (манифест §4.4)
+GOD_OBJECT_METHODS_BASELINE = 85  # DatabaseManager
+
+# Coupling: обращения к атрибутам другого модуля (манифест §4.3, порог ≤100)
+COUPLING_BASELINE = 100
+
+
+def _count_class_methods(path):
+    """Подсчёт методов в каждом классе Python файла через AST."""
+    classes = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+    except Exception:
+        return classes
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            methods = sum(
+                1 for n in node.body
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+            classes[f"{path.relative_to(ROOT)}:{node.lineno}:{node.name}"] = methods
+    return classes
+
+
+def _count_attr_accesses(path, target_attr="db"):
+    """Подсчёт обращений к атрибутам target_attr (db.xxx) в файле.
+
+    Высокая связанность (>100) — признак God Object (манифест §4.3).
+    Считает db.method() и db.attribute обращения через AST.
+    """
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+    except Exception:
+        return 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if node.value.id == target_attr:
+                count += 1
+    return count
+
+
+def test_god_object_backlog():
+    """God Object detection — кол-во методов в классе (манифест §4.4).
+
+    Backlog: DatabaseManager имеет 85 методов — главный God Object.
+    Порог = baseline, только снижается (разбиение на подклассы).
+    Рост = класс берёт новые ответственности — refactor.
+    """
+    big_classes = []
+    for path in _collect_files([".py"]):
+        classes = _count_class_methods(path)
+        for loc, count in classes.items():
+            if count > GOD_OBJECT_METHODS_BASELINE:
+                big_classes.append((count, loc))
+
+    if big_classes:
+        big_classes.sort(reverse=True)
+        lines = "\n".join(f"  {c:4d} методов  {loc}" for c, loc in big_classes)
+        pytest.fail(
+            f"God Object (> {GOD_OBJECT_METHODS_BASELINE} методов):\n{lines}\n"
+            f"Класс превысил baseline — разбей на подклассы по ответственности."
+        )
+
+    # Отчёт по топ-5 классов
+    all_classes = []
+    for path in _collect_files([".py"]):
+        classes = _count_class_methods(path)
+        all_classes.extend((c, loc) for loc, c in classes.items())
+    all_classes.sort(reverse=True)
+    if all_classes:
+        lines = "\n".join(f"  {c:4d}  {loc}" for c, loc in all_classes[:5])
+        print(f"\n⚠ Топ-5 классов по методам (baseline {GOD_OBJECT_METHODS_BASELINE}):\n{lines}")
+
+
+def test_coupling_backlog():
+    """Coupling — обращения к db.* из одного модуля (манифест §4.3, ≤100).
+
+    Backlog: модули с >100 обращений к db — сильно связаны с DatabaseManager.
+    Порог = baseline. Рост = модуль всё больше зависит от God Object.
+    Тесты исключены — высокое обращение к db в тестах нормально.
+    """
+    over = []
+    for path in _collect_files([".py"]):
+        if "tests" in path.parts:
+            continue
+        count = _count_attr_accesses(path, "db")
+        if count > COUPLING_BASELINE:
+            over.append((count, str(path.relative_to(ROOT))))
+
+    if over:
+        over.sort(reverse=True)
+        lines = "\n".join(f"  {c:4d} обращений к db  {p}" for c, p in over)
+        pytest.fail(
+            f"Высокая связанность (> {COUPLING_BASELINE} обращений к db):\n{lines}\n"
+            f"Модуль превысил baseline — выдели интерфейс (Interface Segregation)."
+        )
+
+    # Отчёт
+    all_coupling = []
+    for path in _collect_files([".py"]):
+        if "tests" in path.parts:
+            continue
+        count = _count_attr_accesses(path, "db")
+        if count > 20:
+            all_coupling.append((count, str(path.relative_to(ROOT))))
+    all_coupling.sort(reverse=True)
+    if all_coupling:
+        lines = "\n".join(f"  {c:4d}  {p}" for c, p in all_coupling[:10])
+        print(f"\n⚠ Coupling (обращений к db, baseline {COUPLING_BASELINE}):\n{lines}")
+
+
+# ─── 12. Branch coverage baseline (манифест §3.3, §4.5) ───
+# Порог = текущий baseline (38%), повышается монотонно.
+# Запуск с покрытием: ./run_tests.sh --coverage
+# --cov-fail-under=38 в run_tests.sh блокирует падение ниже baseline.
+
+BRANCH_COVERAGE_BASELINE = 38  # % (зафиксирован 2026-07-02)
+
+
+def test_branch_coverage_baseline_documented():
+    """Branch coverage baseline — документация порога (манифест §3.3).
+
+    Реальная проверка через --cov-fail-under=38 в run_tests.sh --coverage.
+    Этот тест — документация: порог живёт рядом с тестом (манифест §6.8).
+    Порог только повышается, никогда не снижается.
+    """
+    print(f"\n📌 Branch coverage baseline: {BRANCH_COVERAGE_BASELINE}%")
+    print(f"   Проверка: ./run_tests.sh --coverage (--cov-fail-under={BRANCH_COVERAGE_BASELINE})")
+    print(f"   Порог только повышается (манифест §5.4).")
+
+
+# ─── 13. ESLint: frontend ошибки (манифест §2.4) ───
+# Backlog: 77 ошибок (75 no-redeclare, 2 no-use-before-define).
+# Тест ловит РЕГРЕССИЮ — рост сверх baseline = новый баг.
+# Существующие ошибки = backlog для постепенного исправления.
+
+ESLINT_ERROR_BASELINE = 77  # зафиксирован 2026-07-02
+
+
+def _eslint_errors():
+    """Запуск ESLint, возвращает список error-сообщений."""
+    try:
+        result = subprocess.run(
+            ["npx", "eslint", "web/**/*.js", "--quiet", "-f", "json"],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=60,
+            shell=False
+        )
+    except Exception:
+        return []
+
+    try:
+        data = json.loads(result.stdout or "[]")
+    except Exception:
+        return []
+
+    errors = []
+    for f in data:
+        fname = f.get("filePath", "?").split("/")[-1]
+        for m in f.get("messages", []):
+            if m.get("severity") == 2:
+                errors.append({
+                    "file": fname,
+                    "line": m.get("line", "?"),
+                    "rule": m.get("ruleId", "?"),
+                    "msg": m.get("message", "?"),
+                })
+    return errors
+
+
+def test_eslint_errors_backlog():
+    """ESLint: ошибки frontend (манифест §2.4 — 0 errors обязательно).
+
+    Backlog: 77 существующих ошибок зафиксированы как baseline.
+    Тест падает при РОСТЕ — новый код добавил ошибку.
+    Существующие ошибки = backlog для постепенного исправления.
+    Порог только снижается (манифест §5.4).
+    """
+    errors = _eslint_errors()
+    count = len(errors)
+
+    if count > ESLINT_ERROR_BASELINE:
+        new_errors = errors[ESLINT_ERROR_BASELINE:]
+        lines = []
+        for e in new_errors[:20]:
+            lines.append(f"  {e['file']}:{e['line']}  {e['rule']}  {e['msg'][:60]}")
+        pytest.fail(
+            f"ESLint errors вырос: {count} > baseline {ESLINT_ERROR_BASELINE}.\n"
+            f"Новый код добавил ошибки frontend:\n" + "\n".join(lines)
+        )
+    elif count > 0:
+        from collections import Counter
+        by_rule = Counter(e["rule"] for e in errors)
+        rule_lines = "\n".join(f"  {c:3d}  {r}" for r, c in by_rule.most_common())
+        # Топ-5 файлов
+        by_file = Counter(e["file"] for e in errors)
+        file_lines = "\n".join(f"  {c:3d}  {f}" for f, c in by_file.most_common(5))
+        print(f"\n⚠ ESLint errors: {count}/{ESLINT_ERROR_BASELINE} baseline — backlog:")
+        print(f"  По правилам:\n{rule_lines}")
+        print(f"  Топ-5 файлов:\n{file_lines}")

@@ -465,7 +465,7 @@ def flush_batch(db, batch_updates, cat_done_paths):
             )
         sets = ", ".join(f"{k} = ?" for k in updates)
         vals = list(updates.values()) + [photo_id]
-        cur.execute(f"UPDATE photos SET {sets} WHERE photo_id = ?", vals)
+        cur.execute(f"UPDATE photos SET {sets} WHERE photo_id = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
 
     if cat_done_paths:
         for path in cat_done_paths:

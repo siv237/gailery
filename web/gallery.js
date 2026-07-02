@@ -1,3 +1,4 @@
+/* global Viewer, ViewerHooks, _embeddedMode, _isMobile, _lastScrollY, _mIdx, _modalOpen, _needleDateISO, _openViewerOnLoad, _restoreNeedleDate, _restorePhotoId, _syncTimelineToPhoto, _tlMonthFrom, _tlMonthTo, addPhotoGps, clearPhotoGps, formatDate, markDeleted, saveFilters, saveRotate, undeletePhoto, updateNeedleFlag, updateTimelinePosition */
 var API = '/api';
 function videoSrc(p) {
     if (p.media_type === 'video' && p.needs_stream) {

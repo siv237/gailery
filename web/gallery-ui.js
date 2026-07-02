@@ -1,3 +1,4 @@
+/* global API, FaceModalHooks, _canLoadMore, _canLoadPrev, _clampTlOffset, _dateToX, _drawFaceBoxes, _firstDate, _firstPath, _initTimeline, _isLoading, _lastDate, _lastPath, _mDate, _mIdx, _mPhotoId, _mZoom, _positionModalControls, _scheduleTopbarHide, _tlCanvas, _tlDefaultZoom, _tlOffsetX, _tlZoom, activeDate, activePerson, allPersonas, cancelDel, closeDetail, closeFaceModal, closePhotoModal, closeVideoModal, currentPhotos, dateData, doSearch, esc, isSemanticMode, list, loadAfter, loadBefore, loadTimeline, modalNav, onModeChange, openDetail, renderTimeline, updateCatFilterLabel, updateNeedleFlag, updateTypeFilterLabel */
 function goToTimeline() {
     var p = currentPhotos[_mIdx];
     if (!p) return;

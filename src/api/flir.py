@@ -81,7 +81,8 @@ def _get_flir_temps(photo_path):
         '-ReflectedApparentTemperature', '-IRWindowTemperature', '-IRWindowTransmission',
         '-RelativeHumidity', '-PlanckR1', '-PlanckB', '-PlanckF', '-PlanckO', '-PlanckR2'
     ]).decode()
-    meta = json.loads(meta_s)[0]
+    meta_raw = json.loads(meta_s)
+    meta = meta_raw[0] if isinstance(meta_raw, list) and meta_raw else {}
 
     def f(s):
         if s is None: return None

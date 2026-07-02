@@ -84,10 +84,10 @@ def get_progress(root_id=None):
     root_where = " AND cf.root_id = ?" if root_id else ""
     root_params = [root_id] if root_id else []
 
-    canonical_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]
-    canonical_hashed = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL{root_where}", root_params).fetchone()[0]
+    canonical_total = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
+    canonical_hashed = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
     unhashed = canonical_total - canonical_hashed
-    unhashed_nonempty = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NULL AND cf.size > 0{root_where}", root_params).fetchone()[0]
+    unhashed_nonempty = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NULL AND cf.size > 0{root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
 
     base = f"FROM catalog_files cf JOIN photos p ON p.path = cf.abs_path WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND p.deleted = 0{root_where}"
     photo_where = base + " AND (p.media_type IS NULL OR p.media_type != 'video')"
@@ -100,7 +100,7 @@ def get_progress(root_id=None):
     embedded = cur.execute(f"SELECT COUNT(*) {photo_where} AND p.embedded = 1", root_params).fetchone()[0]
 
     video_where = base + " AND p.media_type = 'video'"
-    videos_catalog = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND cf.ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}){root_where}", root_params).fetchone()[0]
+    videos_catalog = cur.execute(f"SELECT COUNT(*) FROM catalog_files cf WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND cf.content_hash IS NOT NULL AND cf.ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}){root_where}", root_params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
     videos_ingested = cur.execute(f"SELECT COUNT(*) {video_where}", root_params).fetchone()[0]
     videos_exif = cur.execute(f"SELECT COUNT(*) {video_where} AND p.exif_checked = 1", root_params).fetchone()[0]
     videos_described = cur.execute(f"SELECT COUNT(*) {video_where} AND p.description IS NOT NULL", root_params).fetchone()[0]

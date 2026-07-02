@@ -216,7 +216,7 @@ def _describe_ollama_request(img_b64, ollama_url, ollama_model, face_context="")
     }).encode()
     req = urllib.request.Request(f"{ollama_url}/api/chat", data=body,
         headers={"Content-Type": "application/json"})
-    resp = urllib.request.urlopen(req, timeout=120)
+    resp = urllib.request.urlopen(req, timeout=120)  # nosec B310 — urllib loading from known model URLs
     msg = json.loads(resp.read()).get("message", {}).get("content", "")
     try:
         data = json.loads(msg)
@@ -359,7 +359,7 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
             "options": {"num_gpu": 20, "num_ctx": 2048}}).encode()
         urllib.request.urlopen(urllib.request.Request(
             f"{url}/api/generate", data=body,
-            headers={"Content-Type": "application/json"}), timeout=30)
+            headers={"Content-Type": "application/json"}), timeout=30)  # nosec B310 — urllib loading from known model URLs
         log("Model preloaded")
     except Exception as e:
         log(f"Preload failed (will load on first request): {e}")
@@ -435,7 +435,7 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
         body = json.dumps({"model": model, "keep_alive": 0}).encode()
         urllib.request.urlopen(urllib.request.Request(
             f"{url}/api/generate", data=body,
-            headers={"Content-Type": "application/json"}), timeout=10)
+            headers={"Content-Type": "application/json"}), timeout=10)  # nosec B310 — urllib loading from known model URLs
         log("Ollama model unloaded, VRAM freed")
     except Exception:
         pass

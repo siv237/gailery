@@ -482,7 +482,7 @@ User=root
 WorkingDirectory=$INSTALL_DIR/src
 Environment=\"PATH=$VENV_DIR/bin:/usr/bin:/bin\"
 Environment=\"PYTHONPATH=$INSTALL_DIR/src\"
-ExecStart=$VENV_DIR/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=$VENV_DIR/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 30 --limit-concurrency 20
 LimitNOFILE=524288
 Restart=always
 RestartSec=10

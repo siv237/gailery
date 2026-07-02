@@ -1,3 +1,4 @@
+/* global API, ViewerHooks, closeDetail, esc */
 /* ===== Gailery Face Modal — редактор персоны по клику на лицо =====
    Подключается на любой странице где используется Viewer.
    Viewer вызывает _vFaceClick(personaId, faceId) → openFaceModal.

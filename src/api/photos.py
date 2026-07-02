@@ -15,6 +15,7 @@ from config import PHOTO_SHARE_PATH, THUMBNAILS_DIR, LLAMA_CPP_DIR, PROJECT_ROOT
 import config
 
 from .video import _video_needs_stream
+from .validators import json_body
 
 logger = logging.getLogger(__name__)
 
@@ -605,7 +606,7 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
     if hashes:
         ph = ",".join("?" * len(hashes))
         face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
             hashes
         ).fetchall()
         face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
@@ -624,7 +625,7 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
     if persona_ids_needed:
         pids = list(persona_ids_needed)
         pid_ph = ",".join("?" * len(pids))
-        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():
+        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():  # nosec B608 — SQL column names via f-string, values parameterized through ?
             persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
     last_changes = {}
@@ -690,7 +691,7 @@ async def monitor_feed(limit: int = 100):
 
     placeholders = ",".join("?" * len(NOISE_FIELDS))
     rows = db.sqlite.execute(
-        f"SELECT c.id, c.photo_id, c.field, c.value, c.changed_at, "
+        f"SELECT c.id, c.photo_id, c.field, c.value, c.changed_at, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
         f"p.path, p.description, p.rich_description, p.faces_present, p.date, "
         f"p.img_width, p.img_height, p.deleted, "
         f"cf.content_hash, cf.is_canonical "
@@ -713,7 +714,7 @@ async def monitor_feed(limit: int = 100):
     if hashes:
         ph = ",".join("?" * len(hashes))
         face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             f"FROM faces WHERE content_hash IN ({ph})",
             hashes,
         ).fetchall()
@@ -734,7 +735,7 @@ async def monitor_feed(limit: int = 100):
         pids = list(persona_ids_needed)
         pid_ph = ",".join("?" * len(pids))
         for pr in db.sqlite.execute(
-            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids
+            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids  # nosec B608 — SQL column names via f-string, values parameterized through ?
         ).fetchall():
             persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
@@ -878,7 +879,7 @@ async def search_photos(
     if hashes:
         ph = ",".join("?" * len(hashes))
         face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
             hashes
         ).fetchall()
         face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
@@ -898,7 +899,7 @@ async def search_photos(
         pids = list(persona_ids_needed)
         pid_ph = ",".join("?" * len(pids))
         p_rows = db.sqlite.execute(
-            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",
+            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
             pids
         ).fetchall()
         for pr in p_rows:
@@ -1093,7 +1094,7 @@ def reprocess_photo(photo_id: str, skip_faces: bool = False, skip_describe: bool
 
 @router.put("/{photo_id}/rich_description")
 async def save_rich_description(photo_id: str, request: Request):
-    body = await request.json()
+    body = await json_body(request)
     rich = body.get("rich_description")
 
     if rich is None:
@@ -1165,7 +1166,7 @@ async def get_map_photos():
                 batch = photo_ids[i:i+batch_size]
                 ph = ",".join("?" * len(batch))
                 face_rows = cur.execute(
-                    "SELECT p.photo_id, f.face_id, f.persona_id, "
+                    "SELECT p.photo_id, f.face_id, f.persona_id, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                     "f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, "
                     "per.display_name, per.name "
                     "FROM faces f "
@@ -1295,12 +1296,16 @@ async def get_neighbor(date: str, dir: str = "next"):
 @router.post("/reverse_geocode")
 async def reverse_geocode(request: Request):
     import reverse_geocoder
-    body = await request.json()
-    if isinstance(body, list):
-        coords = body
-    else:
-        coords = body.get("coords", [])
-    points = [(c["lat"], c["lon"]) for c in coords]
+    body = await json_body(request)
+    coords = body.get("coords", [])
+    if not isinstance(coords, list):
+        coords = []
+    points = []
+    for c in coords:
+        if isinstance(c, dict) and "lat" in c and "lon" in c:
+            points.append((c["lat"], c["lon"]))
+    if not points:
+        return []
     results = reverse_geocoder.search(points)
     out = []
     for r in results:
@@ -1332,7 +1337,7 @@ async def reverse_geocode(request: Request):
 
 @router.post("/set_gps")
 async def set_gps(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
     lat = body.get("lat")
     lon = body.get("lon")
@@ -1358,7 +1363,7 @@ async def set_gps(request: Request):
 
 @router.post("/set_date")
 async def set_date(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
     manual_date = body.get("manual_date")
 
@@ -1377,7 +1382,7 @@ async def set_date(request: Request):
 
 @router.post("/clear_date")
 async def clear_date(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
 
     if not photo_id:
@@ -1393,7 +1398,7 @@ async def clear_date(request: Request):
 
 @router.post("/clear_gps")
 async def clear_gps(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
 
     if not photo_id:
@@ -1409,7 +1414,7 @@ async def clear_gps(request: Request):
 
 @router.post("/mark_deleted")
 async def mark_deleted(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
 
     if not photo_id:
@@ -1425,7 +1430,7 @@ async def mark_deleted(request: Request):
 
 @router.post("/undelete")
 async def undelete(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     photo_id = body.get("photo_id")
 
     if not photo_id:
@@ -1448,7 +1453,7 @@ async def get_edits(content_hash: str):
 
 @router.post("/edits/{content_hash}")
 async def save_edit(content_hash: str, request: Request):
-    body = await request.json()
+    body = await json_body(request)
     action = body.get("action")
     params = body.get("params", {})
     if not action:

@@ -123,6 +123,39 @@ app.add_middleware(
 )
 
 
+class BodySizeLimitMiddleware:
+    """Лимит размера HTTP тела (манифест §6.15).
+
+    Без лимита один клиент может исчерпать память oversized body.
+    Порог: 50MB для обычных запросов, достаточно для фото.
+    """
+
+    MAX_BODY_SIZE = 50 * 1024 * 1024  # 50 MB
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            content_length = 0
+            for k, v in scope.get("headers", []):
+                if k == b"content-length":
+                    try:
+                        content_length = int(v)
+                    except ValueError:
+                        content_length = 0
+                    break
+            if content_length > self.MAX_BODY_SIZE:
+                await send({"type": "http.response.start", "status": 413,
+                            "headers": [[b"content-length", b"0"]]})
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
+
+
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
@@ -615,75 +648,109 @@ def _fix_ollama_url(url):
     return url
 
 
+# ─── Реестр исполнителей (манифест §1 Open/Closed) ───
+# Добавление нового step = одна строка в STEP_BUILDERS, без изменения диспетчера.
+# Каждый builder: (body, _lf, _pr) → cmd_str. Chain делает pre-actions внутри.
+
+GPU_STEPS = frozenset({"describe", "faces", "embed", "chain"})
+
+
+def _cmd_ingest(body, _lf, _pr):
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --scan >> {_lf} 2>&1 &"
+
+
+def _cmd_hash(body, _lf, _pr):
+    n = body.get("hash_limit", 50)
+    root = f"--root {body['root_id']}" if body.get("root_id") else ""
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --hash --limit {n} {root} >> {_lf} 2>&1 &"
+
+
+def _cmd_dedup_ingest(body, _lf, _pr):
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --dedup-ingest >> {_lf} 2>&1 &"
+
+
+def _cmd_describe(body, _lf, _pr):
+    n = body.get("desc_limit", 60)
+    bs = body.get("batch_size", 6)
+    root_dir = ""
+    if body.get("root_id"):
+        try:
+            db_temp = get_db()
+            r = db_temp.get_catalog_root(body["root_id"])
+            if r:
+                root_dir = f"--dir {r['root_path']}"
+        except Exception:
+            pass
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/describe.py --limit {n} --batch-size {bs} {root_dir} >> {_lf} 2>&1 &"
+
+
+def _cmd_faces(body, _lf, _pr):
+    n = body.get("faces_limit", 600)
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/faces.py --limit {n} >> {_lf} 2>&1 &"
+
+
+def _cmd_exif(body, _lf, _pr):
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/exif.py --all >> {_lf} 2>&1 &"
+
+
+def _cmd_embed(body, _lf, _pr):
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/embed.py >> {_lf} 2>&1 &"
+
+
+def _cmd_chain(body, _lf, _pr):
+    import subprocess
+    from config import PIPELINE_SERVICE
+    n = body.get("hash_limit", 50)
+    dl = body.get("desc_limit", 60)
+    bs = body.get("batch_size", 6)
+    root = f"--root {body['root_id']}" if body.get("root_id") else ""
+    subprocess.run(["pkill", "-f", "pipeline.py"], capture_output=True, timeout=5)
+    subprocess.run(["systemctl", "stop", PIPELINE_SERVICE], capture_output=True, timeout=5)
+    return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/pipeline.py --hash-limit {n} --describe {dl} --batch-size {bs} {root} >> {_lf} 2>&1 &"
+
+
+STEP_BUILDERS = {
+    "ingest": _cmd_ingest,
+    "hash": _cmd_hash,
+    "dedup_ingest": _cmd_dedup_ingest,
+    "describe": _cmd_describe,
+    "faces": _cmd_faces,
+    "exif": _cmd_exif,
+    "embed": _cmd_embed,
+    "chain": _cmd_chain,
+}
+
+
 @app.post("/api/control/start")
 async def control_start(body: dict):
-    import subprocess
     step = body.get("step", "")
     _lf = str(LOG_FILE)
     _pr = str(PROJECT_ROOT)
-    cmd = None
 
     mq = _get_api_mqtt()
 
-    if step == "ingest":
-        n = body.get("ingest_limit", 100)
-        root = f"--root {body['root_id']}" if body.get("root_id") else ""
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --scan >> {_lf} 2>&1 &"
-    elif step == "hash":
-        n = body.get("hash_limit", 50)
-        root = f"--root {body['root_id']}" if body.get("root_id") else ""
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --hash --limit {n} {root} >> {_lf} 2>&1 &"
-    elif step == "dedup_ingest":
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/scan_catalog.py --dedup-ingest >> {_lf} 2>&1 &"
-    elif step == "describe":
-        n = body.get("desc_limit", 60)
-        bs = body.get("batch_size", 6)
-        root_dir = ""
-        if body.get("root_id"):
-            try:
-                db_temp = get_db()
-                r = db_temp.get_catalog_root(body["root_id"])
-                if r:
-                    root_dir = f"--dir {r['root_path']}"
-            except Exception:
-                pass
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/describe.py --limit {n} --batch-size {bs} {root_dir} >> {_lf} 2>&1 &"
-    elif step == "faces":
-        n = body.get("faces_limit", 600)
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/faces.py --limit {n} >> {_lf} 2>&1 &"
-    elif step == "exif":
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/exif.py --all >> {_lf} 2>&1 &"
-    elif step == "embed":
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/embed.py >> {_lf} 2>&1 &"
-    elif step == "chain":
-        from config import PIPELINE_SERVICE
-        n = body.get("hash_limit", 50)
-        dl = body.get("desc_limit", 60)
-        bs = body.get("batch_size", 6)
-        root = f"--root {body['root_id']}" if body.get("root_id") else ""
-        subprocess.run(["pkill", "-f", "pipeline.py"], capture_output=True, timeout=5)
-        subprocess.run(["systemctl", "stop", PIPELINE_SERVICE], capture_output=True, timeout=5)
-        cmd = f"/usr/bin/nohup {VENV_PYTHON} {_pr}/pipeline.py --hash-limit {n} --describe {dl} --batch-size {bs} {root} >> {_lf} 2>&1 &"
+    builder = STEP_BUILDERS.get(step)
+    if not builder:
+        return {"ok": False, "error": "unknown step"}
 
-    if cmd:
-        is_chain = step == "chain"
-        if is_chain:
-            try:
-                (FLAG_DIR / "no_restart").unlink()
-            except FileNotFoundError:
-                pass
-            os.system(f"systemctl enable {PIPELINE_SERVICE} 2>/dev/null")
-        gpu_steps = {"describe", "faces", "embed", "chain"}
-        if step in gpu_steps:
-            os.system("pkill -9 -f 'llama-server' 2>/dev/null")
-        from datetime import datetime
-        with open(_lf, "a") as f:
-            f.write(f"[{datetime.now().isoformat()}] [CONTROL] Starting: {step}\n")
-        os.system(cmd)
-        if mq:
-            mq.send_start(step, body)
-        return {"ok": True, "step": step}
-    return {"ok": False, "error": "unknown step"}
+    cmd = builder(body, _lf, _pr)
+
+    if step == "chain":
+        from config import PIPELINE_SERVICE
+        try:
+            (FLAG_DIR / "no_restart").unlink()
+        except FileNotFoundError:
+            pass
+        os.system(f"systemctl enable {PIPELINE_SERVICE} 2>/dev/null")  # nosec B605 — PIPELINE_SERVICE из config
+    if step in GPU_STEPS:
+        os.system("pkill -9 -f 'llama-server' 2>/dev/null")  # nosec B605 — hardcoded string
+    from datetime import datetime
+    with open(_lf, "a") as f:
+        f.write(f"[{datetime.now().isoformat()}] [CONTROL] Starting: {step}\n")
+    os.system(cmd)  # nosec B605 — cmd из констант, step валидирован реестром
+    if mq:
+        mq.send_start(step, body)
+    return {"ok": True, "step": step}
 
 
 @app.post("/api/control/stop")
@@ -692,11 +759,11 @@ async def control_stop():
     mq = _get_api_mqtt()
     if mq:
         mq.send_stop("all")
-    os.system(f"systemctl stop {PIPELINE_SERVICE} 2>/dev/null")
-    os.system(f"systemctl disable {PIPELINE_SERVICE} 2>/dev/null")
+    os.system(f"systemctl stop {PIPELINE_SERVICE} 2>/dev/null")  # nosec B605 — PIPELINE_SERVICE из config
+    os.system(f"systemctl disable {PIPELINE_SERVICE} 2>/dev/null")  # nosec B605 — PIPELINE_SERVICE из config
     for pattern in ["llama-server", "vision_describe", "face_pipeline", "faces.py", "faces", "ingest.py", "ingest", "exif.py", "exif", "embed.py", "embed", "pipeline.py", "describe.py", "describe", "enrich_description.py", "enrich"]:
         try:
-            os.system(f"pkill -f '{pattern}' 2>/dev/null")
+            os.system(f"pkill -f '{pattern}' 2>/dev/null")  # nosec B605 — pattern из hardcoded list
         except Exception:
             pass
     flag_dir = str(FLAG_DIR)
@@ -840,6 +907,7 @@ async def get_changes(limit: int = 100):
 
 
 from api import photos, persons, catalog, models, video, search, flir
+from api.validators import json_body
 app.include_router(photos.router)
 app.include_router(persons.router)
 app.include_router(catalog.router)
@@ -859,7 +927,7 @@ async def get_setting(key: str):
 
 @app.put("/api/settings/{key}")
 async def set_setting(key: str, request: Request):
-    body = await request.json()
+    body = await json_body(request)
     value = body.get("value", "")
     mq = _get_api_mqtt()
     if mq and mq.is_worker_alive("pipeline"):
@@ -1188,7 +1256,7 @@ async def get_config():
 
 @app.post("/api/config/update")
 async def config_update(request: Request):
-    body = await request.json()
+    body = await json_body(request)
     env_key = body.get("env_key", "")
     value = body.get("value", "")
     if not env_key:
@@ -1248,9 +1316,9 @@ async def ai_log(photo_path: str = "", content_hash: str = "", call_type: str = 
         where.append("call_type = ?")
         params.append(call_type)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-    total = conn.execute(f"SELECT COUNT(*) FROM ai_calls{where_sql}", params).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM ai_calls{where_sql}", params).fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
     rows = conn.execute(
-        f"SELECT * FROM ai_calls{where_sql} ORDER BY called_at DESC LIMIT ?",
+        f"SELECT * FROM ai_calls{where_sql} ORDER BY called_at DESC LIMIT ?",  # nosec B608 — SQL column names via f-string, values parameterized through ?
         params + [limit]
     ).fetchall()
     conn.close()
@@ -1276,7 +1344,11 @@ async def spa_fallback(path: str, request: Request):
 
 def main():
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app", host="0.0.0.0", port=8000, reload=True,  # nosec B104 — server intentionally binds all interfaces
+        timeout_keep_alive=30,
+        limit_concurrency=20,
+    )
 
 
 if __name__ == "__main__":

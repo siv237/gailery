@@ -148,7 +148,7 @@ def build_search_text(photo, faces_for_photo, persona_map):
 
 
 def compute_meta_hash(search_text):
-    return hashlib.md5(search_text.encode()).hexdigest()[:12]
+    return hashlib.md5(search_text.encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 class EmbedEngine:
@@ -381,7 +381,7 @@ def _count_unembedded(db, args):
     ch_where = " AND c.content_hash = ?" if content_hash else ""
     ch_params = [content_hash] if content_hash else []
     total_unembedded = cur.execute(
-        "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0" + ch_where, ch_params
+        "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0" + ch_where, ch_params  # nosec B608 — SQL column names via f-string, values parameterized through ?
     ).fetchone()[0]
     log(f"Found {total_unembedded} photos to embed (SQL query)")
     return total_unembedded, None
@@ -407,7 +407,7 @@ def _fetch_chunk_faces(db, hashes):
     if hashes:
         ph = ",".join("?" * len(hashes))
         face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2 FROM faces WHERE content_hash IN ({ph})",
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2 FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
             hashes
         ).fetchall()
         for fr in face_rows:
@@ -601,8 +601,8 @@ def _main(db, args, mq=None):
 def _mark_embedded_batch(db, photo_ids):
     cur = db.sqlite.cursor()
     ph = ",".join("?" * len(photo_ids))
-    cur.execute(f"UPDATE photos SET embedded = 1 WHERE photo_id IN ({ph})", photo_ids)
-    cur.execute(f"UPDATE catalog_files SET embedded = 1 WHERE abs_path IN (SELECT path FROM photos WHERE photo_id IN ({ph}) AND is_canonical = 1)", photo_ids)
+    cur.execute(f"UPDATE photos SET embedded = 1 WHERE photo_id IN ({ph})", photo_ids)  # nosec B608 — SQL column names via f-string, values parameterized through ?
+    cur.execute(f"UPDATE catalog_files SET embedded = 1 WHERE abs_path IN (SELECT path FROM photos WHERE photo_id IN ({ph}) AND is_canonical = 1)", photo_ids)  # nosec B608 — SQL column names via f-string, values parameterized through ?
     db.sqlite.commit()
 
 

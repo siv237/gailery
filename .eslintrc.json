@@ -1,0 +1,37 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "script"
+  },
+  "globals": {
+    "uPlot": "readonly"
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-redeclare": "error",
+    "no-delete-var": "error",
+    "no-use-before-define": ["error", { "functions": false, "classes": true, "variables": false }],
+    "no-constant-condition": "warn",
+    "no-debugger": "error",
+    "no-dupe-keys": "error",
+    "no-empty": "warn",
+    "no-irregular-whitespace": "error",
+    "no-unreachable": "error",
+    "valid-typeof": "error",
+    "curly": ["warn", "multi"],
+    "eqeqeq": ["warn", "smart"]
+  },
+  "ignorePatterns": [
+    "web/lib/**",
+    "web/admin/js/uplot.min.js",
+    "node_modules/**",
+    "venv/**",
+    "venv_vllm/**"
+  ]
+}

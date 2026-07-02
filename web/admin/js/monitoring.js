@@ -1,3 +1,4 @@
+/* global Admin */
 var Mon = {interval:null, sysLoaded:false, _cssInjected:false, _activeCid:null, _modalAppended:false};
 
 Admin.registerBlock('monitoring', 'Мониторинг', '📈', function(cid) { Admin.renderBlock_monitoring(cid); });

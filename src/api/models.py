@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from config import PROJECT_ROOT, MODELS_DIR, LOG_FILE
+from api.validators import json_body
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,7 @@ async def get_models_dir():
 @router.put("/dir")
 async def set_models_dir(request: Request):
     from database import get_db
-    body = await request.json()
+    body = await json_body(request)
     path = body.get("path", "")
     if not path:
         raise HTTPException(400, "path is required")

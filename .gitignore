@@ -86,3 +86,6 @@ deploy/
 # Screenshots
 web/screenshots/
 .coverage
+
+# Node.js / ESLint
+node_modules/

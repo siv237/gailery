@@ -1,3 +1,4 @@
+/* global API, closeDetail, currentPhotos, esc, openFaceModal, videoSrc */
 /* ===== Gailery Viewer — независимый модальный просмотрщик фото/видео/FLIR =====
    Подключается на любой странице: gallery, map, и др.
    Инъектит свой HTML, управляет своим состоянием.

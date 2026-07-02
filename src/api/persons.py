@@ -100,10 +100,10 @@ async def get_all_persons(limit: int = 500, offset: int = 0, named_only: bool = 
         cur = db.sqlite.cursor()
 
         where = "WHERE p.display_name IS NOT NULL" if named_only else ""
-        total = cur.execute(f"SELECT COUNT(*) FROM personas p {where}").fetchone()[0]
+        total = cur.execute(f"SELECT COUNT(*) FROM personas p {where}").fetchone()[0]  # nosec B608 — SQL column names via f-string, values parameterized through ?
 
         rows = cur.execute(
-            f"SELECT p.persona_id, p.name, p.display_name, p.comment, "
+            f"SELECT p.persona_id, p.name, p.display_name, p.comment, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             f"(SELECT COUNT(*) FROM faces WHERE persona_id = p.persona_id) as face_count, "
             f"(SELECT MIN(face_id) FROM faces WHERE persona_id = p.persona_id) as face_id "
             f"FROM personas p {where} ORDER BY face_count DESC LIMIT ? OFFSET ?",
@@ -196,7 +196,7 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
         if photo_paths:
             ph = ",".join("?" * len(photo_paths))
             rows = db.sqlite.execute(
-                "SELECT cf.rel_path, cf.abs_path, p.photo_id, p.date, p.media_type "
+                "SELECT cf.rel_path, cf.abs_path, p.photo_id, p.date, p.media_type "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 "FROM catalog_files cf "
                 "LEFT JOIN photos p ON p.path = cf.abs_path "
                 "WHERE cf.rel_path IN (" + ph + ") OR cf.abs_path IN (" + ph + ") "
@@ -213,7 +213,7 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
         if uuids:
             uh = ",".join("?" * len(uuids))
             face_rows = db.sqlite.execute(
-                "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "
+                "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 "f.bbox_x2, f.bbox_y2, p.display_name, p.name "
                 "FROM faces f "
                 "JOIN catalog_files cf ON cf.content_hash = f.content_hash "

@@ -124,7 +124,7 @@ async def scan_root(root_id: str):
     from datetime import datetime
     with open(str(LOG_FILE), "a") as f:
         f.write(f"[{datetime.now().isoformat()}] [CONTROL] Starting: catalog scan\n")
-    os.system(cmd)
+    os.system(cmd)  # nosec B605 — cmd из констант (VENV_PYTHON, PROJECT_ROOT), нет user input
     return {"ok": True}
 
 
@@ -326,7 +326,7 @@ async def sync_flags():
     from datetime import datetime
     with open(str(LOG_FILE), "a") as f:
         f.write(f"[{datetime.now().isoformat()}] [CONTROL] Starting: catalog sync\n")
-    os.system(cmd)
+    os.system(cmd)  # nosec B605 — cmd из констант (VENV_PYTHON, PROJECT_ROOT), нет user input
     return {"ok": True}
 
 

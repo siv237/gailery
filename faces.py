@@ -162,7 +162,7 @@ def _process_detected_faces(db, faces, photo_id, path, content_hash):
             embedding = embedding / norm
 
         bbox = face.bbox.astype(float).tolist()
-        face_id = hashlib.md5(f"{path}_{bbox}".encode()).hexdigest()
+        face_id = hashlib.md5(f"{path}_{bbox}".encode(), usedforsecurity=False).hexdigest()
 
         face_id, inserted = db.add_face_sqlite_only(
             photo_id=photo_id,

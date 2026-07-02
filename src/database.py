@@ -399,7 +399,7 @@ class DatabaseManager:
             )
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [photo_id]
-        cur.execute(f"UPDATE photos SET {sets} WHERE photo_id = ?", vals)
+        cur.execute(f"UPDATE photos SET {sets} WHERE photo_id = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
         self.sqlite.commit()
 
     def delete_photo(self, photo_id):
@@ -437,7 +437,7 @@ deleted=None, deleted_only=None,
                        media_type=None,
                        sort="date_desc", limit=60, offset=0):
         ed = "COALESCE(manual_date, date)"
-        sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1 AND cf.deleted = 0"
+        sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1 AND cf.deleted = 0"  # nosec B608 — SQL column names via f-string, values parameterized through ?
         params = []
 
         root_filter, root_params = self._enabled_root_filter()
@@ -556,7 +556,7 @@ deleted=None, deleted_only=None,
     def get_all_photos(self):
         root_filter, root_params = self._enabled_root_filter()
         rows = self.sqlite.execute(
-            f"SELECT photos.*, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
+            f"SELECT photos.*, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             f"WHERE cf.is_canonical = 1 AND cf.deleted = 0 AND photos.deleted = 0 AND {root_filter}",
             root_params
         ).fetchall()
@@ -566,7 +566,7 @@ deleted=None, deleted_only=None,
         root_filter, root_params = self._enabled_root_filter()
         ed = "COALESCE(manual_date, date)"
         rows = self.sqlite.execute(
-            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, substr({ed},1,10) as day, COUNT(*) as cnt "
+            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, substr({ed},1,10) as day, COUNT(*) as cnt "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
             f"WHERE {ed} IS NOT NULL AND length({ed}) >= 4 "
             f"AND substr({ed},1,4) != '0000' AND photos.deleted = 0 AND cf.is_canonical = 1 AND cf.deleted = 0 AND {root_filter} "
@@ -886,7 +886,7 @@ deleted=None, deleted_only=None,
             return
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [root_id]
-        self.sqlite.execute(f"UPDATE catalog_roots SET {sets} WHERE root_id = ?", vals)
+        self.sqlite.execute(f"UPDATE catalog_roots SET {sets} WHERE root_id = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
         self.sqlite.commit()
 
     def get_catalog_roots(self):
@@ -950,7 +950,7 @@ deleted=None, deleted_only=None,
             return
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [file_id]
-        self.sqlite.execute(f"UPDATE catalog_files SET {sets} WHERE file_id = ?", vals)
+        self.sqlite.execute(f"UPDATE catalog_files SET {sets} WHERE file_id = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
         self.sqlite.commit()
 
     def update_catalog_file_by_path(self, abs_path, **kwargs):
@@ -958,7 +958,7 @@ deleted=None, deleted_only=None,
             return
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [abs_path]
-        self.sqlite.execute(f"UPDATE catalog_files SET {sets} WHERE abs_path = ?", vals)
+        self.sqlite.execute(f"UPDATE catalog_files SET {sets} WHERE abs_path = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
         self.sqlite.commit()
 
     def delete_catalog_file(self, file_id):
@@ -1123,7 +1123,7 @@ deleted=None, deleted_only=None,
             rid_ph = ",".join("?" * len(enabled_ids))
 
             photos_row = conn.execute(
-                f"SELECT "
+                f"SELECT "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 f"COUNT(*),"
                 f"SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') THEN 1 ELSE 0 END),"
@@ -1149,12 +1149,12 @@ deleted=None, deleted_only=None,
             photos_deleted = photos_row[9] or 0
 
             catalog_total = conn.execute(
-                f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 AND root_id IN ({rid_ph})",
+                f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 AND root_id IN ({rid_ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 enabled_ids
             ).fetchone()[0]
 
             faces_done_count = conn.execute(
-                f"SELECT COUNT(DISTINCT cf.abs_path) FROM catalog_files cf "
+                f"SELECT COUNT(DISTINCT cf.abs_path) FROM catalog_files cf "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 f"JOIN photos p ON p.path = cf.abs_path "
                 f"WHERE cf.is_canonical=1 AND cf.deleted=0 AND cf.faces_done=1 AND p.deleted=0 "
                 f"AND (p.media_type IS NULL OR p.media_type!='video') AND p.root_id IN ({rid_ph})",
@@ -1162,7 +1162,7 @@ deleted=None, deleted_only=None,
             ).fetchone()[0]
 
             videos_catalog = conn.execute(
-                f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 "
+                f"SELECT COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 "  # nosec B608 — SQL column names via f-string, values parameterized through ?
                 f"AND ext IN ({','.join("'"+e+"'" for e in VIDEO_EXTS)}) AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
@@ -1271,7 +1271,7 @@ deleted=None, deleted_only=None,
             if copy_ids:
                 placeholders = ",".join("?" for _ in copy_ids)
                 cur.execute(
-                    f"UPDATE catalog_files SET is_canonical = 0 WHERE file_id IN ({placeholders})",
+                    f"UPDATE catalog_files SET is_canonical = 0 WHERE file_id IN ({placeholders})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
                     copy_ids
                 )
                 total_copies += len(copy_ids)

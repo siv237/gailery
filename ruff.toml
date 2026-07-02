@@ -1,0 +1,44 @@
+# ruff.toml — конфигурация линтера согласно QUALITY_MANIFEST.md
+#
+# Ruff заменяет radon + flake8 + pylint одним инструментом.
+# Запуск: ruff check .
+# Правила без auto-fix (C901, BLE001) — только диагностика.
+
+target-version = "py312"
+line-length = 120
+
+# Сторонние / генерируемые директории (top-level, ДО секций)
+exclude = [
+    "venv",
+    "venv_vllm",
+    "__pycache__",
+    ".git",
+    ".git_old",
+    "llama.cpp",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "node_modules",
+]
+
+[lint]
+# Категории правил (манифест §3.1):
+#   E    — pycodestyle errors (вкл. E722 bare except)
+#   F    — pyflakes (F401 unused import, F841 unused var, F601 dup key, F821 undefined name)
+#   C901 — cyclomatic complexity (порог 15, манифест §4.1)
+#   BLE001 — blind except Exception без re-raise (AI-антипаттерн, манифест §3.2)
+select = ["E", "F", "C901", "BLE001"]
+
+# Правила только для диагностики (не автофиксятся)
+unfixable = ["C901", "BLE001", "F401", "F841"]
+
+[lint.mccabe]
+# Цикломатическая сложность (манифест §4.1, порог ≤15)
+max-complexity = 15
+
+[lint.per-file-ignores]
+# Тесты — допустимо больше except (обработка cleanup/fixtures)
+"tests/*" = ["BLE001"]
+# __init__.py — re-exports нормально
+"__init__.py" = ["F401"]

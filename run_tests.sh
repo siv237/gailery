@@ -28,6 +28,9 @@ usage() {
   --ai      Добавить AI/GPU тесты (требует GPU).
   --quality Аналитика кода: монолиты, сложность, дубли, мёртвый код.
             Не блокирует pre-commit, только отчёт + fail на критичное.
+  --coverage Отчёт покрытия веток (--cov-branch) с baseline порогом.
+  --security Тесты безопасности: SAST (bandit), SCA (pip-audit), фаззинг.
+  --map     Перегенерация MODULES.md из исходников (AST-анализ).
   --all     --write + --ai + --quality.
   --help    Справка.
 EOF
@@ -38,6 +41,9 @@ FAST=0
 WRITE=0
 AI=0
 QUALITY=0
+COVERAGE=0
+SECURITY=0
+MAP=0
 POSARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +52,9 @@ while [[ $# -gt 0 ]]; do
     --write)    WRITE=1;    shift ;;
     --ai)       AI=1;       shift ;;
     --quality)  QUALITY=1;  shift ;;
+    --coverage) COVERAGE=1; shift ;;
+    --security) SECURITY=1; shift ;;
+    --map)      MAP=1;       shift ;;
     --all)      WRITE=1; AI=1; QUALITY=1; shift ;;
     --help)     usage ;;
     *)          POSARGS+=("$1"); shift ;;
@@ -56,10 +65,30 @@ echo "════════════════════════�
 echo "  Gailery Test Runner"
 echo "═══════════════════════════════════════"
 
-if [[ $QUALITY -eq 1 && $FAST -eq 0 && $WRITE -eq 0 && $AI -eq 0 ]]; then
+if [[ $MAP -eq 1 ]]; then
+  echo "  mode: map (regenerate MODULES.md)"
+  echo ""
+  $VENV generate_modules.py
+  exit $?
+fi
+
+if [[ $SECURITY -eq 1 ]]; then
+  TARGET="tests/test_security.py"
+  MARK_FILTER="-m security"
+  echo "  mode: security (SAST + SCA + fuzz)"
+elif [[ $QUALITY -eq 1 && $FAST -eq 0 && $WRITE -eq 0 && $AI -eq 0 && $COVERAGE -eq 0 ]]; then
   TARGET="tests/test_code_quality.py"
   MARK_FILTER=""
   echo "  mode: quality (code structure analytics)"
+elif [[ $COVERAGE -eq 1 ]]; then
+  TARGET="tests/"
+  EXCLUDES="not quality and not destructive"
+  [[ $WRITE -eq 0 ]] && EXCLUDES="$EXCLUDES and not write"
+  [[ $AI -eq 0 ]]    && EXCLUDES="$EXCLUDES and not ai and not gpu"
+  MARK_FILTER="-k '$EXCLUDES'"
+  COV_FLAGS="--cov=src --cov-branch --cov-report=term-missing --cov-fail-under=38"
+  FLAGS="$FLAGS $COV_FLAGS"
+  echo "  mode: coverage (branch coverage, baseline 38%)"
 elif [[ $FAST -eq 1 ]]; then
   TARGET="tests/test_environment.py tests/test_middleware.py"
   MARK_FILTER=""

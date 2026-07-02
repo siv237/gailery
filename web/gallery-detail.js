@@ -1,3 +1,4 @@
+/* global API, _fracToX, _isMobile, _tlZoom, activeDate, closePhotoModal, currentPhotos, doSearch, esc, formatDate, videoSrc */
 function updateNeedleFlag(dateStr) {
     var flag = document.getElementById('tlNeedleFlag');
     var needle = document.getElementById('tlNeedle');

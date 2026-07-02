@@ -128,7 +128,7 @@ def _read_log_info(log_path):
 def _collect_disks():
     import psutil
     disks = []
-    skip_prefixes = ('/dev', '/proc', '/sys', '/run', '/boot', '/usr', '/lib', '/etc', '/tmp')
+    skip_prefixes = ('/dev', '/proc', '/sys', '/run', '/boot', '/usr', '/lib', '/etc', '/tmp')  # nosec B108 — /tmp in mount-point skip list, not a temp file
     skip_fstypes = ('tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'aufs')
     seen_mounts = set()
     for mp in psutil.disk_partitions():

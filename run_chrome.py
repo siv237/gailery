@@ -338,7 +338,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_api():
-    srv = HTTPServer(("0.0.0.0", API_PORT), Handler)
+    srv = HTTPServer(("0.0.0.0", API_PORT), Handler)  # nosec B104 — server intentionally binds all interfaces
     srv.serve_forever()
 
 

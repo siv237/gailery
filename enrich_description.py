@@ -309,7 +309,7 @@ def execute_tool(db, tool_name, arguments):
         dt_max = (dt + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
 
         rows = db.sqlite.execute(
-            "SELECT p.path, COALESCE(p.manual_date, p.date), f.persona_id, per.display_name "
+            "SELECT p.path, COALESCE(p.manual_date, p.date), f.persona_id, per.display_name "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             "FROM photos p JOIN faces f ON f.photo_id LIKE '%' || SUBSTR(p.path, LENGTH('" + str(PHOTO_SHARE_PATH) + "/')+1) "
             "LEFT JOIN personas per ON f.persona_id = per.persona_id "
             "WHERE COALESCE(p.manual_date, p.date) BETWEEN ? AND ? AND per.display_name IS NOT NULL "
@@ -373,7 +373,7 @@ def start_server():
     log(f"Starting llama-server for enrich (pid={proc.pid})...")
     for i in range(60):
         try:
-            resp = urllib.request.urlopen(f"http://localhost:{LLAMA_PORT}/health", timeout=3)
+            resp = urllib.request.urlopen(f"http://localhost:{LLAMA_PORT}/health", timeout=3)  # nosec B310 — urllib loading from known model URLs
             if json.loads(resp.read())["status"] == "ok":
                 log(f"llama-server ready ({i+1}s)")
                 return proc
@@ -431,7 +431,7 @@ def llm_request(server, messages, use_tools=True, log_meta=None):
         data=json.dumps(data).encode(),
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=180)
+    resp = urllib.request.urlopen(req, timeout=180)  # nosec B310 — urllib loading from known model URLs
     result = json.loads(resp.read())
     choice = result["choices"][0]
     finish = choice.get("finish_reason", "?")

@@ -156,7 +156,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     if hashes:
         ph = ",".join("?" * len(hashes))
         face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
             hashes
         ).fetchall()
         face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
@@ -175,7 +175,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     if persona_ids_needed:
         pids = list(persona_ids_needed)
         pid_ph = ",".join("?" * len(pids))
-        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():
+        for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():  # nosec B608 — SQL column names via f-string, values parameterized through ?
             persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
     enriched_list = []
