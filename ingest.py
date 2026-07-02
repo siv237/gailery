@@ -46,7 +46,7 @@ def clear_flag():
     import os
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -62,7 +62,7 @@ def read_exif(photo_path):
         exif_data = img._getexif()
         if not exif_data:
             return None
-    except Exception:
+    except (OSError, ImportError):
         return None
 
     result = {"date": None, "gps": None, "camera": None}
@@ -161,7 +161,7 @@ def ingest(catalog_files, db, total_catalog, read_exif_flag=False, dry_run=False
             try:
                 import os
                 mtime = os.stat(abs_path).st_mtime
-            except Exception:
+            except OSError:
                 pass
             from exif import resolve_date
             resolved, conflict = resolve_date(raw_date, path_str, mtime)
@@ -244,7 +244,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("ingest")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
 
     candidates = get_uningested(db, year=args.year or None, dir_filter=args.dir or None, root_id=args.root or None)

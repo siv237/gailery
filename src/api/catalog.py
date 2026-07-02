@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 import logging
+import sqlite3
 
 from database import get_db
 from config import VENV_PYTHON, LOG_FILE, PROJECT_ROOT, PHOTO_SHARE_PATH
@@ -22,7 +23,7 @@ def _db_write(cmd, params=None, timeout=5):
             result = mq.db_write(cmd, params, timeout=timeout)
             if result.get("ok") or "timeout" not in result.get("error", "").lower():
                 return result
-    except Exception:
+    except (ImportError, sqlite3.Error, ConnectionError, TimeoutError):
         pass
     return _db_write_direct(cmd, params)
 
@@ -48,7 +49,7 @@ def _db_write_direct(cmd, params):
             return {"ok": True}
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -85,7 +86,7 @@ async def get_roots():
                 "not_ingested": len(files) - ingested,
             })
         return result
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get roots: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -110,7 +111,7 @@ async def add_root(req: AddRootRequest):
         if result.get("ok"):
             return {"ok": True, "root_id": result.get("root_id", root_id)}
         return {"ok": False, "error": result.get("error", "Failed to add root")}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         logger.error(f"Failed to add root: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -169,7 +170,7 @@ async def catalog_stats():
             "by_ext": dict(sorted(by_ext.items(), key=lambda x: -x[1])[:15]),
             "by_year": dict(sorted(by_year.items())),
         }
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -310,7 +311,7 @@ async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: 
             "files": result_files,
             "scanned": True,
         }
-    except Exception as e:
+    except (sqlite3.Error, OSError, KeyError, ValueError) as e:
         logger.error(f"Failed to get tree: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -348,7 +349,7 @@ async def toggle_root(root_id: str):
         return {"ok": True, "enabled": bool(new_val)}
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to toggle root: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -387,7 +388,7 @@ async def locate_photo(path: str = ""):
                 }
 
         return {"found": False}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to locate photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -412,7 +413,7 @@ async def browse_dirs(path: str = ""):
         return {"path": str(base), "dirs": entries}
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to browse dirs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -448,7 +449,7 @@ async def hash_status():
             "duplicate_groups": duplicates,
             "duplicate_files": dup_files,
         }
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -463,7 +464,7 @@ async def hash_backfill():
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         return {"ok": True, "pid": proc.pid}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -488,7 +489,7 @@ async def find_duplicates(limit: int = 50):
                 "paths": paths,
             })
         return {"duplicates": result, "total_groups": len(result)}
-    except Exception as e:
+    except (sqlite3.Error, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -511,7 +512,7 @@ async def hash_backfill_stop():
             except (ValueError, ProcessLookupError):
                 pass
         return {"ok": True, "killed": killed}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -526,5 +527,5 @@ async def hash_backfill_status():
         pids = result.stdout.strip().split("\n") if result.stdout.strip() else []
         running = [int(p.strip()) for p in pids if p.strip().isdigit()]
         return {"running": len(running) > 0, "pids": running}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         raise HTTPException(status_code=500, detail=str(e))

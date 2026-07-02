@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, List
 import logging
 import os
+import sqlite3
 import subprocess
 from config import PHOTO_SHARE_PATH, LLAMA_CPP_DIR, PROJECT_ROOT, VIDEO_EXTS
 import config
@@ -22,7 +23,7 @@ def _get_mq():
     try:
         from mqtt_client import create_api_mqtt
         return create_api_mqtt()
-    except Exception:
+    except (ImportError, ConnectionError, OSError):
         return None
 
 
@@ -34,7 +35,7 @@ def _db_write(cmd, params=None, timeout=5):
             result = mq.db_write(cmd, params, timeout=timeout)
             if result.get("ok") or "timeout" not in result.get("error", "").lower():
                 return result
-    except Exception:
+    except (ImportError, sqlite3.Error, ConnectionError, TimeoutError):
         pass
     return _db_write_direct(cmd, params)
 
@@ -133,7 +134,7 @@ def _db_write_direct(cmd, params):
             return {"ok": True}
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError, TypeError) as e:
         return {"ok": False, "error": str(e)}
 
 STREAM_VIDEO_EXTS = VIDEO_EXTS
@@ -266,13 +267,13 @@ async def get_photo(path: str):
                 rgb = raw.postprocess(use_camera_wb=True)
                 raw.close()
                 img = Image.fromarray(rgb)
-            except Exception:
+            except (OSError, ValueError):
                 pass
             if img is None:
                 img = Image.open(str(photo_path))
                 try:
                     img = ImageOps.exif_transpose(img)
-                except Exception:
+                except (OSError, ValueError):
                     pass
             if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")
@@ -284,7 +285,7 @@ async def get_photo(path: str):
                 media_type="image/jpeg",
                 headers={"Cache-Control": "no-cache"}
             )
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             logger.error(f"Failed to convert RAW {path}: {e}")
             raise HTTPException(status_code=500, detail="Failed to convert RAW photo")
     content_type = {
@@ -308,7 +309,7 @@ async def get_photo(path: str):
             media_type=content_type,
             headers={"Cache-Control": "no-cache"}
         )
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to read photo {path}: {e}")
         raise HTTPException(status_code=500, detail="Failed to read photo")
 
@@ -378,7 +379,7 @@ async def get_thumbnail(path: str = "", size: str = "sm", fit: bool = False, abs
             media_type=media_map.get(fmt, "image/webp"),
             headers={"Cache-Control": "no-cache"}
         )
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to read thumbnail {path}: {e}")
         raise HTTPException(status_code=500, detail="Failed to read thumbnail")
 
@@ -421,7 +422,7 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
                 rgb = raw.postprocess(use_camera_wb=True, half_size=True)
                 raw.close()
                 img = Image.fromarray(rgb)
-            except Exception:
+            except (OSError, ValueError):
                 scale = 1.0
                 pass
             if img is None:
@@ -464,7 +465,7 @@ async def get_face_crop(face_id: str, margin: float = 0.5):
         buf = await loop.run_in_executor(None, _crop)
         return Response(content=buf, media_type="image/webp",
                         headers={"Cache-Control": "no-cache"})
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         logger.error(f"Failed to crop face {face_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to crop face")
 
@@ -506,9 +507,9 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
                 rgb = raw.postprocess(use_camera_wb=True, half_size=True)
                 raw.close()
                 img = PILImage.fromarray(rgb)
-            except Exception:
+            except (OSError, ValueError):
                 scale = 1.0
-            except Exception:
+            except (OSError, ValueError):
                 pass
             if img is None:
                 img = PILImage.open(str(photo_path))
@@ -545,7 +546,7 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         content = await loop.run_in_executor(None, _context)
         return Response(content=content, media_type="image/jpeg",
                          headers={"Cache-Control": "no-cache"})
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         logger.error(f"Failed to get face context {face_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get face context")
 
@@ -914,7 +915,7 @@ async def search_photos(
             else:
                 p["duplicate_paths"] = []
                 p["edits"] = []
-        except Exception:
+        except (sqlite3.Error, KeyError):
             p["duplicate_paths"] = []
             p["edits"] = []
 
@@ -925,7 +926,7 @@ def _get_mqtt_api():
     try:
         from main import _get_api_mqtt
         return _get_api_mqtt()
-    except Exception:
+    except (ImportError, AttributeError, ConnectionError, OSError):
         return None
 
 
@@ -971,7 +972,7 @@ async def enrich_description(photo_id: str):
         return {"ok": True, "rich_description": rich}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "timeout"}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, sqlite3.Error, KeyError) as e:
         return {"ok": False, "error": str(e)}
     finally:
         if mq:
@@ -995,7 +996,7 @@ def reprocess_log(lines: int = 30, tag: str = "REPROCESS"):
         else:
             filtered = all_lines
         return {"lines": filtered[-lines:]}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         return {"lines": [], "error": str(e)}
 
 
@@ -1057,7 +1058,7 @@ def reprocess_photo(photo_id: str, skip_faces: bool = False, skip_describe: bool
         if mq:
             mq.release_gpu_from_api()
         return {"ok": False, "error": "timeout"}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         if mq:
             mq.release_gpu_from_api()
         return {"ok": False, "error": str(e)}
@@ -1212,7 +1213,7 @@ async def get_map_photos():
             result.append(p)
         from fastapi.responses import JSONResponse
         return JSONResponse(content=result, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError, OSError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

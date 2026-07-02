@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 import asyncio
 import logging
 import os
+import sqlite3
 import requests
 
 from database import get_db
@@ -276,7 +277,7 @@ def _get_api_mqtt():
         try:
             from mqtt_client import create_api_mqtt
             _api_mqtt = create_api_mqtt()
-        except Exception:
+        except (ImportError, ConnectionError):
             _api_mqtt = False
     return _api_mqtt if _api_mqtt else None
 
@@ -348,7 +349,7 @@ async def get_status():
         status["progress_lines"] = progress_info
         status["faces_phase"] = faces_phase
         status["faces_detail"] = faces_detail
-    except Exception:
+    except (OSError, ValueError, RuntimeError):
         status["progress_lines"] = {}
         status["faces_phase"] = ""
         status["faces_detail"] = ""
@@ -461,7 +462,7 @@ async def get_system_report():
                 str(DATA_DIR / "lancedb")], capture_output=True, text=True,
                 timeout=10).stdout.split()[0])
             report["app"]["lancedb_size_mb"] = round(total / 1024, 1)
-        except Exception:
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
             pass
 
         return report
@@ -488,7 +489,7 @@ async def mqtt_workers():
         }
     try:
         states.get("__gpu_lock__")
-    except Exception:
+    except (KeyError, TypeError):
         pass
     return {"workers": result, "current_step": mq.get_current_step(), "db_writing": mq.is_db_writing()}
 
@@ -500,7 +501,7 @@ async def watchdog_crashes():
         try:
             with open(str(LOG_FILE), "r") as f:
                 lines = f.readlines()[-500:]
-        except Exception:
+        except (OSError, UnicodeDecodeError):
             return []
         crashes = []
         for line in reversed(lines):
@@ -568,7 +569,7 @@ async def _svc_status_async(name):
         )
         out = await proc.stdout.read()
         status = out.decode().strip()
-    except Exception:
+    except (OSError, RuntimeError):
         status = "unknown"
     try:
         proc2 = await asyncio.create_subprocess_exec(
@@ -577,7 +578,7 @@ async def _svc_status_async(name):
         )
         out2 = await proc2.stdout.read()
         enabled = out2.decode().strip()
-    except Exception:
+    except (OSError, RuntimeError):
         enabled = "unknown"
     return {"status": status, "enabled": enabled}
 
@@ -610,7 +611,7 @@ async def ollama_check(url: str = ""):
         if r.status_code == 200:
             return {"ok": True, "version": r.json().get("version", "?")}
         return {"ok": False, "error": f"HTTP {r.status_code}"}
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -629,7 +630,7 @@ async def ollama_models(url: str = ""):
                 })
             return {"models": models}
         return {"error": f"HTTP {r.status_code}"}
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         return {"error": str(e)}
 
 
@@ -674,7 +675,7 @@ def _cmd_describe(body, _lf, _pr):
             r = db_temp.get_catalog_root(body["root_id"])
             if r:
                 root_dir = f"--dir {r['root_path']}"
-        except Exception:
+        except (sqlite3.Error, KeyError, RuntimeError):
             pass
     return f"/usr/bin/nohup {VENV_PYTHON} {_pr}/describe.py --limit {n} --batch-size {bs} {root_dir} >> {_lf} 2>&1 &"
 
@@ -759,13 +760,13 @@ async def control_stop():
     for pattern in ["llama-server", "vision_describe", "face_pipeline", "faces.py", "faces", "ingest.py", "ingest", "exif.py", "exif", "embed.py", "embed", "pipeline.py", "describe.py", "describe", "enrich_description.py", "enrich"]:
         try:
             os.system(f"pkill -f '{pattern}' 2>/dev/null")  # nosec B605 — pattern из hardcoded list
-        except Exception:
+        except (OSError, RuntimeError):
             pass
     flag_dir = str(FLAG_DIR)
     for fname in ["describe", "ingest", "faces", "exif", "embed", "pipeline"]:
         try:
             os.remove(os.path.join(flag_dir, fname))
-        except Exception:
+        except OSError:
             pass
     no_restart_path = FLAG_DIR / "no_restart"
     no_restart_path.parent.mkdir(parents=True, exist_ok=True)
@@ -833,7 +834,7 @@ def _control_reset_direct(step):
     if step == "faces":
         try:
             db.face_vectors.delete("face_id != ''")
-        except Exception:
+        except (RuntimeError, OSError):
             pass
     return {"ok": True, "step": step, "affected": affected}
 
@@ -874,7 +875,7 @@ async def control_update():
             with open(_lf, "a") as f:
                 f.write(f"[{datetime.now().isoformat()}] [CONTROL] UPDATE: already up-to-date ({before[:8]})\n")
             return {"ok": True, "updated": False, "commit": before[:8]}
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         with open(_lf, "a") as f:
             f.write(f"[{datetime.now().isoformat()}] [CONTROL] UPDATE FAILED: {e}\n")
         return {"ok": False, "error": str(e)}
@@ -1104,7 +1105,7 @@ async def backup_download():
             filename=f"gallery_backup_{ts}.db.gz",
             background=lambda: os.unlink(tmp.name) if os.path.exists(tmp.name) else None,
         )
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         if os.path.exists(tmp.name):
             os.unlink(tmp.name)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1133,7 +1134,7 @@ async def backup_upload(file: UploadFile = File(...)):
             shutil.move(str(db_path), bak)
         shutil.move(tmp.name, str(db_path))
         return {"ok": True, "message": "Database restored. Restart service to apply."}
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         if os.path.exists(tmp.name):
             os.unlink(tmp.name)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1205,7 +1206,7 @@ async def maintenance_vacuum():
         conn.close()
         after = os.path.getsize(db_path)
         return {"ok": True, "before": before, "after": after, "freed": before - after}
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1221,7 +1222,7 @@ async def maintenance_dedup_embeddings():
         db = get_db()
         before, after, removed = db.dedup_photo_embeddings()
         return {"ok": True, "before": before, "after": after, "removed": removed}
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1286,7 +1287,7 @@ async def config_update(request: Request):
     try:
         import config as _cfg_mod
         importlib.reload(_cfg_mod)
-    except Exception:
+    except (ImportError, RuntimeError, ValueError):
         pass
     return {"ok": True, "env_key": env_key, "value": value}
 

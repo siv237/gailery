@@ -46,7 +46,7 @@ def _extract_video_frame(video_path, seek_sec=1):
             return tmp.name
         Path(tmp.name).unlink(missing_ok=True)
         return None
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
 
 
@@ -58,7 +58,7 @@ def _rawpy_open(image_path):
         raw.close()
         from PIL import Image
         return Image.fromarray(rgb)
-    except Exception:
+    except (ImportError, OSError, ValueError):
         return None
 
 
@@ -73,7 +73,7 @@ def _pillow_generate_to_buffer(image_path, width, fmt="webp", quality=80, crop="
             img = Image.open(str(image_path))
         try:
             img = ImageOps.exif_transpose(img)
-        except Exception:
+        except (OSError, ValueError):
             pass
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
@@ -98,7 +98,7 @@ def _pillow_generate_to_buffer(image_path, width, fmt="webp", quality=80, crop="
         else:
             img.save(buf, format="WEBP", quality=quality)
         return buf.getvalue()
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Pillow fallback failed for {image_path}: {e}")
         return None
 
@@ -114,13 +114,13 @@ def _pillow_generate_files(image_path, rel, output_dir, sizes, fmts):
             img = Image.open(str(image_path))
         try:
             img = ImageOps.exif_transpose(img)
-        except Exception:
+        except (OSError, ValueError):
             pass
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
         if _is_raw(image_path):
             img = ImageOps.autocontrast(img, cutoff=1, preserve_tone=True)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Cannot open {image_path}: {e}")
         return None
 
@@ -146,7 +146,7 @@ def _pillow_generate_files(image_path, rel, output_dir, sizes, fmts):
                 else:
                     thumb.save(str(out), format="WEBP", quality=80)
                 last_path = out
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 logger.error(f"Pillow failed to save {out}: {e}")
     return last_path
 
@@ -163,7 +163,7 @@ def _video_generate_files(video_path, rel, output_dir, sizes_to_gen, fmts_to_gen
         for sname, width in sizes_to_gen.items():
             try:
                 thumb = img.thumbnail_image(width, crop="centre")
-            except Exception:
+            except (RuntimeError, OSError):
                 continue
             for f in fmts_to_gen:
                 out = output_dir / f"{sname}" / Path(rel).with_suffix(f".{f}")
@@ -174,7 +174,7 @@ def _video_generate_files(video_path, rel, output_dir, sizes_to_gen, fmts_to_gen
                     else:
                         thumb.write_to_file(str(out), Q=80)
                     last_path = out
-                except Exception as e:
+                except (RuntimeError, OSError) as e:
                     logger.error(f"Failed to save video thumb {out}: {e}")
     finally:
         Path(frame_path).unlink(missing_ok=True)
@@ -191,7 +191,7 @@ def _video_generate_to_buffer(video_path, width, fmt="webp", quality=80):
         thumb = img.thumbnail_image(width, crop="centre")
         ext = f".{fmt}"
         return thumb.write_to_buffer(ext, Q=quality)
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.error(f"Failed to generate video thumb buffer: {e}")
         return None
     finally:
@@ -231,7 +231,7 @@ class ThumbnailGenerator:
 
         try:
             img = pyvips.Image.new_from_file(str(image_path), access="random")
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.error(f"Failed to load {image_path}: {e}")
             return None
 
@@ -239,7 +239,7 @@ class ThumbnailGenerator:
         for sname, width in sizes_to_gen.items():
             try:
                 thumb = img.thumbnail_image(width, crop="centre")
-            except Exception as e:
+            except (RuntimeError, OSError) as e:
                 logger.error(f"Failed to resize {image_path} to {width}: {e}")
                 continue
 
@@ -255,7 +255,7 @@ class ThumbnailGenerator:
                     else:
                         thumb.write_to_file(str(out), Q=80)
                     last_path = out
-                except Exception as e:
+                except (RuntimeError, OSError) as e:
                     logger.error(f"Failed to save {out}: {e}")
 
         return last_path
@@ -272,7 +272,7 @@ class ThumbnailGenerator:
             thumb = img.thumbnail_image(width, crop="centre")
             ext = f".{fmt}"
             return thumb.write_to_buffer(ext, Q=quality)
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.error(f"Failed to generate buffer for {image_path}: {e}")
             return None
 
@@ -287,7 +287,7 @@ class ThumbnailGenerator:
             img = pyvips.Image.new_from_file(str(image_path), access="random")
             thumb = img.thumbnail_image(width, crop="none")
             return thumb.write_to_buffer(".webp", Q=quality)
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.error(f"Failed to generate fit buffer for {image_path}: {e}")
             return None
 

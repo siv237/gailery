@@ -43,7 +43,7 @@ def set_flag():
 def clear_flag():
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -63,7 +63,7 @@ def generate_one(args):
             result = gen.generate(p, fmt=fmt)
 
         return result is not None, path_str, ""
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:
         return False, path_str, str(e)
 
 
@@ -133,7 +133,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("thumbnails")
-    except Exception:
+    except (ImportError, OSError, ConnectionError):
         mq = None
     t0 = time.time()
 

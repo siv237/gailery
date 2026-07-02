@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -81,7 +82,7 @@ def get_system_prompt(has_names=False):
             custom = db.get_setting("prompt_vlm_system")
             if custom:
                 return custom
-    except Exception:
+    except (ImportError, RuntimeError):
         pass
     return SYSTEM_PROMPT_WITH_NAMES if has_names else SYSTEM_PROMPT
 
@@ -127,7 +128,7 @@ def start_llama_server():
             if json.loads(resp.read())["status"] == "ok":
                 log(f"llama-server ready ({i+1}s)")
                 return proc
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError):
             time.sleep(1)
 
     log("llama-server FAILED to start")
@@ -150,7 +151,7 @@ def kill_orphan_servers():
                         log(f"Killed orphan llama-server on port {LLAMA_PORT} pid={pid}")
                 except (ProcessLookupError, FileNotFoundError):
                     pass
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError):
         pass
 
 
@@ -183,7 +184,7 @@ def describe_one(img_b64, photo_path, agent_context=""):
         _r = _db.sqlite.execute("SELECT content_hash FROM catalog_files WHERE abs_path=? AND is_canonical=1 LIMIT 1", (str(photo_path),)).fetchone()
         if _r: _ch = _r[0] or ""
         _db.sqlite.close()
-    except Exception:
+    except (ImportError, sqlite3.Error):
         pass
     if has_names:
         user_text = "Опиши что видно на фото. Перечисли видимые предметы, мебель, одежду, детали. Имена из данных — используй обязательно. Не пиши про то чего не видно. Начинай сразу с описания, без скобок, без заголовка. Не короче 4 предложений. Возраст — только из данных, не угадывай по внешности. Девочка/девушка/женщина — по возрасту из данных."
@@ -244,7 +245,7 @@ def describe_one(img_b64, photo_path, agent_context=""):
             success=1,
         )
         return photo_path, parsed, elapsed, pps, None
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, KeyError) as e:
         elapsed = time.time() - t0
         log_ai_call(
             call_type="vlm_describe",
@@ -293,7 +294,7 @@ def _get_photo_context(photo_path, db):
                 parts.append(f"Дата съёмки: {date_str}.")
             if row[2]:
                 parts.append(f"Папка: {row[2]}.")
-    except Exception:
+    except sqlite3.Error:
         pass
     path = Path(photo_path)
     parent = path.parent.name
@@ -336,7 +337,7 @@ def _calc_age(comment, photo_date=None):
         if len(parts) != 3:
             return None
         py, pm, _pdd = int(parts[0]), int(parts[1]), int(parts[2])
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
     total_months = (py - birth_year) * 12 + (pm - birth_month)
@@ -381,7 +382,7 @@ def _is_birthday(comment, photo_date):
             return False
         _, pm, pdd = int(parts[0]), int(parts[1]), int(parts[2])
         return pm == birth_month and pdd == birth_day
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -395,7 +396,7 @@ def _get_face_context(content_hash, img_width, db, photo_date=None):
             "WHERE f.content_hash = ?",
             (content_hash,)
         ).fetchall()
-    except Exception:
+    except sqlite3.Error:
         return ""
     if not rows:
         return ""
@@ -435,13 +436,13 @@ def prepare_image(path):
         img = Image.open(path)
         img.verify()
         img = Image.open(path)
-    except Exception:
+    except (OSError, ValueError):
         return None, "corrupted"
     try:
         if hasattr(img, '_getexif'):
             from PIL import ImageOps
             img = ImageOps.exif_transpose(img)
-    except Exception:
+    except (OSError, ValueError):
         pass
     w, h = img.size
     if w == 0 or h == 0:
@@ -591,7 +592,7 @@ def _build_agent_context(photo_path, db):
         if photo_date:
             parts.append(f"Дата съёмки: {photo_date}")
 
-    except Exception:
+    except (sqlite3.Error, ValueError, KeyError):
         pass
     return "\n".join(parts)
 
@@ -620,7 +621,7 @@ def describe_batch(image_paths, db=None):
             images_b64.append(img_b64)
             valid_paths.append(p)
             agent_contexts.append(ac)
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             log(f"  Cannot read {p}: {e}")
             invalid_paths.append(p)
 
@@ -768,7 +769,7 @@ def save_description(db, photo_path, parsed):
             db.update_catalog_file_by_path(path_str, described=1)
         else:
             print(f"[WARN] Photo not in DB, skipping: {path_str}", flush=True)
-    except Exception as e:
+    except (sqlite3.Error, RuntimeError) as e:
         print(f"[WARN] DB save failed for {path_str}: {e}", flush=True)
 
 
@@ -833,7 +834,7 @@ def process_directory(photo_dir, batch_size=BATCH_SIZE, limit=0, content_hash=No
             t0 = time.time()
             try:
                 results = describe_batch(batch_paths, db=db)
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 log(f"Batch {batch_num} FAILED: {e}")
                 failed += len(batch_paths)
                 continue
@@ -928,7 +929,7 @@ def main():
                 if mq:
                     mq.shutdown()
                 return
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
 
     if args.single:

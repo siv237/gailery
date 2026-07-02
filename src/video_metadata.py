@@ -14,7 +14,7 @@ def _ffprobe(path):
             capture_output=True, text=True, timeout=30,
         )
         return json.loads(out.stdout)
-    except Exception:
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return None
 
 

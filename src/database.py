@@ -991,14 +991,14 @@ deleted=None, deleted_only=None,
             id_list = ", ".join(f"'{pid}'" for pid in ids_to_delete)
             try:
                 self.photo_embeddings.delete(f"photo_id IN ({id_list})")
-            except Exception:
+            except (RuntimeError, OSError):
                 pass
         self.photo_embeddings.add(records)
 
     def delete_photo_embedding(self, photo_id):
         try:
             self.photo_embeddings.delete(f"photo_id = '{photo_id}'")
-        except Exception:
+        except (RuntimeError, OSError):
             pass
 
     def dedup_photo_embeddings(self):
@@ -1022,7 +1022,7 @@ deleted=None, deleted_only=None,
                 id_list = ", ".join(f"'{pid}'" for pid in batch)
                 try:
                     tbl.delete(f"photo_id IN ({id_list})")
-                except Exception:
+                except (RuntimeError, OSError):
                     pass
         after_rows = before_rows - len(dup_indices)
         return (before_rows, after_rows, len(dup_indices))
@@ -1032,11 +1032,11 @@ deleted=None, deleted_only=None,
         from datetime import timedelta
         try:
             tbl.optimize(cleanup_older_than=timedelta(seconds=0))
-        except Exception:
+        except (RuntimeError, OSError):
             try:
                 tbl.compact_files()
                 tbl.cleanup_old_versions()
-            except Exception:
+            except (RuntimeError, OSError):
                 pass
 
     def compact_photo_embeddings(self):
@@ -1046,7 +1046,7 @@ deleted=None, deleted_only=None,
     def _fresh_embeddings(self):
         try:
             return self.vectordb.open_table("photo_embeddings")
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.warning(f"LanceDB open_table failed, retrying: {e}")
             self.vectordb = lancedb.connect(str(self.lancedb_path))
             return self.vectordb.open_table("photo_embeddings")
@@ -1054,7 +1054,7 @@ deleted=None, deleted_only=None,
     def search_photo_embeddings(self, query_vector, limit=20):
         try:
             return self._fresh_embeddings().search(query_vector).limit(limit).to_list()
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.warning(f"LanceDB search failed, retrying with fresh reconnect: {e}")
             self.vectordb = lancedb.connect(str(self.lancedb_path))
             return self.vectordb.open_table("photo_embeddings").search(query_vector).limit(limit).to_list()
@@ -1062,7 +1062,7 @@ deleted=None, deleted_only=None,
     def count_photo_embeddings(self):
         try:
             return self._fresh_embeddings().count_rows()
-        except Exception:
+        except (RuntimeError, OSError):
             return 0
 
     def get_photo_embedding(self, photo_id):
@@ -1071,7 +1071,7 @@ deleted=None, deleted_only=None,
                 f"photo_id = '{photo_id}'"
             ).limit(1).to_list()
             return results[0] if results else None
-        except Exception:
+        except (RuntimeError, OSError):
             return None
 
     # ─── Invalidate embeddings on metadata change ───────

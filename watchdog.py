@@ -60,7 +60,7 @@ def is_pipeline_active():
             capture_output=True, text=True, timeout=5,
         )
         return r.stdout.strip() == "active"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -71,7 +71,7 @@ def is_pipeline_enabled():
             capture_output=True, text=True, timeout=5,
         )
         return "enabled" in r.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -137,7 +137,7 @@ def _get_cgroup(pid):
     try:
         with open(f"/proc/{pid}/cgroup") as f:
             return f.read().strip()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return ""
 
 
@@ -162,9 +162,9 @@ def check_duplicate_pipelines():
                 for p in pipelines:
                     if _get_cgroup(p["pid"]) == cg:
                         service_pids.add(p["pid"])
-            except Exception:
+            except (OSError, ValueError):
                 pass
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError):
         pass
     for p in pipelines:
         if p["pid"] not in service_pids:
@@ -191,7 +191,7 @@ def check_orphan_workers():
                 orphans.append(w)
             elif ppid not in all_pids:
                 orphans.append(w)
-        except Exception:
+        except (OSError, ValueError):
             continue
     if not orphans:
         return
@@ -219,7 +219,7 @@ def check_memory_pressure():
         total = mi["MemTotal"]
         available = mi.get("MemAvailable", mi.get("MemFree", 0))
         used_pct = (total - available) / total * 100
-    except Exception:
+    except (OSError, ValueError, KeyError):
         return
     if used_pct < MEMORY_WARN_PCT:
         return
@@ -282,7 +282,7 @@ def check_stale_flags():
                 )
                 if pgrep.stdout.strip():
                     alive = True
-            except Exception:
+            except (OSError, subprocess.SubprocessError):
                 pass
         if not alive:
             logger.warning(f"Stale flag: {fname} (no live process)")
@@ -291,7 +291,7 @@ def check_stale_flags():
             if fname == "pipeline":
                 try:
                     os.remove(str(PIPELINE_IDLE_FLAG))
-                except Exception:
+                except OSError:
                     pass
 
 
@@ -305,7 +305,7 @@ def main():
         time.sleep(2)
         mq.publish_status("running")
         _mqtt = True
-    except Exception:
+    except (ImportError, ConnectionError):
         _mqtt = False
         mq = None
 
@@ -319,7 +319,7 @@ def main():
                 if _mqtt:
                     try:
                         mq.publish(_topic("watchdog", "mode"), mode, retain=True)
-                    except Exception:
+                    except (RuntimeError, OSError):
                         pass
                 # no heartbeat log when sleeping - just sleep silently
                 time.sleep(CHECK_INTERVAL)
@@ -340,7 +340,7 @@ def main():
             if _mqtt:
                 try:
                     mq.publish(_topic("watchdog", "mode"), mode, retain=True)
-                except Exception:
+                except (RuntimeError, OSError):
                     pass
 
             try:
@@ -348,7 +348,7 @@ def main():
                 check_duplicate_pipelines()
                 check_orphan_workers()
                 check_memory_pressure()
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Ошибка в check_*: {e}")
 
             if not is_idle:
@@ -361,7 +361,7 @@ def main():
         if _mqtt:
             try:
                 mq.shutdown()
-            except Exception:
+            except (RuntimeError, OSError):
                 pass
 
 

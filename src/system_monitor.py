@@ -68,7 +68,7 @@ def _nvidia_smi(*fields):
             capture_output=True, text=True, timeout=10,
         )
         return [p.strip() for p in out.stdout.strip().split(", ")]
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return ["0"] * len(fields)
 
 
@@ -112,7 +112,7 @@ def _sys_info():
     for label, path in [("disk_root_gb", "/"), ("disk_share_gb", "/mnt/share")]:
         try:
             info[label] = round(psutil.disk_usage(path).total / (1024**3), 1)
-        except Exception:
+        except OSError:
             info[label] = 0
     try:
         out = subprocess.run(
@@ -125,7 +125,7 @@ def _sys_info():
         info["driver_ver"] = parts[1] if len(parts) > 1 else "?"
         info["pcie_gen"] = parts[2] if len(parts) > 2 else "?"
         info["pcie_width"] = parts[3] if len(parts) > 3 else "?"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         info["gpu_name"] = "NVIDIA GPU"
         info["driver_ver"] = "?"
         info["pcie_gen"] = "?"
@@ -163,7 +163,7 @@ def _disk_metrics():
         try:
             usage = psutil.disk_usage(path)
             result[label] = usage.percent
-        except Exception:
+        except OSError:
             result[label] = 0
     return result
 

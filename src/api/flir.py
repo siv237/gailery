@@ -1,5 +1,7 @@
 """FLIR thermal image API endpoints"""
 
+import json
+import subprocess
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -52,7 +54,7 @@ async def get_flir_thermal_src(path: str, w: int = 640, h: int = 480):
             img = img.resize(w / img.width, vscale=h / img.height)
         buf = img.jpegsave_buffer(Q=85)
         return Response(content=buf, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
-    except Exception:
+    except (OSError, ValueError, RuntimeError):
         return FileResponse(str(photo_path), media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
@@ -144,7 +146,7 @@ async def get_flir_temperature(path: str, x: int = 0, y: int = 0):
         return {"x": x, "y": y, "temp_c": round(t, 1)}
     except HTTPException:
         raise
-    except Exception as e:
+    except (OSError, ValueError, KeyError, RuntimeError, IndexError, TypeError, json.JSONDecodeError, subprocess.SubprocessError) as e:
         import traceback
         raise HTTPException(status_code=500, detail=f"Temperature probe failed: {e}\n{traceback.format_exc()}")
 
@@ -193,7 +195,7 @@ async def get_flir_raw_palette(path: str):
         PILImage.fromarray(color).save(out_bytes, format='JPEG', quality=90)
         return Response(content=out_bytes.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
-    except Exception as e:
+    except (OSError, ValueError, KeyError, RuntimeError, IndexError, TypeError, json.JSONDecodeError, subprocess.SubprocessError) as e:
         import traceback
         raise HTTPException(status_code=500, detail=f"Raw thermal failed: {e}\n{traceback.format_exc()}")
 

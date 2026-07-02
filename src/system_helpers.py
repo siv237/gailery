@@ -24,7 +24,7 @@ def _determine_pipeline_step(flag_dir, mq, mqtt_states):
             try:
                 mtime = os.path.getmtime(pipeline_flag)
                 pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-            except Exception:
+            except OSError:
                 pass
         for proc_name, fname in [("DESCRIBE", "describe"), ("INGEST", "ingest"), ("FACES", "faces"), ("EXIF", "exif"), ("EMBED", "embed"), ("PIPELINE", "pipeline")]:
             fpath = os.path.join(flag_dir, fname)
@@ -34,7 +34,7 @@ def _determine_pipeline_step(flag_dir, mq, mqtt_states):
                 try:
                     mtime = os.path.getmtime(fpath)
                     step_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-                except Exception:
+                except OSError:
                     pass
                 break
 
@@ -44,7 +44,7 @@ def _determine_pipeline_step(flag_dir, mq, mqtt_states):
             try:
                 mtime = os.path.getmtime(f"/proc/{pipeline_state['pid']}")
                 pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-            except Exception:
+            except OSError:
                 pass
 
     return current_step, step_details, step_started_at, pipeline_started_at
@@ -61,7 +61,7 @@ def _get_git_info():
             capture_output=True, text=True, timeout=5
         ).stdout.strip()
         return commit, date
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None, None
 
 
@@ -73,7 +73,7 @@ def _read_log_info(log_path):
     try:
         with open(log_path, "r") as f:
             tail_lines = f.readlines()[-200:]
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return {}, "", ""
     for line in tail_lines:
         for tag, key in tag_map.items():
@@ -147,7 +147,7 @@ def _collect_disks():
                 "free_gib": round(u.free / (1024**3), 1), "percent": u.percent,
             })
             seen_mounts.add(mnt)
-        except Exception:
+        except OSError:
             pass
     return disks
 
@@ -165,7 +165,7 @@ def _collect_gpu_processes():
             parts = [p.strip() for p in line.split(", ", 2)]
             if len(parts) >= 3:
                 gpu_processes.append({"pid": parts[0], "name": parts[1], "vram_mb": parts[2]})
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError):
         pass
     return gpu_processes
 
@@ -181,7 +181,7 @@ def _collect_top_procs():
                 "mem_pct": round(p.info['memory_percent'] or 0, 2),
                 "cpu_pct": round(p.info['cpu_percent'] or 0, 1),
             })
-        except Exception:
+        except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
             pass
     return top_procs
 
@@ -236,7 +236,7 @@ def _get_prompts():
         if mod_name in sys.modules:
             try:
                 importlib.reload(sys.modules[mod_name])
-            except Exception:
+            except (ImportError, RuntimeError):
                 pass
     try:
         vd = importlib.import_module("vision_describe")
@@ -244,7 +244,7 @@ def _get_prompts():
         prompts.append({"k": "VLM SYSTEM_PROMPT", "v": vlm_prompt, "d": "Системный промт описания фото (без имён)", "env_key": "prompt_vlm_system", "editable": True, "default": vd.SYSTEM_PROMPT.strip()})
         vlm_prompt_names = db.get_setting("prompt_vlm_system_names") or vd.SYSTEM_PROMPT_WITH_NAMES.strip()
         prompts.append({"k": "VLM SYSTEM_PROMPT (с именами)", "v": vlm_prompt_names, "d": "Промт когда есть распознанные лица", "env_key": "prompt_vlm_system_names", "editable": True, "default": vd.SYSTEM_PROMPT_WITH_NAMES.strip()})
-    except Exception as e:
+    except (ImportError, AttributeError, RuntimeError) as e:
         prompts.append({"k": "VLM SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт описания фото"})
     try:
         ed = importlib.import_module("enrich_description")
@@ -262,7 +262,7 @@ def _get_prompts():
                 tool_val = db.get_setting(env_key) or f"{desc} | Параметры: {param_str}"
                 tool_default = f"{desc} | Параметры: {param_str}"
                 prompts.append({"k": f"Enrich tool: {name}", "v": tool_val, "d": "Инструмент обогащения", "env_key": env_key, "editable": True, "default": tool_default})
-    except Exception as e:
+    except (ImportError, AttributeError, RuntimeError) as e:
         prompts.append({"k": "Enrich SYSTEM_PROMPT", "v": f"Ошибка загрузки: {e}", "d": "Системный промт обогащения описания"})
     return prompts
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pathlib import Path
 import logging
+import json
 import re
 import subprocess
 from config import PHOTO_SHARE_PATH, VIDEO_EXTS
@@ -53,7 +54,6 @@ def _probe_video_codecs(input_path):
              "-print_format", "json", str(input_path)],
             capture_output=True, timeout=10
         )
-        import json
         info = json.loads(result.stdout)
         video_codec = None
         audio_codec = None
@@ -65,7 +65,7 @@ def _probe_video_codecs(input_path):
             elif s.get("codec_type") == "audio" and not audio_codec:
                 audio_codec = s.get("codec_name")
         return video_codec, audio_codec, pix_fmt
-    except Exception:
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError):
         return None, None, None
 
 
@@ -126,11 +126,11 @@ def _stream_ffmpeg(process):
     finally:
         try:
             process.kill()
-        except Exception:
+        except OSError:
             pass
         try:
             process.wait(timeout=3)
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             pass
 
 
@@ -250,7 +250,7 @@ async def video_meta(path: str = ""):
             capture_output=True, timeout=10
         )
         info = _json.loads(result.stdout)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError) as e:
         logger.error(f"ffprobe failed for {photo_path}: {e}")
         raise HTTPException(status_code=500, detail="Failed to probe video")
 

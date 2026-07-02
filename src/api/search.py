@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 import logging
+import sqlite3
 import threading
 import time
 import config
@@ -18,7 +19,7 @@ def _get_mqtt_api():
     try:
         from main import _get_api_mqtt
         return _get_api_mqtt()
-    except Exception:
+    except (ImportError, AttributeError, ConnectionError, OSError):
         return None
 
 
@@ -87,7 +88,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     try:
         q_emb = _embed_query(query_text)
         logger.info(f"[SEMSEARCH] Got embedding size={len(q_emb)}")
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"[SEMSEARCH] Error getting embedding: {e}")
         _unload_embed_engine()
         return {"total": 0, "photos": [], "query": q, "error": str(e)}
@@ -111,12 +112,12 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
                 db._open_vector_tables()
                 logger.info("[SEMSEARCH] Reopened LanceDB tables after FD exhaustion, retrying search")
                 results = db.search_photo_embeddings(q_emb, limit=limit * 2)
-            except Exception as e2:
+            except (RuntimeError, OSError, sqlite3.Error) as e2:
                 logger.error(f"[SEMSEARCH] Retry after reopen also failed: {e2}")
                 return {"total": 0, "photos": [], "query": q, "error": "LanceDB unavailable (too many open files), please try again"}
         else:
             return {"total": 0, "photos": [], "query": q, "error": f"LanceDB error: {err_msg[:200]}"}
-    except Exception as e:
+    except (RuntimeError, OSError, sqlite3.Error) as e:
         logger.error(f"[SEMSEARCH] LanceDB error: {e}")
         return {"total": 0, "photos": [], "query": q, "error": str(e)[:200]}
     logger.info(f"[SEMSEARCH] LanceDB returned {len(results)} raw results")

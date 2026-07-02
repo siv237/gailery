@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -72,7 +73,7 @@ def set_flag():
 def clear_flag():
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -352,7 +353,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("embed")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
     try:
         return _main(db, args, mq)
@@ -457,12 +458,12 @@ def _finalize_lance_index(db):
             metric="cosine",
         )
         log("Vector index created on photo_embeddings")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         log(f"Index creation note: {e}")
     try:
         db.compact_photo_embeddings()
         log("Compacted photo_embeddings LanceDB fragments")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         log(f"Compact note: {e}")
 
 
@@ -544,7 +545,7 @@ def _main(db, args, mq=None):
                         input_extra={"search_text": search_text, "meta_hash": meta_hash},
                         success=1,
                     )
-                except Exception:
+                except (sqlite3.Error, KeyError):
                     pass
                 if len(batch_texts) >= chunk_size:
                     lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
@@ -585,7 +586,7 @@ def _main(db, args, mq=None):
         elapsed = time.time() - t0
         log(f"Embedding done: {embedded} встроено, {skipped} пропущено за {_fmt_dur(elapsed)} ({embedded/max(elapsed,1):.0f}/с)")
         _finalize_lance_index(db)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError, sqlite3.Error) as e:
         log(f"FATAL: {e}")
         import traceback
         traceback.print_exc()

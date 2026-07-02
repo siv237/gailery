@@ -40,7 +40,7 @@ def is_flir_file(file_path: str | Path) -> bool:
             if marker == 0xE1 and data[:4] == b'Exif':
                 return b'FLIR' in data
             pos += 2 + length
-    except Exception:
+    except (OSError, struct.error):
         pass
     return False
 
@@ -53,7 +53,7 @@ def _exiftool_extract(file_path: Path, tag: str) -> Optional[bytes]:
         )
         if result.returncode == 0 and len(result.stdout) > 100:
             return result.stdout
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         logger.warning(f"exiftool {tag} failed: {e}")
     return None
 
@@ -66,7 +66,7 @@ def _exiftool_text(file_path: Path, tag: str) -> Optional[str]:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
     return None
 
@@ -225,6 +225,6 @@ def create_overlay(visual_jpeg: bytes, thermal_path: str | Path,
 
         buf = result.jpegsave_buffer(Q=85)
         return buf
-    except Exception as e:
+    except (pyvips.Error, OSError, ValueError) as e:
         logger.error(f"Failed to create overlay: {e}")
         return None

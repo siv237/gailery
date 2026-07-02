@@ -95,5 +95,5 @@ def log_ai_call(
         ))
         conn.commit()
         conn.close()
-    except Exception:
+    except (sqlite3.Error, TypeError, ValueError):
         pass

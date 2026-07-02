@@ -13,6 +13,7 @@ Usage:
 import argparse
 import json
 import os
+import sqlite3
 import sys
 import subprocess
 import time
@@ -65,7 +66,7 @@ def set_flag():
 def clear_flag():
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -138,7 +139,7 @@ def _close_db():
     if _db is not None:
         try:
             _db.sqlite.close()
-        except Exception:
+        except sqlite3.Error:
             pass
         _db = None
 
@@ -157,7 +158,7 @@ def run_step(name, cmd):
         else:
             log(f"  FAILED: {name} rc={result.returncode} ({elapsed:.0f}s)")
         return result.returncode
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         log(f"  ERROR: {name}: {e}")
         return 1
 
@@ -176,7 +177,7 @@ def kill_orphan_llama_servers():
                     log(f"Killed orphan llama-server pid={pid}")
             except (ProcessLookupError, FileNotFoundError, ValueError, PermissionError):
                 pass
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
 
 
@@ -222,7 +223,7 @@ def _cmd_control_reset(db, params):
     if step == "faces":
         try:
             db.face_vectors.delete("face_id != ''")
-        except Exception:
+        except (RuntimeError, OSError, ValueError):
             pass
     return {"ok": True, "step": step, "affected": affected}
 
@@ -439,10 +440,10 @@ def _execute_db_cmd(cmd, params):
 
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
-    except Exception as e:
+    except (sqlite3.Error, OSError, ValueError, KeyError, TypeError, RuntimeError) as e:
         try:
             db.sqlite.rollback()
-        except Exception:
+        except sqlite3.Error:
             pass
         log(f"DB_CMD error: {cmd}: {e}")
         return {"ok": False, "error": str(e)}
@@ -456,7 +457,7 @@ _wake_flag = False
 def _on_db_cmd(payload, msg):
     try:
         data = json.loads(payload)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         return
     with _db_cmd_lock:
         _db_cmd_queue.append(data)
@@ -491,7 +492,7 @@ def _collect_metrics():
         db = get_db()
         data = collect_metrics()
         db.insert_system_metric(data)
-    except Exception as e:
+    except (ImportError, sqlite3.Error, OSError, RuntimeError, ValueError) as e:
         log(f"METRICS error: {e}")
 
 
@@ -536,7 +537,7 @@ def _idle_wait(mq, db, flag_dir, last_metrics, now):
         time.sleep(5)
     try:
         _idle_flag.unlink()
-    except Exception:
+    except OSError:
         pass
     return True, last_metrics
 
@@ -623,7 +624,7 @@ def _run_embedding_dedup(db, mq):
             log(f"DEDUP: removed {removed} duplicate embeddings ({before} → {after}) in {elapsed:.1f}s")
         else:
             log(f"DEDUP: no duplicates ({before} rows), optimized in {elapsed:.1f}s")
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         log(f"DEDUP: error: {e}")
 
 
@@ -638,7 +639,7 @@ def main():
         from mqtt_client import create_worker_mqtt, DB_CMD_TOPIC
         _mq = create_worker_mqtt("pipeline")
         _mq.subscribe(DB_CMD_TOPIC, _on_db_cmd)
-    except Exception:
+    except (ImportError, ConnectionError):
         _mq = None
 
     log("=" * 60)

@@ -53,7 +53,7 @@ def _try_gpu():
         del t
         torch.cuda.empty_cache()
         return torch.device('cuda:0')
-    except Exception:
+    except (ImportError, RuntimeError):
         return None
 
 
@@ -235,7 +235,7 @@ def _batch_commit(db, faces_to_update, photos_to_reset):
         id_list = ", ".join(f"'{pid}'" for pid in photo_list)
         try:
             db.photo_embeddings.delete(f"photo_id IN ({id_list})")
-        except Exception as e:
+        except (ValueError, OSError, RuntimeError) as e:
             _log(f"LanceDB batch delete warning: {e}")
 
         db.sqlite.executemany(
@@ -247,7 +247,7 @@ def _batch_commit(db, faces_to_update, photos_to_reset):
 
     try:
         db.compact_photo_embeddings()
-    except Exception as e:
+    except (ValueError, OSError, RuntimeError) as e:
         _log(f"LanceDB compact warning: {e}")
 
 
@@ -322,7 +322,7 @@ def _run_dbscan(embeddings, eps, min_samples, device):
                 try:
                     import torch
                     torch.cuda.empty_cache()
-                except Exception:
+                except (ImportError, RuntimeError):
                     pass
                 device = None
             else:

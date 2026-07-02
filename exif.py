@@ -183,7 +183,7 @@ def set_flag():
 def clear_flag():
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -206,7 +206,7 @@ def read_exif_one(photo_path):
         tags = exifread.process_file(io.BytesIO(header), details=False, strict=False)
         if not tags:
             return None
-    except Exception:
+    except (KeyError, IOError, ValueError):
         return None
 
     result = {"date": None, "gps": None, "camera": None, "exif_raw": {}}
@@ -290,7 +290,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("exif")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
     try:
         return _main(db, args, mq)
@@ -366,7 +366,7 @@ def _main(db, args, mq=None):
                         if path and Path(path).exists():
                             try:
                                 mtime = os.stat(path).st_mtime
-                            except Exception:
+                            except OSError:
                                 pass
                         resolved, conflict = resolve_date(v_date or None, path, mtime)
                         if resolved:
@@ -392,7 +392,7 @@ def _main(db, args, mq=None):
                 if path and Path(path).exists():
                     try:
                         mtime = os.stat(path).st_mtime
-                    except Exception:
+                    except OSError:
                         pass
                 resolved, conflict = resolve_date(exif_date, path, mtime)
                 if resolved:

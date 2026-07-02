@@ -61,12 +61,12 @@ def reset_photo(db, content_hash):
     try:
         db.delete_photo_embedding(content_hash)
         log("  Deleted photo embedding from LanceDB")
-    except Exception as e:
+    except (ValueError, OSError, RuntimeError) as e:
         log(f"  LanceDB delete warning: {e}")
 
     try:
         db.face_vectors.delete(f"content_hash = '{content_hash}'")
-    except Exception:
+    except (ValueError, OSError, RuntimeError):
         pass
 
     db.sqlite.commit()

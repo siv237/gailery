@@ -1,6 +1,7 @@
 """Configuration for Gailery Photo Gallery"""
 
 import os
+import sqlite3
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -17,7 +18,7 @@ def _apply_models_dir_override():
         override = db.get_setting("models_dir")
         if override and Path(override).is_dir():
             MODELS_DIR = Path(override)
-    except Exception:
+    except (ImportError, sqlite3.Error, OSError):
         pass
 
 _apply_models_dir_override()
@@ -104,7 +105,7 @@ def _apply_ollama_overrides():
                     globals()[var] = int(val)
                 else:
                     globals()[var] = val
-    except Exception:
+    except (ImportError, sqlite3.Error, OSError):
         pass
 
 _apply_ollama_overrides()

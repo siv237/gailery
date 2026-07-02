@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -151,7 +152,7 @@ def get_system_prompt():
         custom = get_db().get_setting("prompt_enrich_system")
         if custom:
             return custom
-    except Exception:
+    except (ImportError, sqlite3.Error, KeyError):
         pass
     return _DEFAULT_SYSTEM_PROMPT
 
@@ -377,7 +378,7 @@ def start_server():
             if json.loads(resp.read())["status"] == "ok":
                 log(f"llama-server ready ({i+1}s)")
                 return proc
-        except Exception:
+        except (json.JSONDecodeError, KeyError, urllib.error.URLError):
             time.sleep(1)
 
     log("llama-server FAILED to start")
@@ -398,7 +399,7 @@ def kill_orphan_servers():
                         os.kill(pid, 9)
                 except (ProcessLookupError, FileNotFoundError):
                     pass
-    except Exception:
+    except (OSError, ProcessLookupError):
         pass
 
 
@@ -474,7 +475,7 @@ def llm_request(server, messages, use_tools=True, log_meta=None):
                 elapsed_sec=round(result.get("timings", {}).get("predicted_ms", 0) / 1000, 2) if result.get("timings") else None,
                 success=1,
             )
-        except Exception:
+        except (sqlite3.Error, KeyError):
             pass
 
     return choice["message"]
@@ -650,7 +651,7 @@ def run_llm(db, photo_data):
         log("Max rounds reached without answer")
         return None
 
-    except Exception as e:
+    except (urllib.error.URLError, json.JSONDecodeError, RuntimeError, OSError) as e:
         log(f"LLM error: {e}")
         import traceback
         traceback.print_exc()
@@ -689,7 +690,7 @@ def enrich_photo(db, photo_path):
                 error="run_llm returned None",
                 success=0,
             )
-        except Exception:
+        except (sqlite3.Error, KeyError):
             pass
         return None
 
@@ -713,7 +714,7 @@ def enrich_photo(db, photo_path):
             parsed_result={"rich_description": rich},
             success=1,
         )
-    except Exception:
+    except (sqlite3.Error, KeyError):
         pass
 
     return rich
@@ -732,7 +733,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("enrich")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
 
     if args.photo:

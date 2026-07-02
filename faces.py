@@ -14,6 +14,7 @@ import os
 import sys
 import time
 import hashlib
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def clear_flag():
     import os
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -106,7 +107,7 @@ def _check_existing_faces(db, photo_id, path):
     if existing:
         try:
             db.update_catalog_file_by_path(path, faces_done=1)
-        except Exception:
+        except sqlite3.Error:
             pass
         log(f"  skip {os.path.basename(path)} (faces already exist)")
         return True
@@ -143,7 +144,7 @@ def _handle_detection_error(db, e, photo, content_hash, rel_path, ext):
             db.sqlite.execute("UPDATE catalog_files SET deleted = 1, deleted_type = 'auto_corrupted' WHERE abs_path = ? AND deleted = 0", (rel_path,))
             db.sqlite.commit()
             log(f"  marked as deleted (corrupted file)")
-    except Exception:
+    except (sqlite3.Error, OSError):
         pass
 
 
@@ -191,18 +192,18 @@ def _update_photo_flags(db, photo, saved_count, content_hash, rel_path, faces_co
                 db.sqlite.execute("UPDATE photos SET embedded = 0, faces_present = 1 WHERE photo_id = ?", (photo["photo_id"],))
                 db.sqlite.commit()
                 dt_sql_upd = time.time() - t_upd
-        except Exception:
+        except sqlite3.Error:
             pass
     elif faces_count == 0:
         try:
             photo = db.get_photo_by_path(rel_path)
             if photo:
                 db.update_photo(photo["photo_id"], faces_present=0)
-        except Exception:
+        except (sqlite3.Error, KeyError):
             pass
     try:
         db.update_catalog_file_by_path(rel_path, faces_done=1)
-    except Exception:
+    except sqlite3.Error:
         pass
     time.time() - t_cleanup
     return dt_sql_upd
@@ -216,17 +217,17 @@ def _optimize_lancedb(db):
         from datetime import timedelta as _td
         try:
             _tbl.optimize(cleanup_older_than=_td(seconds=0))
-        except Exception:
+        except RuntimeError:
             try:
                 _tbl.compact_files()
                 _tbl.cleanup_old_versions()
-            except Exception:
+            except (RuntimeError, OSError):
                 pass
         import os as _os
         _data_dir = str(Path(__file__).parent / "data" / "lancedb" / "face_vectors.lance" / "data")
         _nfrags = len([f for f in _os.listdir(_data_dir) if f.endswith('.lance')])
         log(f"LanceDB optimized: {_tbl.count_rows()} rows, {_nfrags} fragments")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         log(f"LanceDB optimize warning: {e}")
 
 
@@ -252,7 +253,7 @@ def run_detection(photos):
 
         try:
             faces, img, dt_read, dt_det = _load_and_detect(app, path)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             ext = os.path.splitext(path)[1].lower()
             _handle_detection_error(db, e, p, content_hash, path, ext)
             continue
@@ -286,9 +287,8 @@ def run_detection(photos):
                 elapsed_sec=round(dt_det, 3),
                 success=1,
             )
-        except Exception:
+        except (sqlite3.Error, KeyError):
             pass
-
     elapsed = time.time() - t0
     log(f"Detection done: {processed} photos, {total_saved} faces in {elapsed:.0f}s")
 
@@ -318,7 +318,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("faces")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
     try:
         return _main(db, args, mq)
@@ -380,7 +380,7 @@ def _try_gpu_for_clustering():
             log(f"GPU free VRAM too low for clustering: {free_mem/1e9:.1f}GB")
             return False
         return True
-    except Exception:
+    except (RuntimeError, OSError):
         return False
 
 

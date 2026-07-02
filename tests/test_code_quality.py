@@ -408,7 +408,7 @@ def test_no_bare_except():
 
 # Текущий baseline (зафиксирован 2026-07-02). НЕ повышать без явного коммита.
 # baseline = фактическое состояние на момент фиксации (манифест §3.3).
-BLE001_BASELINE = 238     # blind except Exception без re-raise
+BLE001_BASELINE = 0         # blind except — очищено (этап 3)
 F401_BASELINE = 0         # unused imports — очищено (этап 1)
 F841_BASELINE = 0         # unused local variables — очищено (этап 1)
 C901_OVER15_BASELINE = 21 # функции с cyclomatic complexity > 15

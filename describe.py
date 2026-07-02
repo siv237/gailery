@@ -17,6 +17,7 @@ import time
 import base64
 import json
 import re
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -79,7 +80,7 @@ def get_system_prompt():
         custom = get_db().get_setting("prompt_vlm_system")
         if custom:
             return custom
-    except Exception:
+    except (ImportError, sqlite3.Error, KeyError):
         pass
     return _DEFAULT_SYSTEM_PROMPT
 
@@ -94,7 +95,7 @@ def clear_flag():
     import os
     try:
         os.remove(FLAG_FILE)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -143,7 +144,7 @@ def _get_face_context(content_hash, img_width, db):
             "WHERE f.content_hash = ?",
             (content_hash,)
         ).fetchall()
-    except Exception:
+    except sqlite3.Error:
         return ""
     if not rows:
         return ""
@@ -193,7 +194,7 @@ def _get_photo_context(photo_path, db):
                 parts.append(f"Дата съёмки: {date_str}.")
             if row[2]:
                 parts.append(f"Папка: {row[2]}.")
-    except Exception:
+    except (sqlite3.Error, IndexError, TypeError):
         pass
     return " ".join(parts)
 
@@ -290,7 +291,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("describe")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
 
     try:
@@ -361,7 +362,7 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
             f"{url}/api/generate", data=body,
             headers={"Content-Type": "application/json"}), timeout=30)  # nosec B310 — urllib loading from known model URLs
         log("Model preloaded")
-    except Exception as e:
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         log(f"Preload failed (will load on first request): {e}")
 
     # Filter valid paths and prepare images FIRST (like vision_describe.py describe_batch)
@@ -387,7 +388,7 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
             pc = _get_photo_context(p, db)
             ctx = " ".join(filter(None, [fc, pc]))
             prepared.append((pid, p, img_b64, ctx))
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             log(f"  SKIP (image error): {Path(p).name}: {e}")
 
     total = len(prepared)
@@ -413,7 +414,7 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
                     _save_description(db, photo_id, path, desc, has_faces)
                     described += 1
                     log(f"  [{described}/{total}] {Path(path).name}")
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     log(f"  ERROR: {Path(path).name}: {e}")
                     failed += 1
 
@@ -437,11 +438,10 @@ def _main_ollama(db, limit, dir_filter, mq, t0, batch_size=6):
             f"{url}/api/generate", data=body,
             headers={"Content-Type": "application/json"}), timeout=10)  # nosec B310 — urllib loading from known model URLs
         log("Ollama model unloaded, VRAM freed")
-    except Exception:
+    except (urllib.error.URLError, OSError):
         pass
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

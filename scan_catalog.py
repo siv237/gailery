@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import os
+import sqlite3
 import sys
 import time
 import uuid
@@ -145,7 +146,7 @@ def scan_root(db, root_id, mq=None):
     if scanned_at_str:
         try:
             scanned_at_ts = datetime.fromisoformat(scanned_at_str).timestamp()
-        except Exception:
+        except (ValueError, TypeError):
             pass
 
     if not Path(root_path).exists():
@@ -204,7 +205,7 @@ def scan_root(db, root_id, mq=None):
                     log(progress_msg)
                     if mq:
                         try: mq.publish_progress(scanned, 0, {"new": len(new_files), "changed": changed_count, "restored": restored_count, "elapsed": round(elapsed, 1)})
-                        except Exception: pass
+                        except (ConnectionError, OSError): pass
 
                 try:
                     stat = os.stat(abs_path)
@@ -231,7 +232,7 @@ def scan_root(db, root_id, mq=None):
                     new_files = []
 
         scan_complete = True
-    except Exception as e:
+    except (OSError, sqlite3.Error, RuntimeError, ValueError) as e:
         log(f"Scan ABORTED: {e}")
         scan_complete = False
 
@@ -278,7 +279,7 @@ def hash_batch(db, limit=500, mq=None):
         try:
             h = compute_file_hash(abs_path)
             batch.append((h, f["file_id"]))
-        except Exception:
+        except (OSError, ImportError):
             pass
         done += 1
         if len(batch) >= 200:
@@ -289,7 +290,7 @@ def hash_batch(db, limit=500, mq=None):
             log(f"  Hashed {done}/{len(files)} ({elapsed:.1f}s, {done/max(elapsed,1):.0f}/s)")
             if mq:
                 try: mq.publish_progress(done, len(files), {"speed": f"{done/max(elapsed,1):.0f}/s"})
-                except Exception: pass
+                except (ConnectionError, OSError): pass
 
     if batch:
         db.sqlite.executemany("UPDATE catalog_files SET content_hash = ? WHERE file_id = ?", batch)
@@ -462,7 +463,7 @@ def main():
     try:
         from mqtt_client import create_worker_mqtt
         mq = create_worker_mqtt("scan_catalog")
-    except Exception:
+    except (ImportError, ConnectionError):
         mq = None
 
     if args.add:

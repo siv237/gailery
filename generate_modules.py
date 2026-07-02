@@ -46,7 +46,7 @@ def _analyze_module(path):
             source = f.read()
         info["lines"] = source.count("\n") + 1
         tree = ast.parse(source)
-    except Exception:
+    except (OSError, SyntaxError):
         return info
 
     for node in ast.walk(tree):

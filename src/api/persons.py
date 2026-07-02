@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 import logging
+import sqlite3
 
 from database import get_db
 from pydantic import BaseModel
@@ -20,7 +21,7 @@ def _db_write(cmd, params=None, timeout=5):
             result = mq.db_write(cmd, params, timeout=timeout)
             if result.get("ok") or "timeout" not in result.get("error", "").lower():
                 return result
-    except Exception:
+    except (ImportError, sqlite3.Error, ConnectionError, TimeoutError):
         pass
     return _db_write_direct(cmd, params)
 
@@ -63,7 +64,7 @@ def _db_write_direct(cmd, params):
             return {"ok": True}
         else:
             return {"ok": False, "error": f"unknown db command: {cmd}"}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -121,7 +122,7 @@ async def get_all_persons(limit: int = 500, offset: int = 0, named_only: bool = 
                 "face_id": r[5],
             })
         return {"total": total, "persons": result}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get persons: {e}")
         raise HTTPException(status_code=500, detail="Failed to get persons")
 
@@ -131,7 +132,7 @@ async def get_display_names():
     try:
         db = get_db()
         return db.get_display_names()
-    except Exception as e:
+    except (sqlite3.Error, KeyError) as e:
         logger.error(f"Failed to get names: {e}")
         raise HTTPException(status_code=500, detail="Failed to get names")
 
@@ -153,7 +154,7 @@ async def get_persons_by_name(display_name: str):
                 "face_id": p.get("face_id"),
             })
         return result
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get persons by name: {e}")
         raise HTTPException(status_code=500, detail="Failed to get persons")
 
@@ -169,7 +170,7 @@ async def get_person(persona_id: str):
         return _persona_response(persona, fc_map)
     except HTTPException:
         raise
-    except Exception as e:
+    except (sqlite3.Error, KeyError) as e:
         logger.error(f"Failed to get person {persona_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get person")
 
@@ -263,7 +264,7 @@ async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: b
                 "confidence": face["confidence"]
             })
         return result
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get faces for persona {persona_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get faces")
 
@@ -316,7 +317,7 @@ async def update_persons_by_name(old_name: str, req: PersonaUpdateRequest):
                     "face_count": r.get("face_count", 0),
                 })
         return {"updated": len(results), "personas": results}
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to batch update: {e}")
         raise HTTPException(status_code=500, detail="Failed to batch update")
 
@@ -362,6 +363,6 @@ async def search_similar_faces(request: FaceSearchRequest):
                 "confidence": face.get("confidence") if face else None,
             })
         return formatted_results
-    except Exception as e:
+    except (sqlite3.Error, KeyError, ValueError, RuntimeError) as e:
         logger.error(f"Failed to search similar faces: {e}")
         raise HTTPException(status_code=500, detail="Failed to search similar faces")

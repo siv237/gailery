@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import sqlite3
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from config import MODELS_DIR
@@ -140,7 +141,7 @@ def _get_hf_token():
         from database import get_db
         db = get_db()
         return db.get_setting("hf_token") or ""
-    except Exception:
+    except (sqlite3.Error, KeyError):
         return ""
 
 
@@ -257,11 +258,11 @@ async def set_models_dir(request: Request):
         else:
             from database import get_db
             get_db().set_setting("models_dir", str(p))
-    except Exception:
+    except (ImportError, sqlite3.Error, ConnectionError, TimeoutError):
         from database import get_db
         try:
             get_db().set_setting("models_dir", str(p))
-        except Exception:
+        except (sqlite3.Error, KeyError):
             pass
     import config
     config.MODELS_DIR = p

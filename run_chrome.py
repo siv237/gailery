@@ -34,7 +34,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
 # ─── Config ────────────────────────────────────────────────────────────
 GALLERY_URL = "http://localhost:8000/gallery"
@@ -141,12 +141,12 @@ def _dispatch(cmd, args):
         if cmd == "status":
             try:
                 title = page.title()
-            except Exception:
+            except PlaywrightError:
                 title = ""
             return {"ready": True, "url": page.url, "viewport": VIEWPORT, "title": title}
 
         return {"error": f"Unknown cmd: {cmd}"}
-    except Exception as e:
+    except (PlaywrightError, ValueError, TypeError, KeyError, json.JSONDecodeError, OSError) as e:
         return {"error": str(e)}
 
 
@@ -181,7 +181,7 @@ def browser_loop():
                     t0 = time.time()
                 ms = (time.time() - t0) * 1000
                 _net_event(req.method, req.url, st, ms)
-            except Exception:
+            except (PlaywrightError, AttributeError):
                 pass
 
         def _on_request(req):

@@ -113,7 +113,7 @@ class GailrayMQTT:
         if topic in self._sub_handlers:
             try:
                 payload = msg.payload.decode("utf-8")
-            except Exception:
+            except (UnicodeDecodeError, AttributeError):
                 payload = msg.payload
             self._sub_handlers[topic](payload, msg)
 
@@ -142,7 +142,7 @@ class GailrayMQTT:
             payload = str(payload)
         try:
             self.client.publish(topic, payload, qos=qos, retain=retain)
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.error(f"MQTT publish error: {e}")
 
     def subscribe(self, topic, handler, qos=1):
@@ -181,7 +181,7 @@ class WorkerMQTT(GailrayMQTT):
     def _handle_stop(self, payload, msg):
         try:
             data = json.loads(payload) if payload.startswith("{") else {}
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             data = {}
         step = data.get("step", "")
         if step == "all" or step == self.worker_name:
@@ -230,7 +230,7 @@ class WorkerMQTT(GailrayMQTT):
         lock_topic = gpu_lock_topic()
         try:
             pass
-        except Exception:
+        except (RuntimeError, OSError):
             pass
         result = {"_empty": True}
 
@@ -250,7 +250,7 @@ class WorkerMQTT(GailrayMQTT):
             try:
                 result = json.loads(temp.payload)
                 result["_empty"] = False
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 pass
         return result
 
@@ -315,7 +315,7 @@ class WorkerMQTT(GailrayMQTT):
                 worker_status_topic(self.worker_name),
                 payload="", qos=1, retain=True,
             )
-        except Exception:
+        except (RuntimeError, OSError):
             pass
         self.disconnect()
 
@@ -355,12 +355,12 @@ class ApiMQTT(GailrayMQTT):
             if field == "progress":
                 try:
                     self._worker_states[name][field] = json.loads(payload)
-                except Exception:
+                except (json.JSONDecodeError, ValueError):
                     self._worker_states[name][field] = None
             elif field == "pid":
                 try:
                     self._worker_states[name][field] = int(payload)
-                except Exception:
+                except (ValueError, TypeError):
                     self._worker_states[name][field] = None
             elif field == "gpu_held":
                 self._worker_states[name][field] = payload.lower() == "true"
@@ -492,7 +492,7 @@ class ApiMQTT(GailrayMQTT):
         def _on_result(payload, msg):
             try:
                 result_box["data"] = json.loads(payload)
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 result_box["data"] = {"ok": False, "error": f"bad json: {payload[:200]}"}
             done_event.set()
 
@@ -506,7 +506,7 @@ class ApiMQTT(GailrayMQTT):
         got = done_event.wait(timeout=timeout)
         try:
             self.client.unsubscribe(result_topic)
-        except Exception:
+        except (RuntimeError, OSError):
             pass
 
         if not got:
