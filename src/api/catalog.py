@@ -175,10 +175,126 @@ async def catalog_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _scan_filesystem_for_tree(root_path, path, offset, limit):
+    import os
+    from pathlib import Path
+    scan_base = os.path.join(root_path, path) if path else root_path
+    if not os.path.isdir(scan_base):
+        return None
+    subdirs_list = []
+    direct_files = []
+    try:
+        for entry in sorted(os.scandir(scan_base), key=lambda e: e.name.lower()):
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                sub_files = [f for f in os.scandir(entry.path) if not f.name.startswith(".")]
+                photo_count = sum(1 for f in sub_files if Path(f.name).suffix.lower() in SUPPORTED_EXTS)
+                subdirs_list.append({
+                    "name": entry.name,
+                    "total": photo_count,
+                    "ingested": 0, "described": 0, "exif_done": 0,
+                    "faces_done": 0, "embedded": 0, "pct_done": 0,
+                })
+            elif entry.is_file() and Path(entry.name).suffix.lower() in SUPPORTED_EXTS:
+                try:
+                    sz = entry.stat().st_size
+                except OSError:
+                    sz = 0
+                direct_files.append({
+                    "file_id": "",
+                    "rel_path": os.path.relpath(entry.path, root_path) if root_path else entry.name,
+                    "abs_path": entry.path,
+                    "ext": Path(entry.name).suffix.lower(),
+                    "file_size": sz,
+                    "ingested": False, "described": False, "exif_done": False,
+                    "faces_done": False, "embedded": False, "description": None,
+                })
+    except PermissionError:
+        pass
+    return {
+        "path": path,
+        "subdirs": subdirs_list,
+        "total_files": len(direct_files),
+        "files": direct_files[offset:offset + limit],
+        "scanned": False,
+    }
+
+
+def _build_subdirs_from_db(filtered, path):
+    subdirs = {}
+    direct_files = []
+    for f in filtered:
+        pd = f.get("parent_dir", "")
+        if pd == path:
+            direct_files.append(f)
+        else:
+            rel = pd[len(path):].lstrip("/") if path else pd
+            first = rel.split("/")[0]
+            if first:
+                if first not in subdirs:
+                    subdirs[first] = {"total": 0, "ingested": 0, "described": 0, "exif_done": 0, "faces_done": 0, "embedded": 0}
+                subdirs[first]["total"] += 1
+                if f.get("ingested"):
+                    subdirs[first]["ingested"] += 1
+                if f.get("described"):
+                    subdirs[first]["described"] += 1
+                if f.get("exif_done"):
+                    subdirs[first]["exif_done"] += 1
+                if f.get("faces_done"):
+                    subdirs[first]["faces_done"] += 1
+                if f.get("embedded"):
+                    subdirs[first]["embedded"] += 1
+    return subdirs, direct_files
+
+
+def _format_tree_files(db, page):
+    result_files = []
+    sq_cur = db.sqlite.cursor()
+    for f in page:
+        rel = f.get("rel_path", "")
+        desc_row = sq_cur.execute(
+            "SELECT description FROM photos WHERE path = ?",
+            (str(PHOTO_SHARE_PATH) + "/" + rel,) if rel else ("",)
+        ).fetchone()
+        description = desc_row[0] if desc_row else None
+        result_files.append({
+            "file_id": f["file_id"],
+            "rel_path": f["rel_path"],
+            "abs_path": f.get("abs_path", ""),
+            "ext": f.get("ext", ""),
+            "file_size": f.get("size", 0),
+            "ingested": bool(f.get("ingested")),
+            "described": bool(f.get("described")),
+            "exif_done": bool(f.get("exif_done")),
+            "faces_done": bool(f.get("faces_done")),
+            "embedded": bool(f.get("embedded")),
+            "description": description,
+        })
+    return result_files
+
+
+def _subdirs_to_list(subdirs):
+    subdirs_list = []
+    for name in sorted(subdirs.keys()):
+        s = subdirs[name]
+        t = s["total"]
+        subdirs_list.append({
+            "name": name,
+            "total": t,
+            "ingested": s["ingested"],
+            "described": s["described"],
+            "exif_done": s["exif_done"],
+            "faces_done": s["faces_done"],
+            "embedded": s["embedded"],
+            "pct_done": round((s["described"] + s["exif_done"] + s["embedded"]) / max(t * 3, 1) * 100),
+        })
+    return subdirs_list
+
+
 @router.get("/tree")
 async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: int = 0):
     import os
-    from pathlib import Path
     try:
         db = get_db()
         root = db.get_catalog_root(root_id) if root_id else None
@@ -197,112 +313,15 @@ async def get_tree(root_id: str = "", path: str = "", limit: int = 200, offset: 
         db_has_data = len(filtered) > 0
 
         if not db_has_data and root_path and os.path.isdir(root_path):
-            scan_base = os.path.join(root_path, path) if path else root_path
-            if os.path.isdir(scan_base):
-                subdirs_list = []
-                direct_files = []
-                try:
-                    for entry in sorted(os.scandir(scan_base), key=lambda e: e.name.lower()):
-                        if entry.name.startswith("."):
-                            continue
-                        if entry.is_dir():
-                            sub_files = [f for f in os.scandir(entry.path) if not f.name.startswith(".")]
-                            photo_count = sum(1 for f in sub_files if Path(f.name).suffix.lower() in SUPPORTED_EXTS)
-                            subdirs_list.append({
-                                "name": entry.name,
-                                "total": photo_count,
-                                "ingested": 0, "described": 0, "exif_done": 0,
-                                "faces_done": 0, "embedded": 0, "pct_done": 0,
-                            })
-                        elif entry.is_file() and Path(entry.name).suffix.lower() in SUPPORTED_EXTS:
-                            try:
-                                sz = entry.stat().st_size
-                            except OSError:
-                                sz = 0
-                            direct_files.append({
-                                "file_id": "",
-                                "rel_path": os.path.relpath(entry.path, root_path) if root_path else entry.name,
-                                "abs_path": entry.path,
-                                "ext": Path(entry.name).suffix.lower(),
-                                "file_size": sz,
-                                "ingested": False, "described": False, "exif_done": False,
-                                "faces_done": False, "embedded": False, "description": None,
-                            })
-                except PermissionError:
-                    pass
+            fs_result = _scan_filesystem_for_tree(root_path, path, offset, limit)
+            if fs_result is not None:
+                return fs_result
 
-                return {
-                    "path": path,
-                    "subdirs": subdirs_list,
-                    "total_files": len(direct_files),
-                    "files": direct_files[offset:offset + limit],
-                    "scanned": False,
-                }
-
-        subdirs = {}
-        direct_files = []
-        for f in filtered:
-            pd = f.get("parent_dir", "")
-            if pd == path:
-                direct_files.append(f)
-            else:
-                rel = pd[len(path):].lstrip("/") if path else pd
-                first = rel.split("/")[0]
-                if first:
-                    if first not in subdirs:
-                        subdirs[first] = {"total": 0, "ingested": 0, "described": 0, "exif_done": 0, "faces_done": 0, "embedded": 0}
-                    subdirs[first]["total"] += 1
-                    if f.get("ingested"):
-                        subdirs[first]["ingested"] += 1
-                    if f.get("described"):
-                        subdirs[first]["described"] += 1
-                    if f.get("exif_done"):
-                        subdirs[first]["exif_done"] += 1
-                    if f.get("faces_done"):
-                        subdirs[first]["faces_done"] += 1
-                    if f.get("embedded"):
-                        subdirs[first]["embedded"] += 1
-
+        subdirs, direct_files = _build_subdirs_from_db(filtered, path)
         total_files = len(direct_files)
         page = direct_files[offset:offset + limit]
-
-        result_files = []
-        sq_cur = db.sqlite.cursor()
-        for f in page:
-            rel = f.get("rel_path", "")
-            desc_row = sq_cur.execute(
-                "SELECT description FROM photos WHERE path = ?",
-                (str(PHOTO_SHARE_PATH) + "/" + rel,) if rel else ("",)
-            ).fetchone()
-            description = desc_row[0] if desc_row else None
-            result_files.append({
-                "file_id": f["file_id"],
-                "rel_path": f["rel_path"],
-                "abs_path": f.get("abs_path", ""),
-                "ext": f.get("ext", ""),
-                "file_size": f.get("size", 0),
-                "ingested": bool(f.get("ingested")),
-                "described": bool(f.get("described")),
-                "exif_done": bool(f.get("exif_done")),
-                "faces_done": bool(f.get("faces_done")),
-                "embedded": bool(f.get("embedded")),
-                "description": description,
-            })
-
-        subdirs_list = []
-        for name in sorted(subdirs.keys()):
-            s = subdirs[name]
-            t = s["total"]
-            subdirs_list.append({
-                "name": name,
-                "total": t,
-                "ingested": s["ingested"],
-                "described": s["described"],
-                "exif_done": s["exif_done"],
-                "faces_done": s["faces_done"],
-                "embedded": s["embedded"],
-                "pct_done": round((s["described"] + s["exif_done"] + s["embedded"]) / max(t * 3, 1) * 100),
-            })
+        result_files = _format_tree_files(db, page)
+        subdirs_list = _subdirs_to_list(subdirs)
 
         return {
             "path": path,

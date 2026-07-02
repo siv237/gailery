@@ -295,66 +295,73 @@ def check_stale_flags():
                     pass
 
 
-def main():
-    logger.info("Сторожевой пёс запущен")
-
+def _setup_watchdog_mqtt():
     try:
-        from mqtt_client import WorkerMQTT, _topic
+        from mqtt_client import WorkerMQTT
         mq = WorkerMQTT("watchdog")
         mq.connect()
         time.sleep(2)
         mq.publish_status("running")
-        _mqtt = True
+        return mq, True
     except (ImportError, ConnectionError):
-        _mqtt = False
-        mq = None
+        return None, False
+
+
+def _publish_watchdog_mode(mq, _mqtt, mode):
+    if not _mqtt:
+        return
+    try:
+        from mqtt_client import _topic
+        mq.publish(_topic("watchdog", "mode"), mode, retain=True)
+    except (RuntimeError, OSError):
+        pass
+
+
+def _run_health_checks():
+    try:
+        check_stale_flags()
+        check_duplicate_pipelines()
+        check_orphan_workers()
+        check_memory_pressure()
+    except (RuntimeError, OSError, ValueError) as e:
+        logger.warning(f"Ошибка в check_*: {e}")
+
+
+def _watchdog_loop_body(mq, _mqtt):
+    if is_no_restart():
+        _publish_watchdog_mode(mq, _mqtt, "sleeping")
+        time.sleep(CHECK_INTERVAL)
+        return
+
+    is_idle = PIPELINE_IDLE_FLAG.exists()
+    mode = "waiting" if is_idle else "active"
+
+    if not is_pipeline_enabled():
+        pass
+    elif not is_pipeline_active() and not is_idle:
+        logger.info("Pipeline не работает! Запускаю...")
+        start_pipeline()
+
+    _publish_watchdog_mode(mq, _mqtt, mode)
+    _run_health_checks()
+
+    if not is_idle:
+        log_incident(f"HEARTBEAT: pipeline={'active' if is_pipeline_active() else 'dead'}, mode={mode}")
+
+    time.sleep(CHECK_INTERVAL)
+
+
+def main():
+    logger.info("Сторожевой пёс запущен")
+
+    mq, _mqtt = _setup_watchdog_mqtt()
 
     if not is_no_restart() and not is_pipeline_active():
         start_pipeline()
 
     try:
         while True:
-            if is_no_restart():
-                mode = "sleeping"
-                if _mqtt:
-                    try:
-                        mq.publish(_topic("watchdog", "mode"), mode, retain=True)
-                    except (RuntimeError, OSError):
-                        pass
-                # no heartbeat log when sleeping - just sleep silently
-                time.sleep(CHECK_INTERVAL)
-                continue
-
-            is_idle = PIPELINE_IDLE_FLAG.exists()
-            if is_idle:
-                mode = "waiting"
-            else:
-                mode = "active"
-
-            if not is_pipeline_enabled():
-                pass
-            elif not is_pipeline_active() and not is_idle:
-                logger.info("Pipeline не работает! Запускаю...")
-                start_pipeline()
-
-            if _mqtt:
-                try:
-                    mq.publish(_topic("watchdog", "mode"), mode, retain=True)
-                except (RuntimeError, OSError):
-                    pass
-
-            try:
-                check_stale_flags()
-                check_duplicate_pipelines()
-                check_orphan_workers()
-                check_memory_pressure()
-            except (RuntimeError, OSError, ValueError) as e:
-                logger.warning(f"Ошибка в check_*: {e}")
-
-            if not is_idle:
-                log_incident(f"HEARTBEAT: pipeline={'active' if is_pipeline_active() else 'dead'}, mode={mode}")
-
-            time.sleep(CHECK_INTERVAL)
+            _watchdog_loop_body(mq, _mqtt)
     except KeyboardInterrupt:
         logger.info("Остановлен по Ctrl+C")
     finally:

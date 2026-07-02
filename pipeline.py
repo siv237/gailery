@@ -228,79 +228,99 @@ def _cmd_control_reset(db, params):
     return {"ok": True, "step": step, "affected": affected}
 
 
+def _resolve_required_photo(db, params):
+    """Resolve photo_id from params. Returns (pid, error_dict). pid is None if not found."""
+    photo_id = params.get("photo_id")
+    if not photo_id:
+        return None, {"ok": False, "error": "photo_id required"}
+    pid = _resolve_photo_id(db, photo_id)
+    if not pid:
+        return None, {"ok": False, "error": "Photo not found"}
+    return pid, None
+
+
+def _cmd_set_gps(db, params):
+    photo_id = params.get("photo_id")
+    lat = params.get("lat")
+    lon = params.get("lon")
+    if not photo_id or lat is None or lon is None:
+        return {"ok": False, "error": "photo_id, lat, lon required"}
+    pid = _resolve_photo_id(db, photo_id)
+    if not pid:
+        return {"ok": False, "error": "Photo not found"}
+    db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), pid))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_clear_gps(db, params):
+    pid, err = _resolve_required_photo(db, params)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (pid,))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_set_date(db, params):
+    photo_id = params.get("photo_id")
+    manual_date = params.get("manual_date")
+    if not photo_id or not manual_date:
+        return {"ok": False, "error": "photo_id, manual_date required"}
+    if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
+        manual_date += " 00:00:00"
+    elif len(manual_date) == 16 and manual_date[10] == ' ':
+        manual_date += ":00"
+    pid = _resolve_photo_id(db, photo_id)
+    if not pid:
+        return {"ok": False, "error": "Photo not found"}
+    db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, pid))
+    db.sqlite.commit()
+    return {"ok": True, "manual_date": manual_date}
+
+
+def _cmd_clear_date(db, params):
+    pid, err = _resolve_required_photo(db, params)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (pid,))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_mark_deleted(db, params):
+    pid, err = _resolve_required_photo(db, params)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid,))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_undelete(db, params):
+    pid, err = _resolve_required_photo(db, params)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (pid,))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+_PHOTO_OPS = {
+    "set_gps": _cmd_set_gps,
+    "clear_gps": _cmd_clear_gps,
+    "set_date": _cmd_set_date,
+    "clear_date": _cmd_clear_date,
+    "mark_deleted": _cmd_mark_deleted,
+    "undelete": _cmd_undelete,
+}
+
+
 def _cmd_photo_ops(db, cmd, params):
-    if cmd == "set_gps":
-        photo_id = params.get("photo_id")
-        lat = params.get("lat")
-        lon = params.get("lon")
-        if not photo_id or lat is None or lon is None:
-            return {"ok": False, "error": "photo_id, lat, lon required"}
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), pid))
-        db.sqlite.commit()
-        return {"ok": True}
-
-    elif cmd == "clear_gps":
-        photo_id = params.get("photo_id")
-        if not photo_id:
-            return {"ok": False, "error": "photo_id required"}
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (pid,))
-        db.sqlite.commit()
-        return {"ok": True}
-
-    elif cmd == "set_date":
-        photo_id = params.get("photo_id")
-        manual_date = params.get("manual_date")
-        if not photo_id or not manual_date:
-            return {"ok": False, "error": "photo_id, manual_date required"}
-        if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
-            manual_date += " 00:00:00"
-        elif len(manual_date) == 16 and manual_date[10] == ' ':
-            manual_date += ":00"
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, pid))
-        db.sqlite.commit()
-        return {"ok": True, "manual_date": manual_date}
-
-    elif cmd == "clear_date":
-        photo_id = params.get("photo_id")
-        if not photo_id:
-            return {"ok": False, "error": "photo_id required"}
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (pid,))
-        db.sqlite.commit()
-        return {"ok": True}
-
-    elif cmd == "mark_deleted":
-        photo_id = params.get("photo_id")
-        if not photo_id:
-            return {"ok": False, "error": "photo_id required"}
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (pid,))
-        db.sqlite.commit()
-        return {"ok": True}
-
-    elif cmd == "undelete":
-        photo_id = params.get("photo_id")
-        if not photo_id:
-            return {"ok": False, "error": "photo_id required"}
-        pid = _resolve_photo_id(db, photo_id)
-        if not pid:
-            return {"ok": False, "error": "Photo not found"}
-        db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (pid,))
-        db.sqlite.commit()
-        return {"ok": True}
+    handler = _PHOTO_OPS.get(cmd)
+    if handler:
+        return handler(db, params)
+    return None
 
 
 def _cmd_persona_ops(db, cmd, params):
@@ -381,65 +401,86 @@ def _cmd_edit_ops(db, cmd, params):
         return {"ok": True}
 
 
-def _cmd_vacuum(db):
+def _cmd_vacuum(db, params):
     before = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
     db.sqlite.execute("VACUUM")
     after = os.path.getsize(str(Path(__file__).parent / "data" / "gallery.db"))
     return {"ok": True, "before": before, "after": after, "freed": before - after}
 
 
+def _cmd_insert_system_metric(db, params):
+    db.insert_system_metric(params)
+    return {"ok": True}
+
+
+def _cmd_set_setting(db, params):
+    db.set_setting(params.get("key", ""), params.get("value", ""))
+    return {"ok": True}
+
+
+def _cmd_update_photo(db, params):
+    photo_id = params.get("photo_id", "")
+    updates = params.get("updates", {})
+    if not photo_id or not updates:
+        return {"ok": False, "error": "photo_id and updates required"}
+    photo = db.get_photo(photo_id)
+    if not photo:
+        photo = db.get_photo_by_path(photo_id)
+    if not photo:
+        return {"ok": False, "error": "Photo not found"}
+    db.update_photo(photo["photo_id"], **updates)
+    return {"ok": True}
+
+
+def _cmd_dedup_embeddings(db, params):
+    before, after, removed = db.dedup_photo_embeddings()
+    return {"ok": True, "before": before, "after": after, "removed": removed}
+
+
+def _cmd_compact_embeddings(db, params):
+    db.compact_photo_embeddings()
+    return {"ok": True}
+
+
+_DB_CMD_HANDLERS = {
+    "insert_system_metric": _cmd_insert_system_metric,
+    "control_reset": _cmd_control_reset,
+    "set_setting": _cmd_set_setting,
+    "update_photo": _cmd_update_photo,
+    "dedup_embeddings": _cmd_dedup_embeddings,
+    "compact_embeddings": _cmd_compact_embeddings,
+    "vacuum": _cmd_vacuum,
+}
+
+_GROUPED_OPS = {
+    "set_gps": _cmd_photo_ops,
+    "clear_gps": _cmd_photo_ops,
+    "set_date": _cmd_photo_ops,
+    "clear_date": _cmd_photo_ops,
+    "mark_deleted": _cmd_photo_ops,
+    "undelete": _cmd_photo_ops,
+    "update_persona": _cmd_persona_ops,
+    "merge_personas": _cmd_persona_ops,
+    "delete_persona": _cmd_persona_ops,
+    "add_catalog_root": _cmd_catalog_root_ops,
+    "delete_catalog_root": _cmd_catalog_root_ops,
+    "update_catalog_root": _cmd_catalog_root_ops,
+    "add_edit": _cmd_edit_ops,
+    "clear_edits": _cmd_edit_ops,
+    "remove_edit": _cmd_edit_ops,
+}
+
+
 def _execute_db_cmd(cmd, params):
     db = get_db()
     try:
-        if cmd == "insert_system_metric":
-            db.insert_system_metric(params)
-            return {"ok": True}
-
-        elif cmd == "control_reset":
-            return _cmd_control_reset(db, params)
-
-        elif cmd == "set_setting":
-            db.set_setting(params.get("key", ""), params.get("value", ""))
-            return {"ok": True}
-
-        elif cmd == "update_photo":
-            photo_id = params.get("photo_id", "")
-            updates = params.get("updates", {})
-            if not photo_id or not updates:
-                return {"ok": False, "error": "photo_id and updates required"}
-            photo = db.get_photo(photo_id)
-            if not photo:
-                photo = db.get_photo_by_path(photo_id)
-            if not photo:
-                return {"ok": False, "error": "Photo not found"}
-            db.update_photo(photo["photo_id"], **updates)
-            return {"ok": True}
-
-        elif cmd in ("set_gps", "clear_gps", "set_date", "clear_date", "mark_deleted", "undelete"):
-            return _cmd_photo_ops(db, cmd, params)
-
-        elif cmd in ("update_persona", "merge_personas", "delete_persona"):
-            return _cmd_persona_ops(db, cmd, params)
-
-        elif cmd in ("add_catalog_root", "delete_catalog_root", "update_catalog_root"):
-            return _cmd_catalog_root_ops(db, cmd, params)
-
-        elif cmd in ("add_edit", "clear_edits", "remove_edit"):
-            return _cmd_edit_ops(db, cmd, params)
-
-        elif cmd == "dedup_embeddings":
-            before, after, removed = db.dedup_photo_embeddings()
-            return {"ok": True, "before": before, "after": after, "removed": removed}
-
-        elif cmd == "compact_embeddings":
-            db.compact_photo_embeddings()
-            return {"ok": True}
-
-        elif cmd == "vacuum":
-            return _cmd_vacuum(db)
-
-        else:
-            return {"ok": False, "error": f"unknown db command: {cmd}"}
+        handler = _DB_CMD_HANDLERS.get(cmd)
+        if handler:
+            return handler(db, params)
+        grouped = _GROUPED_OPS.get(cmd)
+        if grouped:
+            return grouped(db, cmd, params)
+        return {"ok": False, "error": f"unknown db command: {cmd}"}
     except (sqlite3.Error, OSError, ValueError, KeyError, TypeError, RuntimeError) as e:
         try:
             db.sqlite.rollback()

@@ -57,20 +57,7 @@ def _embed_query(query_text):
     return vec.tolist()
 
 
-@router.get("/semantic_search")
-async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
-    from database import get_db
-
-    if not q:
-        return {"total": 0, "photos": [], "query": q}
-
-    logger.info(f"[SEMSEARCH] Start: q={q!r} threshold={threshold} limit={limit}")
-
-    db = get_db()
-
-    task = "Retrieve photographs matching the description, including people, places, events, and scenes"
-    query_text = "Instruct: " + task + "\nQuery: " + q
-
+def _acquire_gpu_and_embed(query_text, q):
     mq = _get_mqtt_api()
     gpu_acquired = False
     gpu_t0 = time.time()
@@ -80,7 +67,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
             logger.info(f"[SEMSEARCH] GPU acquired gently in {time.time()-gpu_t0:.1f}s")
         else:
             logger.warning("[SEMSEARCH] GPU busy, search unavailable now")
-            return {"total": 0, "photos": [], "query": q, "error": "GPU busy, try again later"}
+            return None, {"total": 0, "photos": [], "query": q, "error": "GPU busy, try again later"}
     else:
         logger.warning("[SEMSEARCH] No MQTT, proceeding without GPU lock")
 
@@ -91,7 +78,7 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
     except (RuntimeError, OSError, ValueError) as e:
         logger.error(f"[SEMSEARCH] Error getting embedding: {e}")
         _unload_embed_engine()
-        return {"total": 0, "photos": [], "query": q, "error": str(e)}
+        return None, {"total": 0, "photos": [], "query": q, "error": str(e)}
     finally:
         if mq and gpu_acquired:
             mq.release_gpu_from_api()
@@ -99,9 +86,11 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
 
     if q_emb is None:
         logger.error("[SEMSEARCH] No embedding obtained")
-        return {"total": 0, "photos": [], "query": q, "error": "no embedding"}
+        return None, {"total": 0, "photos": [], "query": q, "error": "no embedding"}
+    return q_emb, None
 
-    logger.info(f"[SEMSEARCH] Searching LanceDB with threshold={threshold}")
+
+def _search_lancedb_with_retry(db, q_emb, limit):
     try:
         results = db.search_photo_embeddings(q_emb, limit=limit * 2)
     except RuntimeError as e:
@@ -114,17 +103,20 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
                 results = db.search_photo_embeddings(q_emb, limit=limit * 2)
             except (RuntimeError, OSError, sqlite3.Error) as e2:
                 logger.error(f"[SEMSEARCH] Retry after reopen also failed: {e2}")
-                return {"total": 0, "photos": [], "query": q, "error": "LanceDB unavailable (too many open files), please try again"}
+                return None, {"total": 0, "photos": [], "query": "", "error": "LanceDB unavailable (too many open files), please try again"}
         else:
-            return {"total": 0, "photos": [], "query": q, "error": f"LanceDB error: {err_msg[:200]}"}
+            return None, {"total": 0, "photos": [], "query": "", "error": f"LanceDB error: {err_msg[:200]}"}
     except (RuntimeError, OSError, sqlite3.Error) as e:
         logger.error(f"[SEMSEARCH] LanceDB error: {e}")
-        return {"total": 0, "photos": [], "query": q, "error": str(e)[:200]}
+        return None, {"total": 0, "photos": [], "query": "", "error": str(e)[:200]}
     logger.info(f"[SEMSEARCH] LanceDB returned {len(results)} raw results")
     if results:
         top_dist = results[0].get("_distance", results[0].get("_relevance_score", "?"))
         logger.info(f"[SEMSEARCH] Top distance={top_dist}")
+    return results, None
 
+
+def _filter_search_results(db, results, threshold, limit):
     out_list = []
     seen_pids = set()
     skipped_no_photo = 0
@@ -149,8 +141,10 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         out_list.append((photo, score))
         if len(out_list) >= limit:
             break
+    return out_list, skipped_no_photo, skipped_not_embedded, skipped_threshold
 
-    hashes = [p.get("content_hash", "") for p, _ in out_list if p.get("content_hash")]
+
+def _load_faces_and_personas(db, hashes):
     persona_ids_needed = set()
     photo_faces = {}
     if hashes:
@@ -178,6 +172,10 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():  # nosec B608 — SQL column names via f-string, values parameterized through ?
             persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
+    return photo_faces, persona_map
+
+
+def _enrich_search_results(db, out_list, photo_faces, persona_map):
     enriched_list = []
     for photo, score in out_list:
         ep = _enrich_photo(photo, photo_faces, persona_map, include_created=True, include_score=True, score=score)
@@ -190,6 +188,38 @@ async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
         else:
             ep["duplicate_paths"] = []
         enriched_list.append(ep)
+    return enriched_list
+
+
+@router.get("/semantic_search")
+async def semantic_search(q: str = "", limit: int = 20, threshold: float = 1.0):
+    from database import get_db
+
+    if not q:
+        return {"total": 0, "photos": [], "query": q}
+
+    logger.info(f"[SEMSEARCH] Start: q={q!r} threshold={threshold} limit={limit}")
+
+    db = get_db()
+
+    task = "Retrieve photographs matching the description, including people, places, events, and scenes"
+    query_text = "Instruct: " + task + "\nQuery: " + q
+
+    q_emb, err = _acquire_gpu_and_embed(query_text, q)
+    if err:
+        return err
+
+    logger.info(f"[SEMSEARCH] Searching LanceDB with threshold={threshold}")
+    results, err = _search_lancedb_with_retry(db, q_emb, limit)
+    if err:
+        err["query"] = q
+        return err
+
+    out_list, skipped_no_photo, skipped_not_embedded, skipped_threshold = _filter_search_results(db, results, threshold, limit)
+
+    hashes = [p.get("content_hash", "") for p, _ in out_list if p.get("content_hash")]
+    photo_faces, persona_map = _load_faces_and_personas(db, hashes)
+    enriched_list = _enrich_search_results(db, out_list, photo_faces, persona_map)
 
     logger.info(f"[SEMSEARCH] Final: {len(enriched_list)} results (skipped: no_photo={skipped_no_photo}, not_embedded={skipped_not_embedded}, threshold={skipped_threshold})")
     return {"total": len(enriched_list), "photos": enriched_list, "query": q}

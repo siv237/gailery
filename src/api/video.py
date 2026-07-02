@@ -235,26 +235,18 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
     )
 
 
-@router.get("/video_meta")
-async def video_meta(path: str = ""):
-    photo_path = _resolve_photo_path(path)
-    if not photo_path.exists() or not photo_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
+def _probe_video_full(photo_path):
+    result = subprocess.run(
+        ["ffprobe", "-hide_banner", "-loglevel", "error",
+         "-show_format", "-show_streams",
+         "-print_format", "json", str(photo_path)],
+        capture_output=True, timeout=10
+    )
+    return json.loads(result.stdout)
 
-    import json as _json
-    try:
-        result = subprocess.run(
-            ["ffprobe", "-hide_banner", "-loglevel", "error",
-             "-show_format", "-show_streams",
-             "-print_format", "json", str(photo_path)],
-            capture_output=True, timeout=10
-        )
-        info = _json.loads(result.stdout)
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError) as e:
-        logger.error(f"ffprobe failed for {photo_path}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to probe video")
 
-    meta = {
+def _default_video_meta():
+    return {
         "duration": 0,
         "creation_time": None,
         "camera": None,
@@ -270,7 +262,8 @@ async def video_meta(path: str = ""):
         "container": None,
     }
 
-    fmt = info.get("format", {})
+
+def _parse_format_metadata(fmt, meta):
     if fmt.get("duration"):
         meta["duration"] = float(fmt["duration"])
     if fmt.get("bit_rate"):
@@ -288,7 +281,10 @@ async def video_meta(path: str = ""):
         meta["camera"] = tags["software"]
     if fmt.get("format_name"):
         meta["container"] = fmt["format_name"]
+    return tags
 
+
+def _parse_stream_metadata(info, meta):
     for s in info.get("streams", []):
         ct = s.get("codec_type")
         if ct == "video" and not meta["video_codec"]:
@@ -306,14 +302,35 @@ async def video_meta(path: str = ""):
             meta["audio_sample_rate"] = s.get("sample_rate")
             meta["audio_channels"] = s.get("channels")
 
+
+def _collect_all_tags(info, fmt_tags):
     all_tags = {}
-    for k, v in tags.items():
+    for k, v in fmt_tags.items():
         all_tags[k] = v
     for s in info.get("streams", []):
         st = s.get("tags", {})
         for k, v in st.items():
             if k not in all_tags:
                 all_tags[k] = v
-    meta["tags"] = all_tags
+    return all_tags
+
+
+@router.get("/video_meta")
+async def video_meta(path: str = ""):
+    photo_path = _resolve_photo_path(path)
+    if not photo_path.exists() or not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        info = _probe_video_full(photo_path)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError) as e:
+        logger.error(f"ffprobe failed for {photo_path}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to probe video")
+
+    meta = _default_video_meta()
+    fmt = info.get("format", {})
+    tags = _parse_format_metadata(fmt, meta)
+    _parse_stream_metadata(info, meta)
+    meta["tags"] = _collect_all_tags(info, tags)
 
     return meta

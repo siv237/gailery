@@ -40,100 +40,133 @@ def _db_write(cmd, params=None, timeout=5):
     return _db_write_direct(cmd, params)
 
 
+def _find_photo_row(db, photo_id):
+    if not photo_id:
+        return None, {"ok": False, "error": "photo_id required"}
+    row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
+    if not row:
+        return None, {"ok": False, "error": "Photo not found"}
+    return row, None
+
+
+def _cmd_update_photo(db, params):
+    photo_id = params.get("photo_id", "")
+    updates = params.get("updates", {})
+    if not photo_id or not updates:
+        return {"ok": False, "error": "photo_id and updates required"}
+    photo = db.get_photo(photo_id)
+    if not photo:
+        photo = db.get_photo_by_path(photo_id)
+    if not photo:
+        return {"ok": False, "error": "Photo not found"}
+    db.update_photo(photo["photo_id"], **updates)
+    return {"ok": True}
+
+
+def _cmd_set_gps(db, params):
+    photo_id = params.get("photo_id")
+    lat = params.get("lat")
+    lon = params.get("lon")
+    if not photo_id or lat is None or lon is None:
+        return {"ok": False, "error": "photo_id, lat, lon required"}
+    row, err = _find_photo_row(db, photo_id)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), row[0]))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_clear_gps(db, params):
+    row, err = _find_photo_row(db, params.get("photo_id"))
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (row[0],))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_set_date(db, params):
+    photo_id = params.get("photo_id")
+    manual_date = params.get("manual_date")
+    if not photo_id or not manual_date:
+        return {"ok": False, "error": "photo_id, manual_date required"}
+    if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
+        manual_date += " 00:00:00"
+    elif len(manual_date) == 16 and manual_date[10] == ' ':
+        manual_date += ":00"
+    row, err = _find_photo_row(db, photo_id)
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, row[0]))
+    db.sqlite.commit()
+    return {"ok": True, "manual_date": manual_date}
+
+
+def _cmd_clear_date(db, params):
+    row, err = _find_photo_row(db, params.get("photo_id"))
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (row[0],))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_mark_deleted(db, params):
+    row, err = _find_photo_row(db, params.get("photo_id"))
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (row[0],))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_undelete(db, params):
+    row, err = _find_photo_row(db, params.get("photo_id"))
+    if err:
+        return err
+    db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (row[0],))
+    db.sqlite.commit()
+    return {"ok": True}
+
+
+def _cmd_add_edit(db, params):
+    edit_id = db.add_edit(params.get("content_hash", ""), params.get("action", ""), params.get("params", {}))
+    return {"ok": True, "edit_id": edit_id}
+
+
+def _cmd_clear_edits(db, params):
+    db.clear_edits(params.get("content_hash", ""), params.get("action", ""))
+    return {"ok": True}
+
+
+def _cmd_remove_edit(db, params):
+    db.remove_edit(params.get("edit_id"))
+    return {"ok": True}
+
+
+_DB_WRITE_HANDLERS = {
+    "update_photo": _cmd_update_photo,
+    "set_gps": _cmd_set_gps,
+    "clear_gps": _cmd_clear_gps,
+    "set_date": _cmd_set_date,
+    "clear_date": _cmd_clear_date,
+    "mark_deleted": _cmd_mark_deleted,
+    "undelete": _cmd_undelete,
+    "add_edit": _cmd_add_edit,
+    "clear_edits": _cmd_clear_edits,
+    "remove_edit": _cmd_remove_edit,
+}
+
+
 def _db_write_direct(cmd, params):
     from database import get_db
     db = get_db()
     try:
-        if cmd == "update_photo":
-            photo_id = params.get("photo_id", "")
-            updates = params.get("updates", {})
-            if not photo_id or not updates:
-                return {"ok": False, "error": "photo_id and updates required"}
-            photo = db.get_photo(photo_id)
-            if not photo:
-                photo = db.get_photo_by_path(photo_id)
-            if not photo:
-                return {"ok": False, "error": "Photo not found"}
-            db.update_photo(photo["photo_id"], **updates)
-            return {"ok": True}
-        elif cmd == "set_gps":
-            photo_id = params.get("photo_id")
-            lat = params.get("lat")
-            lon = params.get("lon")
-            if not photo_id or lat is None or lon is None:
-                return {"ok": False, "error": "photo_id, lat, lon required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET gps_lat = ?, gps_lon = ?, manual_gps = 1 WHERE photo_id = ?", (float(lat), float(lon), row[0]))
-            db.sqlite.commit()
-            return {"ok": True}
-        elif cmd == "clear_gps":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET gps_lat = NULL, gps_lon = NULL, manual_gps = 0 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-        elif cmd == "set_date":
-            photo_id = params.get("photo_id")
-            manual_date = params.get("manual_date")
-            if not photo_id or not manual_date:
-                return {"ok": False, "error": "photo_id, manual_date required"}
-            if len(manual_date) == 10 and manual_date[4] == '-' and manual_date[7] == '-':
-                manual_date += " 00:00:00"
-            elif len(manual_date) == 16 and manual_date[10] == ' ':
-                manual_date += ":00"
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET manual_date = ? WHERE photo_id = ?", (manual_date, row[0]))
-            db.sqlite.commit()
-            return {"ok": True, "manual_date": manual_date}
-        elif cmd == "clear_date":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET manual_date = NULL WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-        elif cmd == "mark_deleted":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET deleted = 1 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-        elif cmd == "undelete":
-            photo_id = params.get("photo_id")
-            if not photo_id:
-                return {"ok": False, "error": "photo_id required"}
-            row = db.sqlite.execute("SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?", (photo_id, '%' + photo_id)).fetchone()
-            if not row:
-                return {"ok": False, "error": "Photo not found"}
-            db.sqlite.execute("UPDATE photos SET deleted = 0 WHERE photo_id = ?", (row[0],))
-            db.sqlite.commit()
-            return {"ok": True}
-        elif cmd == "add_edit":
-            edit_id = db.add_edit(params.get("content_hash", ""), params.get("action", ""), params.get("params", {}))
-            return {"ok": True, "edit_id": edit_id}
-        elif cmd == "clear_edits":
-            db.clear_edits(params.get("content_hash", ""), params.get("action", ""))
-            return {"ok": True}
-        elif cmd == "remove_edit":
-            db.remove_edit(params.get("edit_id"))
-            return {"ok": True}
-        else:
-            return {"ok": False, "error": f"unknown db command: {cmd}"}
+        handler = _DB_WRITE_HANDLERS.get(cmd)
+        if handler:
+            return handler(db, params)
+        return {"ok": False, "error": f"unknown db command: {cmd}"}
     except (sqlite3.Error, KeyError, ValueError, TypeError) as e:
         return {"ok": False, "error": str(e)}
 
@@ -551,51 +584,48 @@ async def get_face_context(face_id: str, zoom: float = 3.0):
         raise HTTPException(status_code=500, detail="Failed to get face context")
 
 
-@router.get("/list")
-async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_desc"):
-    from database import get_db
-    from datetime import datetime
-
-    db = get_db()
-
-
-    if sort == "changed_desc":
-        recent_rows = db.sqlite.execute(
-            "SELECT p.photo_id, MAX(c.changed_at) as cat FROM changes c "
-            "JOIN photos p ON c.photo_id = p.photo_id "
-            "WHERE c.field NOT IN ('photo_type','has_issues','issue_type','media_type','img_width','img_height') "
-            "GROUP BY p.photo_id ORDER BY cat DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-        recent_pids = [r[0] for r in recent_rows]
-        change_times = {r[0]: r[1] for r in recent_rows}
-        photos = []
-        p_cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
-        for pid in recent_pids:
-            row = db.sqlite.execute(
-                "SELECT p.*, cf.content_hash FROM photos p "
-                "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
-                "WHERE p.photo_id=?", (pid,)
-            ).fetchone()
-            if row:
-                photos.append(dict(zip(p_cols, row[:len(p_cols)])))
-                photos[-1]["content_hash"] = row[len(p_cols)] if len(row) > len(p_cols) else None
-        total = db.count_photos()
-    else:
-        rows = db.sqlite.execute(
+def _fetch_changed_desc_photos(db, limit):
+    recent_rows = db.sqlite.execute(
+        "SELECT p.photo_id, MAX(c.changed_at) as cat FROM changes c "
+        "JOIN photos p ON c.photo_id = p.photo_id "
+        "WHERE c.field NOT IN ('photo_type','has_issues','issue_type','media_type','img_width','img_height') "
+        "GROUP BY p.photo_id ORDER BY cat DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    recent_pids = [r[0] for r in recent_rows]
+    change_times = {r[0]: r[1] for r in recent_rows}
+    p_cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
+    photos = []
+    for pid in recent_pids:
+        row = db.sqlite.execute(
             "SELECT p.*, cf.content_hash FROM photos p "
             "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
-            "WHERE p.deleted=0 ORDER BY p.date DESC LIMIT ? OFFSET ?",
-            (limit, offset)
-        ).fetchall()
-        p_cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
-        photos = []
-        for row in rows:
+            "WHERE p.photo_id=?", (pid,)
+        ).fetchone()
+        if row:
             photos.append(dict(zip(p_cols, row[:len(p_cols)])))
             photos[-1]["content_hash"] = row[len(p_cols)] if len(row) > len(p_cols) else None
-        total = db.count_photos()
+    total = db.count_photos()
+    return photos, total, change_times
 
-    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+
+def _fetch_default_photos(db, limit, offset):
+    rows = db.sqlite.execute(
+        "SELECT p.*, cf.content_hash FROM photos p "
+        "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+        "WHERE p.deleted=0 ORDER BY p.date DESC LIMIT ? OFFSET ?",
+        (limit, offset)
+    ).fetchall()
+    p_cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
+    photos = []
+    for row in rows:
+        photos.append(dict(zip(p_cols, row[:len(p_cols)])))
+        photos[-1]["content_hash"] = row[len(p_cols)] if len(row) > len(p_cols) else None
+    total = db.count_photos()
+    return photos, total
+
+
+def _load_photo_faces_and_personas(db, hashes):
     persona_ids_needed = set()
     photo_faces = {}
     if hashes:
@@ -623,24 +653,26 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
         for pr in db.sqlite.execute(f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids).fetchall():  # nosec B608 — SQL column names via f-string, values parameterized through ?
             persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
-    last_changes = {}
-    last_change_details = {}
-    if sort == "changed_desc":
-        for p in photos:
-            last_changes[p.get("path", "")] = change_times.get(p.get("photo_id"))
-    else:
-        rows = db.sqlite.execute(
-            "SELECT photo_id, MAX(changed_at) as cat FROM changes GROUP BY photo_id"
-        ).fetchall()
-        change_by_pid = {r[0]: r[1] for r in rows}
-        pid_to_path = {}
-        for r in db.sqlite.execute("SELECT photo_id, path FROM photos").fetchall():
-            pid_to_path[r[0]] = r[1]
-        for pid, cat in change_by_pid.items():
-            path = pid_to_path.get(pid)
-            if path:
-                last_changes[path] = cat
+    return photo_faces, persona_map
 
+
+def _load_all_change_times(db):
+    rows = db.sqlite.execute(
+        "SELECT photo_id, MAX(changed_at) as cat FROM changes GROUP BY photo_id"
+    ).fetchall()
+    change_by_pid = {r[0]: r[1] for r in rows}
+    pid_to_path = {}
+    for r in db.sqlite.execute("SELECT photo_id, path FROM photos").fetchall():
+        pid_to_path[r[0]] = r[1]
+    last_changes = {}
+    for pid, cat in change_by_pid.items():
+        path = pid_to_path.get(pid)
+        if path:
+            last_changes[path] = cat
+    return last_changes
+
+
+def _load_last_change_details(db):
     detail_rows = db.sqlite.execute(
         "SELECT c.photo_id, c.field, c.value, c.changed_at FROM changes c "
         "INNER JOIN (SELECT photo_id, MAX(changed_at) as mx FROM changes "
@@ -649,10 +681,14 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
         "ON c.photo_id = l.photo_id AND c.changed_at = l.mx "
         "WHERE c.field NOT IN ('photo_type','has_issues','issue_type','media_type','img_width','img_height')"
     ).fetchall()
+    last_change_details = {}
     for dr in detail_rows:
         pid = dr[0]
         last_change_details[pid] = {"field": dr[1], "value": dr[2], "changed_at": dr[3]}
+    return last_change_details
 
+
+def _enrich_photos_with_changes(photos, photo_faces, persona_map, last_changes, last_change_details):
     enriched = []
     for p in photos:
         ep = _enrich_photo(p, photo_faces, persona_map, include_thumbnail=True)
@@ -662,12 +698,42 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
             ep["_last_change_field"] = det["field"]
             ep["_last_change_value"] = det["value"]
         enriched.append(ep)
+    return enriched
 
+
+def _sort_enriched_by_change(enriched, sort):
     if sort == "changed_desc":
         enriched.sort(key=lambda x: x.get("changed_at") or "", reverse=True)
         enriched = [e for e in enriched if e.get("changed_at")] + [e for e in enriched if not e.get("changed_at")]
     elif sort == "changed_asc":
         enriched.sort(key=lambda x: x.get("changed_at") or "", reverse=False)
+    return enriched
+
+
+@router.get("/list")
+async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_desc"):
+    from database import get_db
+    from datetime import datetime
+
+    db = get_db()
+
+    change_times = {}
+    if sort == "changed_desc":
+        photos, total, change_times = _fetch_changed_desc_photos(db, limit)
+    else:
+        photos, total = _fetch_default_photos(db, limit, offset)
+
+    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+    photo_faces, persona_map = _load_photo_faces_and_personas(db, hashes)
+
+    last_change_details = _load_last_change_details(db)
+    if sort == "changed_desc":
+        last_changes = {p.get("path", ""): change_times.get(p.get("photo_id")) for p in photos}
+    else:
+        last_changes = _load_all_change_times(db)
+
+    enriched = _enrich_photos_with_changes(photos, photo_faces, persona_map, last_changes, last_change_details)
+    enriched = _sort_enriched_by_change(enriched, sort)
 
     server_time = datetime.now().isoformat()
     return {"total": total, "photos": enriched[:limit], "server_time": server_time}

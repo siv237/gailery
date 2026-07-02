@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -50,38 +51,59 @@ _EN_MONTHS = {
     'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
 }
 
+_FILENAME_DATE_PATTERNS = [
+    r'IMG[_\-](\d{4})(\d{2})(\d{2})',
+    r'IMG[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'DSC[_\-](\d{4})(\d{2})(\d{2})',
+    r'photo[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'photo[_\-](\d{4})(\d{2})(\d{2})',
+    r'Screenshot[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'Signal[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'VID[_\-](\d{4})(\d{2})(\d{2})',
+    r'video[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'Screen[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
+    r'(\d{4})[_\-](\d{2})[_\-](\d{2})',
+]
 
-def extract_date_from_path(path_str):
-    import re
-    p = path_str.replace('\\', '/')
-    parts = p.split('/')
+_EXIF_SKIP_PREFIXES = ('JPEGThumbnail', 'TIFFThumbnail', 'Thumbnail', 'Interoperability', 'PrintIM', 'EXIF MakerNote', 'MakerNote')
+_EXIF_SKIP_KEYS = {'Image ExifOffset', 'Image PrintIM', 'EXIF ExifVersion', 'EXIF FlashPixVersion',
+                   'EXIF ComponentsConfiguration', 'EXIF InteroperabilityOffset',
+                   'EXIF CompressedBitsPerPixel', 'Image YCbCrPositioning', 'Image ResolutionUnit',
+                   'EXIF ColorSpace', 'EXIF SubjectDistanceRange', 'EXIF CustomRendered'}
 
-    for part in parts:
-        m = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', part)
-        if m:
-            return int(m.group(1)), int(m.group(2)), int(m.group(3))
-        m = re.match(r'^(\d{4})\.(\d{2})\.(\d{2})$', part)
-        if m:
-            return int(m.group(1)), int(m.group(2)), int(m.group(3))
-        m = re.match(r'^(\d{2})\.(\d{2})\.(\d{2,4})$', part)
-        if m:
-            y = int(m.group(3))
-            if y < 100: y += 2000
-            return y, int(m.group(2)), int(m.group(1))
-        m = re.match(r'^(\d{4})_(\d{2})_(\d{2})', part)
-        if m:
-            return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
-    for part in parts:
-        stripped = re.sub(r'\bat\s+\d{1,2}\.\d{2}\.\d{2}', '', part)
-        m = re.search(r'(\d{2})\.(\d{2})\.(\d{2})', stripped)
-        if m:
-            d_val, mo_val, y_val = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            if 1 <= mo_val <= 12 and 1 <= d_val <= 31:
-                year = 2000 + y_val
-                if 1990 <= year <= 2030:
-                    return year, mo_val, d_val
+def _match_exact_date_part(part):
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', part)
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    m = re.match(r'^(\d{4})\.(\d{2})\.(\d{2})$', part)
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    m = re.match(r'^(\d{2})\.(\d{2})\.(\d{2,4})$', part)
+    if m:
+        y = int(m.group(3))
+        if y < 100:
+            y += 2000
+        return y, int(m.group(2)), int(m.group(1))
+    m = re.match(r'^(\d{4})_(\d{2})_(\d{2})', part)
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return None
 
+
+def _search_embedded_date(part):
+    stripped = re.sub(r'\bat\s+\d{1,2}\.\d{2}\.\d{2}', '', part)
+    m = re.search(r'(\d{2})\.(\d{2})\.(\d{2})', stripped)
+    if m:
+        d_val, mo_val, y_val = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo_val <= 12 and 1 <= d_val <= 31:
+            year = 2000 + y_val
+            if 1990 <= year <= 2030:
+                return year, mo_val, d_val
+    return None
+
+
+def _find_ymd_triplet(parts):
     for i in range(len(parts) - 2):
         y_m = re.match(r'^(\d{4})$', parts[i])
         d_m = re.match(r'^(\d{1,2})$', parts[i + 1])
@@ -94,7 +116,10 @@ def extract_date_from_path(path_str):
             if dd_match and 1 <= int(dd_match.group(1)) <= 31:
                 day = int(dd_match.group(1))
             return year, month, day
+    return None
 
+
+def _find_year_month_name(parts):
     for i in range(len(parts) - 1):
         y_m = re.match(r'^(\d{4})$', parts[i])
         if y_m:
@@ -104,29 +129,43 @@ def extract_date_from_path(path_str):
             if month:
                 return year, month, 1
             return year, 1, 1
+    return None
 
-    fname = parts[-1] if parts else ''
-    patterns = [
-        r'IMG[_\-](\d{4})(\d{2})(\d{2})',
-        r'IMG[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'DSC[_\-](\d{4})(\d{2})(\d{2})',
-        r'photo[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'photo[_\-](\d{4})(\d{2})(\d{2})',
-        r'Screenshot[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'Signal[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'VID[_\-](\d{4})(\d{2})(\d{2})',
-        r'video[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'Screen[_\-](\d{4})[_\-](\d{2})[_\-](\d{2})',
-        r'(\d{4})[_\-](\d{2})[_\-](\d{2})',
-    ]
-    for pat in patterns:
+
+def _match_filename_date(fname):
+    for pat in _FILENAME_DATE_PATTERNS:
         m = re.search(pat, fname)
         if m:
             y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
             if 1990 <= y <= 2030 and 1 <= mo <= 12 and 1 <= d <= 31:
                 return y, mo, d
-
     return None
+
+
+def extract_date_from_path(path_str):
+    p = path_str.replace('\\', '/')
+    parts = p.split('/')
+
+    for part in parts:
+        result = _match_exact_date_part(part)
+        if result:
+            return result
+
+    for part in parts:
+        result = _search_embedded_date(part)
+        if result:
+            return result
+
+    result = _find_ymd_triplet(parts)
+    if result:
+        return result
+
+    result = _find_year_month_name(parts)
+    if result:
+        return result
+
+    fname = parts[-1] if parts else ''
+    return _match_filename_date(fname)
 
 
 def normalize_exif_date(date_str):
@@ -195,6 +234,68 @@ def _configure_exifread_logger():
         _exifread_logger_configured = True
 
 
+def _extract_exif_date(tags):
+    dt = tags.get("EXIF DateTimeOriginal") or tags.get("Image DateTime")
+    if dt:
+        return str(dt)
+    return None
+
+
+def _extract_exif_camera(tags):
+    make = tags.get("Image Make")
+    model = tags.get("Image Model")
+    if not (make or model):
+        return None
+    camera = {}
+    if make:
+        camera["make"] = str(make).strip()
+    if model:
+        camera["model"] = str(model).strip()
+    return camera
+
+
+def _extract_exif_gps(tags):
+    lat_tag = tags.get("GPS GPSLatitude")
+    lat_ref = tags.get("GPS GPSLatitudeRef")
+    lon_tag = tags.get("GPS GPSLongitude")
+    lon_ref = tags.get("GPS GPSLongitudeRef")
+    if not (lat_tag and lon_tag):
+        return None
+
+    def to_deg(val, ref):
+        def _ratio(v):
+            if hasattr(v, 'den'):
+                if v.den == 0:
+                    return 0.0
+                return float(v.num) / float(v.den)
+            try:
+                return float(v)
+            except (ZeroDivisionError, ValueError):
+                return 0.0
+        d = _ratio(val.values[0])
+        m = _ratio(val.values[1])
+        s = _ratio(val.values[2])
+        deg = d + m / 60.0 + s / 3600.0
+        if ref and str(ref) in ('S', 'W'):
+            deg = -deg
+        return deg
+
+    lat_ref_str = str(lat_ref) if lat_ref else 'N'
+    lon_ref_str = str(lon_ref) if lon_ref else 'E'
+    return {"lat": to_deg(lat_tag, lat_ref_str), "lon": to_deg(lon_tag, lon_ref_str)}
+
+
+def _collect_exif_raw(tags):
+    raw = {}
+    for k, v in tags.items():
+        if any(k.startswith(p) for p in _EXIF_SKIP_PREFIXES):
+            continue
+        if k in _EXIF_SKIP_KEYS:
+            continue
+        raw[k] = str(v)
+    return raw
+
+
 def read_exif_one(photo_path):
     _configure_exifread_logger()
     import exifread
@@ -211,56 +312,19 @@ def read_exif_one(photo_path):
 
     result = {"date": None, "gps": None, "camera": None, "exif_raw": {}}
 
-    dt = tags.get("EXIF DateTimeOriginal") or tags.get("Image DateTime")
-    if dt:
-        result["date"] = str(dt)
+    date_str = _extract_exif_date(tags)
+    if date_str:
+        result["date"] = date_str
 
-    make = tags.get("Image Make")
-    model = tags.get("Image Model")
-    if make or model:
-        result["camera"] = {}
-        if make:
-            result["camera"]["make"] = str(make).strip()
-        if model:
-            result["camera"]["model"] = str(model).strip()
+    camera = _extract_exif_camera(tags)
+    if camera:
+        result["camera"] = camera
 
-    lat_tag = tags.get("GPS GPSLatitude")
-    lat_ref = tags.get("GPS GPSLatitudeRef")
-    lon_tag = tags.get("GPS GPSLongitude")
-    lon_ref = tags.get("GPS GPSLongitudeRef")
-    if lat_tag and lon_tag:
-        def to_deg(val, ref):
-            def _ratio(v):
-                if hasattr(v, 'den'):
-                    if v.den == 0:
-                        return 0.0
-                    return float(v.num) / float(v.den)
-                try:
-                    return float(v)
-                except (ZeroDivisionError, ValueError):
-                    return 0.0
-            d = _ratio(val.values[0])
-            m = _ratio(val.values[1])
-            s = _ratio(val.values[2])
-            deg = d + m / 60.0 + s / 3600.0
-            if ref and str(ref) in ('S', 'W'):
-                deg = -deg
-            return deg
-        lat_ref_str = str(lat_ref) if lat_ref else 'N'
-        lon_ref_str = str(lon_ref) if lon_ref else 'E'
-        result["gps"] = {"lat": to_deg(lat_tag, lat_ref_str), "lon": to_deg(lon_tag, lon_ref_str)}
+    gps = _extract_exif_gps(tags)
+    if gps:
+        result["gps"] = gps
 
-    skip_prefixes = ('JPEGThumbnail', 'TIFFThumbnail', 'Thumbnail', 'Interoperability', 'PrintIM', 'EXIF MakerNote', 'MakerNote')
-    skip_keys = {'Image ExifOffset', 'Image PrintIM', 'EXIF ExifVersion', 'EXIF FlashPixVersion',
-                 'EXIF ComponentsConfiguration', 'EXIF InteroperabilityOffset',
-                 'EXIF CompressedBitsPerPixel', 'Image YCbCrPositioning', 'Image ResolutionUnit',
-                 'EXIF ColorSpace', 'EXIF SubjectDistanceRange', 'EXIF CustomRendered'}
-    for k, v in tags.items():
-        if any(k.startswith(p) for p in skip_prefixes):
-            continue
-        if k in skip_keys:
-            continue
-        result["exif_raw"][k] = str(v)
+    result["exif_raw"] = _collect_exif_raw(tags)
 
     has_data = result["date"] or result["gps"] or result["camera"]
     return result if has_data else None
@@ -300,8 +364,7 @@ def main():
             mq.shutdown()
 
 
-def _main(db, args, mq=None):
-
+def _get_exif_work(db, args):
     if args.recheck:
         need_exif = db.get_all_photos()
     else:
@@ -311,26 +374,128 @@ def _main(db, args, mq=None):
             "WHERE p.exif_checked = 0 AND p.deleted = 0 ORDER BY p.path"
         ).fetchall()
         need_exif = [{"photo_id": r[0], "path": r[1]} for r in rows]
-
     log(f"Found {len(need_exif)} photos to check for EXIF (threads={EXIF_READ_THREADS})")
+    return need_exif
 
-    if not need_exif:
-        return 0
 
+def _apply_exif_limit(need_exif, args):
     limit = 0 if args.all or args.recheck else args.limit
     if limit > 0:
         need_exif = need_exif[:limit]
         log(f"Processing first {limit}")
+    return need_exif
 
-    with_data = 0
-    empty = 0
-    missing = 0
-    gps_found = 0
+
+def _get_mtime(path):
+    if not (path and Path(path).exists()):
+        return None
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
+def _apply_video_metadata(path, updates, stats):
+    from video_metadata import extract_metadata, extract_video_date
+    v_meta = extract_metadata(path)
+    if not v_meta:
+        return
+    updates["media_type"] = "video"
+    updates["duration_seconds"] = v_meta["duration_seconds"]
+    if v_meta["width"] and v_meta["height"]:
+        updates["img_width"] = v_meta["width"]
+        updates["img_height"] = v_meta["height"]
+    updates["camera_model"] = v_meta.get("codec", "")
+    v_date = extract_video_date(path)
+    mtime = _get_mtime(path)
+    resolved, conflict = resolve_date(v_date or None, path, mtime)
+    if resolved:
+        updates["date"] = resolved
+    if conflict:
+        updates["date_conflict"] = 1
+    stats["with_data"] += 1
+
+
+def _apply_exif_fields(exif, updates, stats):
+    gps = exif.get("gps")
+    if gps:
+        updates["gps_lat"] = gps["lat"]
+        updates["gps_lon"] = gps["lon"]
+        stats["gps_found"] += 1
+    camera = exif.get("camera")
+    if camera:
+        if camera.get("make"):
+            updates["camera_make"] = camera["make"]
+        if camera.get("model"):
+            updates["camera_model"] = camera["model"]
+    for key in ["exposure_time", "f_number", "iso", "focal_length", "orientation", "flash", "software"]:
+        val = exif.get(key)
+        if val:
+            updates[key] = val
+    if exif.get("exif_raw"):
+        import json
+        updates["exif_raw"] = json.dumps(exif["exif_raw"], ensure_ascii=False)
+
+
+def _apply_photo_exif(path, exif, updates, stats):
+    exif_date = exif.get("date") if exif else None
+    mtime = _get_mtime(path)
+    resolved, conflict = resolve_date(exif_date, path, mtime)
+    if resolved:
+        updates["date"] = resolved
+    if conflict:
+        updates["date_conflict"] = 1
+
+    if exif:
+        _apply_exif_fields(exif, updates, stats)
+        stats["with_data"] += 1
+    else:
+        stats["empty"] += 1
+
+    stats["processed"] += 1
+
+
+def _process_exif_result(photo_id, path, exif, is_missing, stats):
+    updates = {"exif_checked": 1}
+
+    is_video = any(path.endswith(ext) for ext in VIDEO_EXTS)
+
+    if is_video:
+        _apply_video_metadata(path, updates, stats)
+        return updates, (path if path else None)
+
+    if is_missing:
+        stats["missing"] += 1
+        return updates, (path if path else None)
+
+    _apply_photo_exif(path, exif, updates, stats)
+    return updates, path
+
+
+def _log_exif_progress(stats, total, t0, now):
+    processed = stats["processed"]
+    pct = processed / total * 100
+    elapsed = now - t0
+    rate = processed / max(elapsed, 1)
+    log(f"  [{processed}/{total}] {stats['with_data']} с данными, {stats['empty']} пустые, {stats['gps_found']} GPS, {stats['missing']} нет файла ({pct:.0f}%, {rate:.0f}/s)")
+
+
+def _report_exif_stats(stats, total, t0):
+    elapsed = time.time() - t0
+    log(f"EXIF done: {stats['with_data']} с данными, {stats['empty']} пустые, {stats['gps_found']} GPS, {stats['missing']} нет файла in {elapsed:.0f}s ({total/max(elapsed,1):.0f}/s)")
+
+
+def _main(db, args, mq=None):
+    need_exif = _get_exif_work(db, args)
+    if not need_exif:
+        return 0
+    need_exif = _apply_exif_limit(need_exif, args)
+
+    stats = {"with_data": 0, "empty": 0, "missing": 0, "gps_found": 0, "processed": 0}
     batch_updates = []
     cat_done_paths = []
     t0 = time.time()
     last_log_t = t0
-    processed = 0
     BATCH_SIZE = 500
     LOG_INTERVAL = 10
 
@@ -339,93 +504,16 @@ def _main(db, args, mq=None):
     with ThreadPoolExecutor(max_workers=EXIF_READ_THREADS) as pool:
         chunk_size = max(BATCH_SIZE // EXIF_READ_THREADS, 50)
         chunks = [work_items[i:i + chunk_size] for i in range(0, len(work_items), chunk_size)]
-
         futures = [pool.submit(read_exif_batch, chunk) for chunk in chunks]
 
         for future in as_completed(futures):
             results = future.result()
 
             for photo_id, path, exif, is_missing in results:
-                updates = {"exif_checked": 1}
-
-                # --- video metadata (if file is a video) ---
-                is_video = any(path.endswith(ext) for ext in VIDEO_EXTS)
-
-                if is_video:
-                    from video_metadata import extract_metadata, extract_video_date
-                    v_meta = extract_metadata(path)
-                    if v_meta:
-                        updates["media_type"] = "video"
-                        updates["duration_seconds"] = v_meta["duration_seconds"]
-                        if v_meta["width"] and v_meta["height"]:
-                            updates["img_width"] = v_meta["width"]
-                            updates["img_height"] = v_meta["height"]
-                        updates["camera_model"] = v_meta.get("codec", "")
-                        v_date = extract_video_date(path)
-                        mtime = None
-                        if path and Path(path).exists():
-                            try:
-                                mtime = os.stat(path).st_mtime
-                            except OSError:
-                                pass
-                        resolved, conflict = resolve_date(v_date or None, path, mtime)
-                        if resolved:
-                            updates["date"] = resolved
-                        if conflict:
-                            updates["date_conflict"] = 1
-                        with_data += 1
-                    batch_updates.append((photo_id, updates))
-                    if path:
-                        cat_done_paths.append(path)
-                    continue
-
-                # --- photo EXIF processing ---
-                if is_missing:
-                    missing += 1
-                    batch_updates.append((photo_id, updates))
-                    if path:
-                        cat_done_paths.append(path)
-                    continue
-
-                exif_date = exif.get("date") if exif else None
-                mtime = None
-                if path and Path(path).exists():
-                    try:
-                        mtime = os.stat(path).st_mtime
-                    except OSError:
-                        pass
-                resolved, conflict = resolve_date(exif_date, path, mtime)
-                if resolved:
-                    updates["date"] = resolved
-                if conflict:
-                    updates["date_conflict"] = 1
-
-                if exif:
-                    gps = exif.get("gps")
-                    if gps:
-                        updates["gps_lat"] = gps["lat"]
-                        updates["gps_lon"] = gps["lon"]
-                        gps_found += 1
-                    camera = exif.get("camera")
-                    if camera:
-                        if camera.get("make"):
-                            updates["camera_make"] = camera["make"]
-                        if camera.get("model"):
-                            updates["camera_model"] = camera["model"]
-                    for key in ["exposure_time", "f_number", "iso", "focal_length", "orientation", "flash", "software"]:
-                        val = exif.get(key)
-                        if val:
-                            updates[key] = val
-                    if exif.get("exif_raw"):
-                        import json
-                        updates["exif_raw"] = json.dumps(exif["exif_raw"], ensure_ascii=False)
-                    with_data += 1
-                else:
-                    empty += 1
-
+                updates, cat_path = _process_exif_result(photo_id, path, exif, is_missing, stats)
                 batch_updates.append((photo_id, updates))
-                cat_done_paths.append(path)
-                processed += 1
+                if cat_path is not None:
+                    cat_done_paths.append(cat_path)
 
             if len(batch_updates) >= BATCH_SIZE:
                 flush_batch(db, batch_updates, cat_done_paths)
@@ -434,17 +522,13 @@ def _main(db, args, mq=None):
 
             now = time.time()
             if now - last_log_t >= LOG_INTERVAL:
-                pct = processed / len(need_exif) * 100
-                elapsed = now - t0
-                rate = processed / max(elapsed, 1)
-                log(f"  [{processed}/{len(need_exif)}] {with_data} с данными, {empty} пустые, {gps_found} GPS, {missing} нет файла ({pct:.0f}%, {rate:.0f}/s)")
+                _log_exif_progress(stats, len(need_exif), t0, now)
                 last_log_t = now
 
     if batch_updates:
         flush_batch(db, batch_updates, cat_done_paths)
 
-    elapsed = time.time() - t0
-    log(f"EXIF done: {with_data} с данными, {empty} пустые, {gps_found} GPS, {missing} нет файла in {elapsed:.0f}s ({len(need_exif)/max(elapsed,1):.0f}/s)")
+    _report_exif_stats(stats, len(need_exif), t0)
     return 0
 
 

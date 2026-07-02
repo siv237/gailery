@@ -134,6 +134,101 @@ def _mark_missing_files(db, existing_map, kept_rel):
     return deleted_count
 
 
+def _parse_scanned_at(root):
+    """Parse scanned_at timestamp from root dict, return 0 if unavailable."""
+    scanned_at_str = root.get("scanned_at")
+    if not scanned_at_str:
+        return 0
+    try:
+        return datetime.fromisoformat(scanned_at_str).timestamp()
+    except (ValueError, TypeError):
+        return 0
+
+
+def _should_skip_dir(dirpath, root_path, scanned_at_ts, dir_mtime, filenames, existing_rel, kept_rel):
+    """Check if a directory can be skipped because nothing changed since last scan."""
+    if not scanned_at_ts or dir_mtime >= scanned_at_ts or dirpath == root_path:
+        return False
+    for fn in filenames:
+        ext = Path(fn).suffix.lower()
+        if ext not in SUPPORTED_EXTS:
+            continue
+        rel_path = os.path.relpath(os.path.join(dirpath, fn), root_path)
+        kept_rel.add(rel_path)
+        if rel_path not in existing_rel:
+            return False
+    return True
+
+
+def _process_one_file(db, fn, dirpath, root_path, root_id, existing_map, kept_rel):
+    """Process a single file during scan. Returns (was_supported, result_str, new_record)."""
+    ext = Path(fn).suffix.lower()
+    if ext not in SUPPORTED_EXTS:
+        return False, None, None
+    abs_path = os.path.join(dirpath, fn)
+    rel_path = os.path.relpath(abs_path, root_path)
+    kept_rel.add(rel_path)
+
+    try:
+        stat = os.stat(abs_path)
+        file_size = stat.st_size
+        mtime = stat.st_mtime
+    except OSError:
+        return True, None, None
+
+    mtime_str = str(mtime)
+
+    if rel_path in existing_map:
+        result = _process_existing_file(db, existing_map[rel_path], abs_path, rel_path, ext, file_size, mtime_str)
+        return True, result, None
+    if file_size > 0:
+        return True, None, _create_new_file_record(root_id, rel_path, abs_path, ext, file_size, mtime_str)
+    return True, None, None
+
+
+def _log_scan_progress(scanned, new_count, changed_count, restored_count, skipped_dirs, elapsed, mq):
+    """Log scan progress and publish via MQTT."""
+    progress_msg = f"Scanned {scanned} files, new={new_count}, changed={changed_count}, restored={restored_count}, dirs_skipped={skipped_dirs}, elapsed={elapsed:.1f}s"
+    log(progress_msg)
+    if mq:
+        try:
+            mq.publish_progress(scanned, 0, {"new": new_count, "changed": changed_count, "restored": restored_count, "elapsed": round(elapsed, 1)})
+        except (ConnectionError, OSError):
+            pass
+
+
+def _flush_batch(db, new_files):
+    """Flush accumulated new files to DB and clear the list."""
+    if new_files:
+        db.add_catalog_files_batch(new_files)
+        log(f"  Flushed {len(new_files)} new files to DB")
+        new_files.clear()
+
+
+def _process_dir_files(db, dirpath, filenames, root_path, root_id, existing_map,
+                       kept_rel, new_files, scanned, changed_count, restored_count,
+                       skipped_dirs, mq, t0):
+    """Process all files in a directory during scan. Returns (scanned, changed_count, restored_count)."""
+    for fn in filenames:
+        was_supported, result, new_record = _process_one_file(
+            db, fn, dirpath, root_path, root_id, existing_map, kept_rel)
+        if not was_supported:
+            continue
+        scanned += 1
+        if scanned % 100 == 0:
+            _log_scan_progress(scanned, len(new_files), changed_count, restored_count,
+                               skipped_dirs, time.time() - t0, mq)
+        if result == 'restored':
+            restored_count += 1
+        elif result == 'changed':
+            changed_count += 1
+        if new_record:
+            new_files.append(new_record)
+        if len(new_files) >= 200:
+            _flush_batch(db, new_files)
+    return scanned, changed_count, restored_count
+
+
 def scan_root(db, root_id, mq=None):
     """Фаза A: Сбор путей — БЫСТРО, без хеширования."""
     root = db.get_catalog_root(root_id)
@@ -141,18 +236,12 @@ def scan_root(db, root_id, mq=None):
         log(f"Root not found: {root_id}")
         return
     root_path = root["root_path"]
-    scanned_at_str = root.get("scanned_at")
-    scanned_at_ts = 0
-    if scanned_at_str:
-        try:
-            scanned_at_ts = datetime.fromisoformat(scanned_at_str).timestamp()
-        except (ValueError, TypeError):
-            pass
 
     if not Path(root_path).exists():
         log(f"Root path does not exist: {root_path}")
         return
 
+    scanned_at_ts = _parse_scanned_at(root)
     log(f"SCAN (paths only): {root_path}")
 
     existing_map = _load_existing_files(db, root_id)
@@ -171,74 +260,22 @@ def scan_root(db, root_id, mq=None):
     try:
         for dirpath, dirnames, filenames in os.walk(root_path):
             try:
-                dir_stat = os.stat(dirpath)
-                dir_mtime = dir_stat.st_mtime
+                dir_mtime = os.stat(dirpath).st_mtime
             except OSError:
                 dirnames.clear()
                 continue
-
-            if scanned_at_ts and dir_mtime < scanned_at_ts and dirpath != root_path:
-                all_in_dir_are_old = True
-                for fn in filenames:
-                    ext = Path(fn).suffix.lower()
-                    if ext not in SUPPORTED_EXTS:
-                        continue
-                    rel_path = os.path.relpath(os.path.join(dirpath, fn), root_path)
-                    kept_rel.add(rel_path)
-                    if rel_path not in existing_rel:
-                        all_in_dir_are_old = False
-                if all_in_dir_are_old:
-                    skipped_dirs += 1
-                    continue
-
-            for fn in filenames:
-                ext = Path(fn).suffix.lower()
-                if ext not in SUPPORTED_EXTS:
-                    continue
-                abs_path = os.path.join(dirpath, fn)
-                rel_path = os.path.relpath(abs_path, root_path)
-                kept_rel.add(rel_path)
-                scanned += 1
-                if scanned % 100 == 0:
-                    elapsed = time.time() - t0
-                    progress_msg = f"Scanned {scanned} files, new={len(new_files)}, changed={changed_count}, restored={restored_count}, dirs_skipped={skipped_dirs}, elapsed={elapsed:.1f}s"
-                    log(progress_msg)
-                    if mq:
-                        try: mq.publish_progress(scanned, 0, {"new": len(new_files), "changed": changed_count, "restored": restored_count, "elapsed": round(elapsed, 1)})
-                        except (ConnectionError, OSError): pass
-
-                try:
-                    stat = os.stat(abs_path)
-                    file_size = stat.st_size
-                    mtime = stat.st_mtime
-                except OSError:
-                    continue
-
-                mtime_str = str(mtime)
-
-                if rel_path in existing_map:
-                    result = _process_existing_file(db, existing_map[rel_path], abs_path, rel_path, ext, file_size, mtime_str)
-                    if result == 'restored':
-                        restored_count += 1
-                    elif result == 'changed':
-                        changed_count += 1
-                else:
-                    if file_size > 0:
-                        new_files.append(_create_new_file_record(root_id, rel_path, abs_path, ext, file_size, mtime_str))
-
-                if len(new_files) >= 200:
-                    db.add_catalog_files_batch(new_files)
-                    log(f"  Flushed {len(new_files)} new files to DB")
-                    new_files = []
-
+            if _should_skip_dir(dirpath, root_path, scanned_at_ts, dir_mtime, filenames, existing_rel, kept_rel):
+                skipped_dirs += 1
+                continue
+            scanned, changed_count, restored_count = _process_dir_files(
+                db, dirpath, filenames, root_path, root_id, existing_map, kept_rel,
+                new_files, scanned, changed_count, restored_count, skipped_dirs, mq, t0)
         scan_complete = True
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as e:
         log(f"Scan ABORTED: {e}")
         scan_complete = False
 
-    if new_files:
-        db.add_catalog_files_batch(new_files)
-        log(f"  Flushed {len(new_files)} new files to DB")
+    _flush_batch(db, new_files)
 
     deleted_count = 0
     if scan_complete:

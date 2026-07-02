@@ -425,34 +425,13 @@ class DatabaseManager:
         placeholders = ",".join("?" * len(enabled_ids))
         return f"cf.root_id IN ({placeholders})", enabled_ids
 
-    def search_photos(self, q=None, person=None, date_from=None, date_to=None,
-                      date_after=None, date_before=None,
-                      path_after=None, path_before=None,
-                      has_faces=None, no_description=None, has_issues=None,
-                      issue_type=None, photo_type=None, has_gps=None,
-                      no_date=None, has_description=None,
-deleted=None, deleted_only=None,
-                       content_hash=None, file_type=None,
-                       media_type=None,
-                       sort="date_desc", limit=60, offset=0):
-        ed = "COALESCE(manual_date, date)"
-        sql = "SELECT photos.*, " + ed + " as effective_date, cf.content_hash FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path WHERE cf.is_canonical = 1 AND cf.deleted = 0"  # nosec B608 — SQL column names via f-string, values parameterized through ?
+    def _apply_date_filters(self, ed, date_from, date_to,
+                            date_after, date_before,
+                            path_after, path_before, no_date):
+        sql = ""
         params = []
-
-        root_filter, root_params = self._enabled_root_filter()
-        sql += f" AND {root_filter}"
-        params.extend(root_params)
-
-        if deleted_only is True:
-            sql += " AND photos.deleted = 1"
-        elif deleted is not True:
-            sql += " AND photos.deleted = 0"
-
         if no_date is True:
             sql += f" AND ({ed} IS NULL OR length({ed}) < 4 OR substr({ed},1,4) = '0000')"
-        if q:
-            sql += " AND description LIKE ?"
-            params.append(f"%{q}%")
         if date_from:
             sql += f" AND {ed} >= ?"
             params.append(date_from)
@@ -473,6 +452,16 @@ deleted=None, deleted_only=None,
             else:
                 sql += f" AND {ed} < ?"
                 params.append(date_before)
+        return sql, params
+
+    def _apply_condition_filters(self, q, has_faces, no_description,
+                                 has_description, has_issues, issue_type,
+                                 photo_type, has_gps):
+        sql = ""
+        params = []
+        if q:
+            sql += " AND description LIKE ?"
+            params.append(f"%{q}%")
         if has_faces is True:
             sql += " AND faces_present = 1"
         elif has_faces is False:
@@ -499,7 +488,11 @@ deleted=None, deleted_only=None,
             sql += " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
         elif has_gps is False:
             sql += " AND (gps_lat IS NULL OR gps_lon IS NULL)"
+        return sql, params
 
+    def _apply_type_filters(self, file_type, media_type, content_hash):
+        sql = ""
+        params = []
         _raw_exts = {'.cr2', '.nef', '.arw', '.dng', '.raw', '.rw2', '.orf', '.sr2', '.raf'}
         if file_type == 'raw':
             ext_clauses = ' OR '.join(['path LIKE ?' for _ in _raw_exts])
@@ -509,31 +502,64 @@ deleted=None, deleted_only=None,
             ext_clauses = ' AND '.join(['path NOT LIKE ?' for _ in _raw_exts])
             sql += f" AND ({ext_clauses})"
             params.extend([f'%{e}' for e in sorted(_raw_exts)])
-
         if media_type == 'photo':
             sql += " AND (media_type IS NULL OR media_type = 'photo')"
         elif media_type == 'video':
             sql += " AND media_type = 'video'"
-
         if content_hash:
             sql += " AND cf.content_hash LIKE ?"
             params.append(f"%{content_hash}%")
+        return sql, params
 
-        if person:
-            matching_hashes = self.sqlite.execute(
-                "SELECT DISTINCT f.content_hash FROM faces f "
-                "JOIN personas pe ON f.persona_id = pe.persona_id "
-                "WHERE (pe.display_name LIKE ? OR pe.name LIKE ?) AND f.content_hash IS NOT NULL",
-                (f"%{person}%", f"%{person}%")
-            ).fetchall()
-            hashes = [r[0] for r in matching_hashes]
-            if hashes:
-                placeholders = ",".join("?" * len(hashes))
-                sql += f" AND cf.content_hash IN ({placeholders})"
-                params.extend(hashes)
-            else:
-                sql += " AND 1=0"
+    def _apply_person_filter(self, person):
+        if not person:
+            return "", []
+        matching_hashes = self.sqlite.execute(
+            "SELECT DISTINCT f.content_hash FROM faces f "
+            "JOIN personas pe ON f.persona_id = pe.persona_id "
+            "WHERE (pe.display_name LIKE ? OR pe.name LIKE ?) AND f.content_hash IS NOT NULL",
+            (f"%{person}%", f"%{person}%")
+        ).fetchall()
+        hashes = [r[0] for r in matching_hashes]
+        if hashes:
+            placeholders = ",".join("?" * len(hashes))
+            return f" AND cf.content_hash IN ({placeholders})", hashes
+        return " AND 1=0", []
 
+    def _build_search_filters(self, ed, q, person, date_from, date_to,
+                              date_after, date_before, path_after, path_before,
+                              has_faces, no_description, has_issues,
+                              issue_type, photo_type, has_gps, no_date,
+                              has_description, deleted, deleted_only,
+                              content_hash, file_type, media_type):
+        parts = []
+        params = []
+
+        root_filter, root_params = self._enabled_root_filter()
+        parts.append(f" AND {root_filter}")
+        params.extend(root_params)
+
+        if deleted_only is True:
+            parts.append(" AND photos.deleted = 1")
+        elif deleted is not True:
+            parts.append(" AND photos.deleted = 0")
+
+        for clause, clause_params in (
+            self._apply_date_filters(ed, date_from, date_to, date_after,
+                                     date_before, path_after, path_before, no_date),
+            self._apply_condition_filters(q, has_faces, no_description,
+                                          has_description, has_issues, issue_type,
+                                          photo_type, has_gps),
+            self._apply_type_filters(file_type, media_type, content_hash),
+            self._apply_person_filter(person),
+        ):
+            parts.append(clause)
+            params.extend(clause_params)
+
+        return "".join(parts), params
+
+    def _run_search_query(self, base_sql, filter_sql, params, ed, sort, limit, offset):
+        sql = base_sql + filter_sql
         order_map = {
             "date_desc": "effective_date DESC, path DESC",
             "date_asc": "effective_date ASC, path ASC",
@@ -551,6 +577,27 @@ deleted=None, deleted_only=None,
 
         rows = self.sqlite.execute(sql, params).fetchall()
         return total, _rows_to_dicts(rows)
+
+    def search_photos(self, q=None, person=None, date_from=None, date_to=None,
+                      date_after=None, date_before=None,
+                      path_after=None, path_before=None,
+                      has_faces=None, no_description=None, has_issues=None,
+                      issue_type=None, photo_type=None, has_gps=None,
+                      no_date=None, has_description=None,
+                      deleted=None, deleted_only=None,
+                      content_hash=None, file_type=None,
+                      media_type=None,
+                      sort="date_desc", limit=60, offset=0):
+        ed = "COALESCE(manual_date, date)"
+        base_sql = ("SELECT photos.*, " + ed + " as effective_date, cf.content_hash "
+                    "FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
+                    "WHERE cf.is_canonical = 1 AND cf.deleted = 0")  # nosec B608 — SQL column names via f-string, values parameterized through ?
+        filter_sql, params = self._build_search_filters(
+            ed, q, person, date_from, date_to, date_after, date_before,
+            path_after, path_before, has_faces, no_description, has_issues,
+            issue_type, photo_type, has_gps, no_date, has_description,
+            deleted, deleted_only, content_hash, file_type, media_type)
+        return self._run_search_query(base_sql, filter_sql, params, ed, sort, limit, offset)
 
     def get_all_photos(self):
         root_filter, root_params = self._enabled_root_filter()

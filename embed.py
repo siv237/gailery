@@ -91,9 +91,7 @@ def _extract_description(desc):
         return desc
 
 
-def build_search_text(photo, faces_for_photo, persona_map):
-    parts = []
-
+def _collect_face_names(faces_for_photo, persona_map):
     face_names = []
     for f in faces_for_photo:
         pers_id = f.get("persona_id")
@@ -103,6 +101,31 @@ def build_search_text(photo, faces_for_photo, persona_map):
         name = pers.get("display_name") or pers.get("name") or pers_id
         if name not in face_names:
             face_names.append(name)
+    return face_names
+
+
+def _path_to_folder_tags(path):
+    if not path:
+        return []
+    p = Path(path)
+    tags = []
+    for i, part in enumerate(p.parts):
+        if part in ("mnt", "share", "Foto", "/"):
+            continue
+        if i == len(p.parts) - 1:
+            continue
+        try:
+            int(part)
+            continue
+        except ValueError:
+            tags.append(part)
+    return tags
+
+
+def build_search_text(photo, faces_for_photo, persona_map):
+    parts = []
+
+    face_names = _collect_face_names(faces_for_photo, persona_map)
     if face_names:
         parts.append(", ".join(face_names))
 
@@ -110,22 +133,9 @@ def build_search_text(photo, faces_for_photo, persona_map):
     if desc:
         parts.append(desc)
 
-    path = photo.get("path", "")
-    if path:
-        p = Path(path)
-        parts_from_path = []
-        for i, part in enumerate(p.parts):
-            if part in ("mnt", "share", "Foto", "/"):
-                continue
-            if i == len(p.parts) - 1:
-                continue
-            try:
-                int(part)
-                continue
-            except ValueError:
-                parts_from_path.append(part)
-        if parts_from_path:
-            parts.append(" | ".join(parts_from_path))
+    tags = _path_to_folder_tags(photo.get("path", ""))
+    if tags:
+        parts.append(" | ".join(tags))
 
     date = photo.get("manual_date") or photo.get("date")
     if date and date != "0000:00:00 00:00:00":
@@ -467,11 +477,135 @@ def _finalize_lance_index(db):
         log(f"Compact note: {e}")
 
 
+def _fetch_chunk(args, db, photos, offset, fetch_size):
+    if args.force:
+        if photos is None:
+            return None
+        chunk = photos[offset:offset + fetch_size]
+        return chunk if chunk else None
+    chunk = get_unembedded_photos_sql(db, limit=fetch_size, offset=0, content_hash=args.hash or None)
+    return chunk if chunk else None
+
+
+def _maybe_log_progress(embedded, total_to_embed, t0, last_log_t):
+    now = time.time()
+    if now - last_log_t < LOG_INTERVAL:
+        return last_log_t
+    elapsed = now - t0
+    rate = embedded / max(elapsed, 1)
+    pct = embedded / max(total_to_embed, 1) * 100
+    elapsed_fmt = _fmt_dur(elapsed)
+    eta_fmt = _fmt_eta(elapsed, pct)
+    log(f"  [{embedded}/{total_to_embed}] {pct:.1f}% | {elapsed_fmt} пройдено, {rate:.0f}/с{eta_fmt}")
+    return now
+
+
+def _check_remaining(db, cur):
+    remaining = cur.execute(
+        "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')"
+    ).fetchone()[0]
+    return remaining == 0
+
+
+def _process_chunk_photos(chunk, photo_faces, persona_map, engine, db, mq, chunk_size, total_to_embed, t0, last_log_t, embedded, processed, skipped, lance_buffer, mark_buffer):
+    batch_texts = []
+    batch_photos = []
+    batch_hashes = []
+    for p in chunk:
+        _r = _check_stop_pause(mq, "inner")
+        if _r is True:
+            break
+        path = p.get("path", "")
+        content_hash = p.get("content_hash", "")
+        faces = photo_faces.get(content_hash, [])
+        search_text = build_search_text(p, faces, persona_map)
+        if not search_text.strip():
+            skipped += 1
+            cur = db.sqlite.cursor()
+            cur.execute("UPDATE photos SET embedded = 1 WHERE photo_id = ?", (p["photo_id"],))
+            db.sqlite.commit()
+            processed += 1
+            continue
+        meta_hash = compute_meta_hash(search_text)
+        batch_texts.append(search_text)
+        batch_photos.append(p)
+        batch_hashes.append(meta_hash)
+        try:
+            from vlm_log import log_ai_call
+            log_ai_call(
+                call_type="embed",
+                photo_path=path,
+                content_hash=content_hash,
+                photo_id=p.get("photo_id"),
+                input_extra={"search_text": search_text, "meta_hash": meta_hash},
+                success=1,
+            )
+        except (sqlite3.Error, KeyError):
+            pass
+        if len(batch_texts) >= chunk_size:
+            lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
+                engine, batch_texts, batch_photos, batch_hashes,
+                lance_buffer, mark_buffer, db, photo_faces, persona_map)
+            embedded += _emb
+            processed += _proc
+            batch_texts = []
+            batch_photos = []
+            batch_hashes = []
+        last_log_t = _maybe_log_progress(embedded, total_to_embed, t0, last_log_t)
+    return batch_texts, batch_photos, batch_hashes, lance_buffer, mark_buffer, embedded, processed, skipped, last_log_t
+
+
+def _run_embed_loop(args, db, engine, mq, persona_map, photos, total_to_embed, cur):
+    lance_buffer = []
+    mark_buffer = []
+    embedded = 0
+    skipped = 0
+    t0 = time.time()
+    last_log_t = t0
+    processed = 0
+    fetch_size = 5000
+    offset = 0
+    while True:
+        _r = _check_stop_pause(mq, "outer")
+        if _r is True:
+            break
+        if _r == "paused":
+            continue
+        chunk = _fetch_chunk(args, db, photos, offset, fetch_size)
+        if not chunk:
+            break
+        chunk_hashes = [p.get("content_hash", "") for p in chunk if p.get("content_hash")]
+        photo_faces = _fetch_chunk_faces(db, chunk_hashes)
+        chunk_size = getattr(app_config, 'OLLAMA_EMBED_CHUNK', 64) if engine._mode == "ollama" else NUM_SEQ
+        (batch_texts, batch_photos, batch_hashes, lance_buffer, mark_buffer,
+         embedded, processed, skipped, last_log_t) = _process_chunk_photos(
+            chunk, photo_faces, persona_map, engine, db, mq, chunk_size,
+            total_to_embed, t0, last_log_t, embedded, processed, skipped,
+            lance_buffer, mark_buffer)
+        if batch_texts:
+            lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
+                engine, batch_texts, batch_photos, batch_hashes,
+                lance_buffer, mark_buffer, db, photo_faces, persona_map)
+            embedded += _emb
+            processed += _proc
+        if args.force:
+            offset += fetch_size
+        else:
+            if _check_remaining(db, cur):
+                break
+    if mark_buffer:
+        _mark_embedded_batch(db, mark_buffer)
+    if lance_buffer:
+        db.add_photo_embeddings_batch(lance_buffer)
+    elapsed = time.time() - t0
+    log(f"Embedding done: {embedded} встроено, {skipped} пропущено за {_fmt_dur(elapsed)} ({embedded/max(elapsed,1):.0f}/с)")
+    _finalize_lance_index(db)
+
+
 def _main(db, args, mq=None):
     persona_map = _load_persona_map(db)
     total_unembedded, photos = _count_unembedded(db, args)
-    if not args.force:
-        cur = db.sqlite.cursor()
+    cur = None if args.force else db.sqlite.cursor()
     if not args.force and total_unembedded == 0:
         log("All photos already embedded")
         return 0
@@ -485,107 +619,7 @@ def _main(db, args, mq=None):
     engine = None
     try:
         engine = EmbedEngine()
-        lance_buffer = []
-        mark_buffer = []
-        embedded = 0
-        skipped = 0
-        t0 = time.time()
-        last_log_t = t0
-        processed = 0
-        fetch_size = 5000
-        offset = 0
-        while True:
-            _r = _check_stop_pause(mq, "outer")
-            if _r is True:
-                break
-            if _r == "paused":
-                continue
-            if args.force:
-                if photos is None:
-                    break
-                chunk = photos[offset:offset + fetch_size]
-                if not chunk:
-                    break
-            else:
-                chunk = get_unembedded_photos_sql(db, limit=fetch_size, offset=0, content_hash=args.hash or None)
-                if not chunk:
-                    break
-            chunk_hashes = [p.get("content_hash", "") for p in chunk if p.get("content_hash")]
-            photo_faces = _fetch_chunk_faces(db, chunk_hashes)
-            chunk_size = getattr(app_config, 'OLLAMA_EMBED_CHUNK', 64) if engine._mode == "ollama" else NUM_SEQ
-            batch_texts = []
-            batch_photos = []
-            batch_hashes = []
-            for p in chunk:
-                _r = _check_stop_pause(mq, "inner")
-                if _r is True:
-                    break
-                path = p.get("path", "")
-                content_hash = p.get("content_hash", "")
-                faces = photo_faces.get(content_hash, [])
-                search_text = build_search_text(p, faces, persona_map)
-                if not search_text.strip():
-                    skipped += 1
-                    cur = db.sqlite.cursor()
-                    cur.execute("UPDATE photos SET embedded = 1 WHERE photo_id = ?", (p["photo_id"],))
-                    db.sqlite.commit()
-                    processed += 1
-                    continue
-                meta_hash = compute_meta_hash(search_text)
-                batch_texts.append(search_text)
-                batch_photos.append(p)
-                batch_hashes.append(meta_hash)
-                try:
-                    from vlm_log import log_ai_call
-                    log_ai_call(
-                        call_type="embed",
-                        photo_path=path,
-                        content_hash=content_hash,
-                        photo_id=p.get("photo_id"),
-                        input_extra={"search_text": search_text, "meta_hash": meta_hash},
-                        success=1,
-                    )
-                except (sqlite3.Error, KeyError):
-                    pass
-                if len(batch_texts) >= chunk_size:
-                    lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
-                        engine, batch_texts, batch_photos, batch_hashes,
-                        lance_buffer, mark_buffer, db, photo_faces, persona_map)
-                    embedded += _emb
-                    processed += _proc
-                    batch_texts = []
-                    batch_photos = []
-                    batch_hashes = []
-                now = time.time()
-                if now - last_log_t >= LOG_INTERVAL:
-                    elapsed = now - t0
-                    rate = embedded / max(elapsed, 1)
-                    pct = embedded / max(total_to_embed, 1) * 100
-                    elapsed_fmt = _fmt_dur(elapsed)
-                    eta_fmt = _fmt_eta(elapsed, pct)
-                    log(f"  [{embedded}/{total_to_embed}] {pct:.1f}% | {elapsed_fmt} пройдено, {rate:.0f}/с{eta_fmt}")
-                    last_log_t = now
-            if batch_texts:
-                lance_buffer, mark_buffer, _emb, _proc = _encode_and_flush(
-                    engine, batch_texts, batch_photos, batch_hashes,
-                    lance_buffer, mark_buffer, db, photo_faces, persona_map)
-                embedded += _emb
-                processed += _proc
-            if args.force:
-                offset += fetch_size
-            else:
-                remaining = cur.execute(
-            "SELECT COUNT(*) FROM photos p JOIN catalog_files c ON p.path = c.abs_path AND c.is_canonical = 1 AND c.deleted = 0 WHERE (p.embedded = 0 OR p.embedded IS NULL) AND p.deleted = 0 AND (p.media_type IS NULL OR p.media_type != 'video')"
-                ).fetchone()[0]
-                if remaining == 0:
-                    break
-        if mark_buffer:
-            _mark_embedded_batch(db, mark_buffer)
-        if lance_buffer:
-            db.add_photo_embeddings_batch(lance_buffer)
-        elapsed = time.time() - t0
-        log(f"Embedding done: {embedded} встроено, {skipped} пропущено за {_fmt_dur(elapsed)} ({embedded/max(elapsed,1):.0f}/с)")
-        _finalize_lance_index(db)
+        _run_embed_loop(args, db, engine, mq, persona_map, photos, total_to_embed, cur)
     except (RuntimeError, OSError, ValueError, sqlite3.Error) as e:
         log(f"FATAL: {e}")
         import traceback

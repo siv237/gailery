@@ -67,7 +67,7 @@ def generate_one(args):
         return False, path_str, str(e)
 
 
-def main():
+def _parse_args():
     parser = argparse.ArgumentParser(description="Batch thumbnail generation with pyvips")
     parser.add_argument("--all", action="store_true", help="Generate for all photos")
     parser.add_argument("--missing", action="store_true", help="Only generate missing thumbnails")
@@ -76,74 +76,54 @@ def main():
     parser.add_argument("--size", type=str, default=None, help="Size: sm/md/lg")
     parser.add_argument("--format", type=str, default=None, help="Format: webp/jpg")
     parser.add_argument("--year", type=str, default=None, help="Only photos from this year")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    from database import DatabaseManager
-    from thumbnails import ThumbnailGenerator, SIZES
 
-    db = DatabaseManager()
+def _fetch_photo_paths(db, year):
     query = "SELECT path FROM photos"
     conditions = []
-    if args.year:
-        conditions.append(f"path LIKE '%/{args.year}/%'")
+    if year:
+        conditions.append(f"path LIKE '%/{year}/%'")
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY path"
-
     rows = db.sqlite.execute(query).fetchall()
-    paths = [r[0] for r in rows if r[0]]
+    return [r[0] for r in rows if r[0]]
 
-    if args.missing:
-        gen = ThumbnailGenerator()
-        filtered = []
-        for p_str in paths:
-            p = Path(p_str)
-            if not p.exists():
-                continue
-            needs = False
-            sizes = {args.size: SIZES[args.size]} if args.size else SIZES
-            fmts = [args.format] if args.format else ["webp", "jpg"]
-            for sname in sizes:
-                for f in fmts:
-                    if gen.needs_regeneration(p, sname, f):
-                        needs = True
-                        break
-                if needs:
+
+def _filter_missing(paths, size_name, fmt):
+    from thumbnails import ThumbnailGenerator, SIZES
+
+    gen = ThumbnailGenerator()
+    filtered = []
+    for p_str in paths:
+        p = Path(p_str)
+        if not p.exists():
+            continue
+        needs = False
+        sizes = {size_name: SIZES[size_name]} if size_name else SIZES
+        fmts = [fmt] if fmt else ["webp", "jpg"]
+        for sname in sizes:
+            for f in fmts:
+                if gen.needs_regeneration(p, sname, f):
+                    needs = True
                     break
             if needs:
-                filtered.append(p_str)
-        paths = filtered
-        log(f"Missing thumbnails: {len(paths)} photos")
-    else:
-        paths = [p for p in paths if Path(p).exists()]
+                break
+        if needs:
+            filtered.append(p_str)
+    return filtered
 
-    if args.limit > 0:
-        paths = paths[: args.limit]
 
-    if not paths:
-        log("No photos to process")
-        return 0
-
-    log(
-        f"Starting: {len(paths)} photos, workers={args.workers}, "
-        f"size={args.size or 'all'}, format={args.format or 'all'}"
-    )
-
-    set_flag()
-    try:
-        from mqtt_client import create_worker_mqtt
-        mq = create_worker_mqtt("thumbnails")
-    except (ImportError, OSError, ConnectionError):
-        mq = None
-    t0 = time.time()
-
+def _process_batch(paths, workers, size_name, fmt):
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
-    work_items = [(p, args.size, args.format) for p in paths]
+    work_items = [(p, size_name, fmt) for p in paths]
     done = 0
     failed = 0
+    t0 = time.time()
 
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+    with ProcessPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(generate_one, item): item[0] for item in work_items}
         for future in as_completed(futures):
             ok, path_str, err = future.result()
@@ -169,6 +149,44 @@ def main():
         f"Done: {done} generated, {failed} failed in {elapsed:.1f}s "
         f"({done / max(elapsed, 1):.0f}/s)"
     )
+    return failed
+
+
+def main():
+    args = _parse_args()
+
+    from database import DatabaseManager
+
+    db = DatabaseManager()
+    paths = _fetch_photo_paths(db, args.year)
+
+    if args.missing:
+        paths = _filter_missing(paths, args.size, args.format)
+        log(f"Missing thumbnails: {len(paths)} photos")
+    else:
+        paths = [p for p in paths if Path(p).exists()]
+
+    if args.limit > 0:
+        paths = paths[: args.limit]
+
+    if not paths:
+        log("No photos to process")
+        return 0
+
+    log(
+        f"Starting: {len(paths)} photos, workers={args.workers}, "
+        f"size={args.size or 'all'}, format={args.format or 'all'}"
+    )
+
+    set_flag()
+    try:
+        from mqtt_client import create_worker_mqtt
+        mq = create_worker_mqtt("thumbnails")
+    except (ImportError, OSError, ConnectionError):
+        mq = None
+
+    failed = _process_batch(paths, args.workers, args.size, args.format)
+
     clear_flag()
     if mq:
         mq.shutdown()

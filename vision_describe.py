@@ -326,47 +326,60 @@ def _parse_birth_date(comment):
     return None
 
 
-def _calc_age(comment, photo_date=None):
-    bd = _parse_birth_date(comment)
-    if not bd or not photo_date:
-        return None
-    birth_year, birth_month, birth_day = bd
+def _parse_photo_date(photo_date):
     try:
         pd = photo_date[:10]
         parts = pd.split('-')
         if len(parts) != 3:
             return None
-        py, pm, _pdd = int(parts[0]), int(parts[1]), int(parts[2])
+        return int(parts[0]), int(parts[1]), int(parts[2])
     except (ValueError, TypeError):
         return None
 
+
+def _years_word(years):
+    if years == 1:
+        return "1 год"
+    if years in (2, 3, 4):
+        return f"{years} года"
+    return f"{years} лет"
+
+
+def _months_word(months):
+    if months == 1:
+        return "1 месяц"
+    if months in (2, 3, 4):
+        return f"{months} месяца"
+    return f"{months} месяцев"
+
+
+def _format_age(total_months):
+    years = total_months // 12
+    months = total_months % 12
+    if years >= 7:
+        return f"{years} лет"
+    if years == 0:
+        if months == 0:
+            return "меньше месяца"
+        return _months_word(months)
+    if months == 0:
+        return _years_word(years)
+    return f"{_years_word(years)} {_months_word(months)}"
+
+
+def _calc_age(comment, photo_date=None):
+    bd = _parse_birth_date(comment)
+    if not bd or not photo_date:
+        return None
+    parsed_date = _parse_photo_date(photo_date)
+    if parsed_date is None:
+        return None
+    birth_year, birth_month = bd[0], bd[1]
+    py, pm = parsed_date[0], parsed_date[1]
     total_months = (py - birth_year) * 12 + (pm - birth_month)
     if total_months < 0 or total_months >= 216:
         return None
-
-    years = total_months // 12
-    months = total_months % 12
-
-    if years < 7:
-        if years == 0:
-            if months == 0: return "меньше месяца"
-            if months == 1: return "1 месяц"
-            elif months in (2,3,4): return f"{months} месяца"
-            else: return f"{months} месяцев"
-        elif months == 0:
-            if years == 1: return "1 год"
-            elif years in (2,3,4): return f"{years} года"
-            else: return f"{years} лет"
-        else:
-            if years == 1: y_str = "1 год"
-            elif years in (2,3,4): y_str = f"{years} года"
-            else: y_str = f"{years} лет"
-            if months == 1: m_str = "1 месяц"
-            elif months in (2,3,4): m_str = f"{months} месяца"
-            else: m_str = f"{months} месяцев"
-            return f"{y_str} {m_str}"
-    else:
-        return f"{years} лет"
+    return _format_age(total_months)
 
 
 def _is_birthday(comment, photo_date):
@@ -461,134 +474,211 @@ def prepare_image(path):
     return img_b64, None, w
 
 
+def _fetch_context_hash(db, photo_path):
+    ch_row = db.sqlite.execute(
+        "SELECT content_hash FROM catalog_files WHERE abs_path=? AND content_hash IS NOT NULL AND is_canonical=1 LIMIT 1",
+        (photo_path,)).fetchone()
+    if not ch_row:
+        return None
+    return ch_row[0]
+
+
+def _fetch_photo_date(db, photo_path):
+    photo = db.sqlite.execute(
+        "SELECT COALESCE(manual_date, date) FROM photos WHERE path=? AND deleted=0 LIMIT 1",
+        (photo_path,)).fetchone()
+    return str(photo[0])[:10] if photo and photo[0] else None
+
+
+def _fetch_faces_done(db, photo_path):
+    faces_done_row = db.sqlite.execute(
+        "SELECT faces_done FROM catalog_files WHERE abs_path=? AND is_canonical=1 LIMIT 1",
+        (photo_path,)).fetchone()
+    return faces_done_row[0] if faces_done_row else 0
+
+
+def _fetch_face_rows(db, content_hash):
+    return db.sqlite.execute(
+        "SELECT f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, per.display_name, per.comment, per.persona_id "
+        "FROM faces f LEFT JOIN personas per ON f.persona_id=per.persona_id WHERE f.content_hash=?",
+        (content_hash,)).fetchall()
+
+
+def _resolve_img_width(db, photo_path, rows):
+    img_w_row = db.sqlite.execute("SELECT img_width FROM photos WHERE path=? AND deleted=0 LIMIT 1", (photo_path,)).fetchone()
+    img_width = img_w_row[0] if img_w_row and img_w_row[0] else 0
+    if not img_width and rows:
+        img_width = max((r[2] or 0) for r in rows) + 100
+    if not img_width:
+        img_width = 3000
+    return img_width
+
+
+def _lookup_family_facts(name, photo_date, db):
+    ff = db.get_setting("family_facts")
+    if not ff:
+        return None
+    for ff_line in ff.strip().split("\n"):
+        ff_line = ff_line.strip()
+        if ff_line.startswith(name):
+            return (
+                _calc_age(ff_line, photo_date),
+                _is_birthday(ff_line, photo_date),
+                _parse_birth_date(ff_line),
+                ff_line,
+            )
+    return None
+
+
+def _build_face_line(name, pos, age_str, is_bday, bday_date, photo_date):
+    line = name
+    if pos:
+        line += f" ({pos})"
+    if is_bday:
+        bday_str = f"{bday_date[2]:02d}.{bday_date[1]:02d}.{bday_date[0]}" if bday_date else ""
+        line += f", день рождения ({bday_str}, фото {photo_date})"
+        if age_str:
+            line += f", {age_str}"
+    elif age_str:
+        line += f", {age_str}"
+    return line
+
+
+def _resolve_face_details(name, comment, photo_date, db):
+    age_str = _calc_age(comment, photo_date) if name and comment else None
+    is_bday = _is_birthday(comment, photo_date) if name and comment else False
+    bday_date = _parse_birth_date(comment) if name and comment else None
+
+    if not comment and name and photo_date:
+        ff_result = _lookup_family_facts(name, photo_date, db)
+        if ff_result:
+            age_str, is_bday, bday_date, comment = ff_result
+
+    return age_str, is_bday, bday_date, comment
+
+
+def _process_single_face(r, img_width, db, photo_date):
+    name = r[4]
+    comment = r[5] or ""
+    pid = r[6]
+    pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0], img_width)
+    if pid:
+        pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
+        pc[0] if pc else 0
+    age_str, is_bday, bday_date, comment = _resolve_face_details(name, comment, photo_date, db)
+    if name:
+        line = _build_face_line(name, pos, age_str, is_bday, bday_date, photo_date)
+        return line, name
+    return None, None
+
+
+def _process_face_rows(rows, img_width, db, photo_date):
+    named = []
+    named_names = []
+    unnamed = 0
+    for r in rows:
+        line, name = _process_single_face(r, img_width, db, photo_date)
+        if name:
+            named.append(line)
+            named_names.append(name)
+        else:
+            unnamed += 1
+    return named, named_names, unnamed
+
+
+def _format_named_statements(named):
+    statements = []
+    for n in named:
+        if ' (' in n:
+            nm = n.split(' (')[0]
+            rest = n[len(nm)+2:]
+            pos_str = rest.split(')')[0]
+            extra = rest.split(')',1)[1] if ')' in rest else ''
+            extra = extra.strip().lstrip(',').strip()
+            stmt = f"На фото {pos_str} — {nm}"
+            if extra:
+                stmt += f", {extra}"
+            stmt += "."
+            statements.append(stmt)
+        else:
+            statements.append(f"На фото — {n}.")
+    return statements
+
+
+def _filter_family_facts(ff, named_names, photo_date):
+    import re as _re
+    ff_lines = []
+    for line in ff.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        matched = False
+        for nn in named_names:
+            if nn and line.startswith(nn):
+                matched = True
+                break
+        if not matched:
+            continue
+        if photo_date:
+            m = _re.search(r'(\d{1,2})\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})', line)
+            if m:
+                line = _re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}', '', line).strip()
+                line = _re.sub(r'\s+', ' ', line).strip()
+        ff_lines.append(line)
+    log(f"  DEBUG family_facts filter: named_names={named_names}, ff_total={len(ff.strip().split(chr(10)))}, ff_matched={len(ff_lines)}")
+    return ff_lines
+
+
+def _maybe_add_family_facts(parts, named_names, photo_date, db):
+    if not named_names:
+        return
+    ff = db.get_setting("family_facts")
+    if not ff:
+        return
+    ff_lines = _filter_family_facts(ff, named_names, photo_date)
+    if ff_lines:
+        parts.append("Семья:")
+        parts.extend(ff_lines)
+
+
+def _fetch_folder_alias(db, photo_path):
+    alias_row = db.sqlite.execute(
+        "SELECT cr.alias FROM catalog_roots cr JOIN catalog_files cf ON cf.root_id=cr.root_id WHERE cf.abs_path=? AND cf.is_canonical=1 LIMIT 1",
+        (photo_path,)).fetchone()
+    return alias_row[0] if alias_row and alias_row[0] else None
+
+
 def _build_agent_context(photo_path, db):
     if not db:
         return ""
     parts = []
     try:
-        ch_row = db.sqlite.execute(
-            "SELECT content_hash FROM catalog_files WHERE abs_path=? AND content_hash IS NOT NULL AND is_canonical=1 LIMIT 1",
-            (photo_path,)).fetchone()
-        if not ch_row:
+        content_hash = _fetch_context_hash(db, photo_path)
+        if not content_hash:
             return ""
-        content_hash = ch_row[0]
-        photo = db.sqlite.execute(
-            "SELECT COALESCE(manual_date, date) FROM photos WHERE path=? AND deleted=0 LIMIT 1",
-            (photo_path,)).fetchone()
-        photo_date = str(photo[0])[:10] if photo and photo[0] else None
+        photo_date = _fetch_photo_date(db, photo_path)
+        faces_done = _fetch_faces_done(db, photo_path)
+        rows = _fetch_face_rows(db, content_hash)
+        img_width = _resolve_img_width(db, photo_path, rows)
 
-        faces_done_row = db.sqlite.execute(
-            "SELECT faces_done FROM catalog_files WHERE abs_path=? AND is_canonical=1 LIMIT 1",
-            (photo_path,)).fetchone()
-        faces_done = faces_done_row[0] if faces_done_row else 0
-
-        rows = db.sqlite.execute(
-            "SELECT f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, per.display_name, per.comment, per.persona_id "
-            "FROM faces f LEFT JOIN personas per ON f.persona_id=per.persona_id WHERE f.content_hash=?",
-            (content_hash,)).fetchall()
-
-        img_w_row = db.sqlite.execute("SELECT img_width FROM photos WHERE path=? AND deleted=0 LIMIT 1", (photo_path,)).fetchone()
-        img_width = img_w_row[0] if img_w_row and img_w_row[0] else 0
-        if not img_width and rows:
-            img_width = max((r[2] or 0) for r in rows) + 100
-        if not img_width:
-            img_width = 3000
-
-        named = []
-        named_names = []
-        unnamed = 0
         if faces_done:
-            for r in rows:
-                name = r[4]
-                comment = r[5] or ""
-                pid = r[6]
-                pos = _bbox_to_position([r[0] or 0, r[1] or 0, r[2] or 0, r[3] or 0], img_width)
-                if pid:
-                    pc = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id=?", (pid,)).fetchone()
-                    pc[0] if pc else 0
-                age_str = _calc_age(comment, photo_date) if name and comment else None
-                is_bday = _is_birthday(comment, photo_date) if name and comment else False
-                bday_date = _parse_birth_date(comment) if name and comment else None
-
-                if not comment and name and photo_date:
-                    ff = db.get_setting("family_facts")
-                    if ff:
-                        for ff_line in ff.strip().split("\n"):
-                            ff_line = ff_line.strip()
-                            if ff_line.startswith(name):
-                                age_str = _calc_age(ff_line, photo_date)
-                                is_bday = _is_birthday(ff_line, photo_date)
-                                bday_date = _parse_birth_date(ff_line)
-                                comment = ff_line
-                                break
-
-                if name:
-                    line = name
-                    if pos: line += f" ({pos})"
-                    if is_bday:
-                        bday_str = f"{bday_date[2]:02d}.{bday_date[1]:02d}.{bday_date[0]}" if bday_date else ""
-                        line += f", день рождения ({bday_str}, фото {photo_date})"
-                        if age_str:
-                            line += f", {age_str}"
-                    elif age_str:
-                        line += f", {age_str}"
-                    named.append(line)
-                    named_names.append(name)
-                else:
-                    unnamed += 1
+            named, named_names, unnamed = _process_face_rows(rows, img_width, db, photo_date)
         else:
+            named = []
+            named_names = []
             unnamed = len(rows)
 
         if named:
-            for n in named:
-                if ' (' in n:
-                    nm = n.split(' (')[0]
-                    rest = n[len(nm)+2:]
-                    pos_str = rest.split(')')[0]
-                    extra = rest.split(')',1)[1] if ')' in rest else ''
-                    extra = extra.strip().lstrip(',').strip()
-                    stmt = f"На фото {pos_str} — {nm}"
-                    if extra:
-                        stmt += f", {extra}"
-                    stmt += "."
-                    parts.append(stmt)
-                else:
-                    parts.append(f"На фото — {n}.")
+            parts.extend(_format_named_statements(named))
         if unnamed:
             parts.append(f"Также на фото ещё {unnamed} чел. без имени.")
 
-        if faces_done and named_names:
-            ff = db.get_setting("family_facts")
-            if ff:
-                import re as _re
-                ff_lines = []
-                for line in ff.strip().split("\n"):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    matched = False
-                    for nn in named_names:
-                        if nn and line.startswith(nn):
-                            matched = True
-                            break
-                    if not matched:
-                        continue
-                    if photo_date:
-                        m = _re.search(r'(\d{1,2})\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})', line)
-                        if m:
-                            line = _re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}', '', line).strip()
-                            line = _re.sub(r'\s+', ' ', line).strip()
-                    ff_lines.append(line)
-                log(f"  DEBUG family_facts filter: named_names={named_names}, ff_total={len(ff.strip().split(chr(10)))}, ff_matched={len(ff_lines)}")
-                if ff_lines:
-                    parts.append("Семья:")
-                    parts.extend(ff_lines)
+        if faces_done:
+            _maybe_add_family_facts(parts, named_names, photo_date, db)
 
-        alias_row = db.sqlite.execute(
-            "SELECT cr.alias FROM catalog_roots cr JOIN catalog_files cf ON cf.root_id=cr.root_id WHERE cf.abs_path=? AND cf.is_canonical=1 LIMIT 1",
-            (photo_path,)).fetchone()
-        if alias_row and alias_row[0]:
-            parts.append(f"Папка: {alias_row[0]}")
+        alias = _fetch_folder_alias(db, photo_path)
+        if alias:
+            parts.append(f"Папка: {alias}")
         if photo_date:
             parts.append(f"Дата съёмки: {photo_date}")
 

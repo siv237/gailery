@@ -123,22 +123,9 @@ def app_client(tmp_data):
 REAL_DB = Path(__file__).parent.parent / "data" / "gallery.db"
 
 
-@pytest.fixture
-def minidb(tmp_data):
-    """Миникопия реальной БД: структура + первые N реальных строк.
-
-    Копирует структуру из реальной БД, затем через ATTACH DATABASE
-    переносит первые N строк из каждой таблицы.
-    Пути к фото — реальные (файлы на диске не меняются).
-
-    Используется для write-тестов (SECONDARY).
-    """
+def _copy_minidb_schema(real_db_path):
     import sqlite3
-
-    test_path = tmp_data["db_path"]
-
-    # Копируем структуру (только CREATE, без INSERT)
-    prod = sqlite3.connect(str(REAL_DB))
+    prod = sqlite3.connect(str(real_db_path))
     schema_lines = []
     skip_data = False
     for line in prod.iterdump():
@@ -149,14 +136,11 @@ def minidb(tmp_data):
         if not skip_data:
             schema_lines.append(line)
     prod.close()
+    return "\n".join(schema_lines)
 
-    schema = "\n".join(schema_lines)
 
-    mini = sqlite3.connect(str(test_path))
-    mini.executescript(schema)
-
-    # ATTACH реальную БД и копируем первые N строк ДАННЫХ
-    mini.execute(f"ATTACH DATABASE '{REAL_DB}' AS prod")
+def _copy_minidb_data(mini, real_db_path):
+    mini.execute(f"ATTACH DATABASE '{real_db_path}' AS prod")
 
     photo_ids = [r[0] for r in mini.execute(
         "SELECT p.photo_id FROM prod.photos p "
@@ -210,8 +194,9 @@ def minidb(tmp_data):
 
     mini.execute("DETACH DATABASE prod")
     mini.execute("VACUUM")
-    mini.close()
 
+
+def _setup_minidb_patches(test_path, tmp_data):
     _clean_modules()
     cfg_patches = [
         patch("config.DATA_DIR", tmp_data["data"]),
@@ -233,6 +218,31 @@ def minidb(tmp_data):
     from main import app
     from starlette.testclient import TestClient
     client = TestClient(app, raise_server_exceptions=False)
+
+    return db, client, db_patches, cfg_patches
+
+
+@pytest.fixture
+def minidb(tmp_data):
+    """Миникопия реальной БД: структура + первые N реальных строк.
+
+    Копирует структуру из реальной БД, затем через ATTACH DATABASE
+    переносит первые N строк из каждой таблицы.
+    Пути к фото — реальные (файлы на диске не меняются).
+
+    Используется для write-тестов (SECONDARY).
+    """
+    import sqlite3
+
+    test_path = tmp_data["db_path"]
+
+    schema = _copy_minidb_schema(REAL_DB)
+    mini = sqlite3.connect(str(test_path))
+    mini.executescript(schema)
+    _copy_minidb_data(mini, REAL_DB)
+    mini.close()
+
+    db, client, db_patches, cfg_patches = _setup_minidb_patches(test_path, tmp_data)
 
     yield {"db": db, "client": client, "tmp_data": tmp_data}
 

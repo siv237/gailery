@@ -65,20 +65,27 @@ def _get_git_info():
         return None, None
 
 
-def _read_log_info(log_path):
-    progress_info = {}
-    tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
-    faces_phase = ""
-    faces_detail = ""
+def _read_log_tail(log_path):
     try:
         with open(log_path, "r") as f:
-            tail_lines = f.readlines()[-200:]
+            return f.readlines()[-200:]
     except (OSError, UnicodeDecodeError):
-        return {}, "", ""
+        return None
+
+
+def _extract_progress_tags(tail_lines):
+    progress_info = {}
+    tag_map = {"DESCRIBE": "describe", "INGEST": "ingest", "FACES": "faces", "EXIF": "exif", "EMBED": "embed"}
     for line in tail_lines:
         for tag, key in tag_map.items():
             if "[" + tag + "]" in line:
                 progress_info[key] = line.strip()
+    return progress_info
+
+
+def _extract_faces_phase(tail_lines):
+    faces_phase = ""
+    faces_detail = ""
     for line in reversed(tail_lines[-100:]):
         if "[FACES]" in line or "[CLUSTER]" in line:
             stripped = line.strip()
@@ -122,6 +129,15 @@ def _read_log_info(log_path):
                 faces_phase = "loading"
                 faces_detail = stripped.split("Found ")[-1].split(" photos")[0] + " photos"
                 break
+    return faces_phase, faces_detail
+
+
+def _read_log_info(log_path):
+    tail_lines = _read_log_tail(log_path)
+    if tail_lines is None:
+        return {}, "", ""
+    progress_info = _extract_progress_tags(tail_lines)
+    faces_phase, faces_detail = _extract_faces_phase(tail_lines)
     return progress_info, faces_phase, faces_detail
 
 
