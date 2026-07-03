@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Альбомы — Gailery</title>
 <link rel="stylesheet" href="/shared.css">
+<link rel="stylesheet" href="/viewer.css">
+<link rel="stylesheet" href="/face-modal.css">
 <style>
 body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme { background: #ffffff; color: #24292f; }
@@ -13,13 +15,11 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 <body>
 
 <script src="/shared.js"></script>
-<script>renderHeader('Альбомы');</script>
-
-<div class="search-bar">
-  <button onclick="generate()">Сгенерировать</button>
-  <button class="btn-secondary" onclick="clearAll()">Очистить все</button>
-  <span class="info-bar" style="padding:0;border:none;background:none;flex:1" id="albumCount"></span>
-</div>
+<script>renderHeader('Альбомы', '<div class="search-bar">\
+  <button onclick="generate()">Сгенерировать</button>\
+  <button class="btn-secondary" onclick="clearAll()">Очистить все</button>\
+  <span class="info-bar" style="padding:0;border:none;background:none;flex:1" id="albumCount"></span>\
+</div>');</script>
 
 <div id="content">
   <div class="empty">
@@ -28,70 +28,109 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
   </div>
 </div>
 
+<div class="detail-panel" id="detailPanel">
+    <span class="dp-close" onclick="closeDetail()">&times;</span>
+    <div id="dpContent"></div>
+</div>
+
+<div class="del-dialog" id="delDialog">
+    <div class="dd-box">
+        <p class="dd-title">Скрыть фото?</p>
+        <p class="dd-hint">Фото станет невидимым. Вернуть можно в галерее через фильтр «Удалённые».</p>
+        <div class="dd-btns">
+            <button class="dd-confirm" onclick="confirmDel()">Скрыть</button>
+            <button class="dd-cancel" onclick="cancelDel()">Отмена</button>
+        </div>
+    </div>
+</div>
+
+<script src="/gallery-common.js"></script>
+<script src="/viewer.js?v=9"></script>
+<script src="/face-modal.js"></script>
+<script src="/gallery-detail.js?v=9"></script>
+
 <script>
-let currentAlbum = null;
+var API = '/api';
+var currentPhotos = [];
+
+function videoSrc(p) {
+    if (p.media_type === 'video' && p.needs_stream) {
+        return API + '/photos/video_stream?path=' + encodeURIComponent(p.photo_id);
+    }
+    return p.photo_id ? (API + '/photos/?path=' + encodeURIComponent(p.photo_id)) : '';
+}
+
+function showReprocessModal(photoId) {
+    alert('Переобработка доступна в галерее');
+}
+
+var currentAlbum = null;
+var albumViewMode = false;
 
 async function loadAlbums() {
-  const resp = await fetch('/api/albums/');
-  const albums = await resp.json();
-  document.getElementById('albumCount').textContent = albums.length + ' альбомов';
+  albumViewMode = false;
+  currentPhotos = [];
+  var resp = await fetch('/api/albums/');
+  var albums = await resp.json();
+  var el = document.getElementById('albumCount');
+  if (el) el.textContent = albums.length + ' альбомов';
 
   if (!albums.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>';
     return;
   }
 
-  const html = '<div class="grid">' + albums.map(a => {
-    const cover = a.cover_photo_id
-      ? `<img src="/api/photos/thumbnail?path=${a.cover_photo_id}&size=md" loading="lazy">`
+  var html = '<div class="grid">' + albums.map(function(a) {
+    var cover = a.cover_photo_id
+      ? '<img src="/api/photos/thumbnail?path=' + encodeURIComponent(a.cover_photo_id) + '&size=md" loading="lazy">'
       : '';
-    const date = a.date_start ? a.date_start.slice(0,10) : '';
-    const desc = escapeHtml(a.title);
-    const meta = `${a.photo_count} фото · ${date} · ${escapeHtml(a.source)}`;
-    return `<div class="card" onclick="openAlbum('${a.album_id}')">
-      ${cover}
-      <div class="overlay">
-        <div class="desc">${desc}</div>
-        <div class="date">${meta}</div>
-      </div>
-    </div>`;
+    var date = a.date_start ? a.date_start.slice(0,10) : '';
+    var desc = esc(a.title);
+    var meta = a.photo_count + ' фото · ' + date + ' · ' + esc(a.source);
+    return '<div class="card" onclick="openAlbum(\'' + a.album_id + '\')">' +
+      cover +
+      '<div class="overlay">' +
+      '<div class="desc">' + desc + '</div>' +
+      '<div class="date">' + meta + '</div>' +
+      '</div></div>';
   }).join('') + '</div>';
 
   document.getElementById('content').innerHTML = html;
 }
 
 async function openAlbum(id) {
-  const resp = await fetch('/api/albums/' + id);
-  const album = await resp.json();
+  albumViewMode = true;
+  var resp = await fetch('/api/albums/' + id + '?full=true');
+  var album = await resp.json();
   currentAlbum = album;
 
-  let photosHtml = '';
-  if (album.photo_ids && album.photo_ids.length) {
-    photosHtml = '<div class="grid">' + album.photo_ids.map(pid =>
-      `<div class="card" onclick="openPhoto('${pid}')"><img src="/api/photos/thumbnail?path=${pid}&size=sm" loading="lazy"></div>`
-    ).join('') + '</div>';
+  var photos = album.photos || [];
+  currentPhotos = photos;
+
+  var photosHtml = '';
+  if (photos.length) {
+    photosHtml = '<div class="grid" id="grid">' + photos.map(function(p, idx) {
+      return buildCardHtml(p, idx);
+    }).join('') + '</div>';
+    setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
   } else {
     photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
   }
 
-  const meta = `${album.photo_count} фото · ${album.date_start ? album.date_start.slice(0,10) : ''} — ${album.date_end ? album.date_end.slice(0,10) : ''} · ${escapeHtml(album.source)}`;
-  document.getElementById('content').innerHTML = `
-    <div class="search-bar">
-      <button class="btn-secondary" onclick="loadAlbums()">← Все альбомы</button>
-      <span class="info-bar" style="padding:0;border:none;background:none;flex:1">${escapeHtml(album.title)} · ${meta}</span>
-    </div>
-    ${photosHtml}
-  `;
-}
-
-function openPhoto(pid) {
-  window.open('/api/photos/?path=' + pid, '_blank');
+  var meta = album.photo_count + ' фото · ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' — ' + album.date_end.slice(0,10) : '') + ' · ' + esc(album.source);
+  document.getElementById('content').innerHTML =
+    '<div class="search-bar">' +
+    '<button class="btn-secondary" onclick="loadAlbums()">&#8592; Все альбомы</button>' +
+    '<span class="info-bar" style="padding:0;border:none;background:none;flex:1">' + esc(album.title) + ' · ' + meta + '</span>' +
+    '</div>' +
+    photosHtml;
 }
 
 async function generate() {
-  document.getElementById('albumCount').textContent = 'Генерация...';
-  const resp = await fetch('/api/albums/generate', {method:'POST'});
-  const data = await resp.json();
+  var el = document.getElementById('albumCount');
+  if (el) el.textContent = 'Генерация...';
+  var resp = await fetch('/api/albums/generate', {method:'POST'});
+  var data = await resp.json();
   if (data.ok) {
     alert('Создано альбомов: ' + data.created);
     loadAlbums();
@@ -102,17 +141,11 @@ async function generate() {
 
 async function clearAll() {
   if (!confirm('Удалить все альбомы?')) return;
-  const resp = await fetch('/api/albums/clear', {method:'DELETE'});
-  const data = await resp.json();
+  var resp = await fetch('/api/albums/clear', {method:'DELETE'});
+  var data = await resp.json();
   if (data.ok) {
     loadAlbums();
   }
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
 }
 
 loadAlbums();

@@ -1,34 +1,5 @@
-/* global API, _fracToX, _isMobile, _tlZoom, activeDate, closePhotoModal, currentPhotos, doSearch, esc, formatDate, videoSrc */
-function updateNeedleFlag(dateStr) {
-    var flag = document.getElementById('tlNeedleFlag');
-    var needle = document.getElementById('tlNeedle');
-    if (!flag) return;
-    if (!dateStr) { flag.textContent = ''; return; }
-    if (needle) needle.style.opacity = '1';
-    var p = dateStr.substring(0, 10).split('-');
-    if (p.length === 3) {
-        var text = p[2] + '.' + p[1] + '.' + p[0];
-        var timePart = dateStr.substring(11, 16);
-        if (timePart && timePart !== '00:0' && timePart !== '00:00') text += ' ' + timePart;
-        else if (_tlZoom > 5000) text += ' 00:00';
-        flag.textContent = text;
-    } else {
-        flag.textContent = dateStr.substring(0, 10);
-    }
-}
-
-function selectYear(year) {
-    activeDate = year ? (year + '-01-01') : '';
-    updateNeedleFlag(activeDate);
-    var needle = document.getElementById('tlNeedle');
-    if (needle && year) {
-        needle.style.transition = 'left .4s ease-out';
-        needle.style.left = _fracToX(parseInt(year)) + 'px';
-    }
-    doSearch();
-}
-
- function openDetail(idx) {
+/* global API, _isMobile, closePhotoModal, currentPhotos, esc, formatDate, videoSrc */
+function openDetail(idx) {
      var p = currentPhotos[idx];
      if (!p) return;
      _dpRot = 0;

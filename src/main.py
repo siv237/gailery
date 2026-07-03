@@ -1072,6 +1072,13 @@ async def face_modal_js():
         return FileResponse(str(p), media_type="application/javascript")
     raise HTTPException(status_code=404)
 
+@app.get("/gallery-common.js")
+async def gallery_common_js():
+    p = web_dir / "gallery-common.js"
+    if p.exists():
+        return FileResponse(str(p), media_type="application/javascript", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    raise HTTPException(status_code=404)
+
 @app.get("/gallery.js")
 async def gallery_js():
     p = web_dir / "gallery.js"

@@ -1505,10 +1505,26 @@ class DatabaseManager:
         rows = self.sqlite.execute(
             "SELECT ap.photo_id FROM album_photos ap "
             "JOIN photos p ON p.photo_id = ap.photo_id "
-            "WHERE ap.album_id = ? ORDER BY p.date ASC",
+            "WHERE ap.album_id = ? ORDER BY COALESCE(p.date_utc, p.manual_date, p.date) ASC, p.path ASC",
             (album_id,)
         ).fetchall()
         return [r[0] for r in rows]
+
+    def get_photos_by_ids(self, photo_ids):
+        """Полные строки photos+catalog_files по списку photo_id (UUID).
+        Возвращает list of dicts, отсортированные по date ASC.
+        """
+        if not photo_ids:
+            return []
+        ph = ",".join("?" * len(photo_ids))
+        rows = self.sqlite.execute(
+            f"SELECT photos.*, cf.content_hash, cf.is_canonical "  # nosec B608 — values parameterized through ?
+            f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
+            f"WHERE photos.photo_id IN ({ph}) AND cf.is_canonical = 1 "
+            f"ORDER BY COALESCE(photos.date_utc, photos.manual_date, photos.date) ASC, photos.path ASC",
+            photo_ids
+        ).fetchall()
+        return _rows_to_dicts(rows)
 
     def create_album(self, title, description="", source="manual",
                      date_start=None, date_end=None, photo_ids=None):

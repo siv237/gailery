@@ -135,6 +135,76 @@ class TestSharedHeader:
             assert rh_pos >= 0, f"{url}: renderHeader не вызывается"
             assert sj_pos < rh_pos, f"{url}: shared.js загружается ПОСЛЕ renderHeader — функция не определена"
 
+    def test_all_script_and_link_sources_served(self, app_client):
+        """Каждый <script src> и <link href> в HTML отдаётся сервером (200)."""
+        import re
+        for url, _ in self.PAGES:
+            body = app_client.get(url).text
+            # <script src="/xxx">
+            srcs = re.findall(r'<script[^>]+src="(/[^"]+)"', body)
+            # <link href="/xxx">
+            hrefs = re.findall(r'<link[^>]+href="(/[^"]+)"', body)
+            for src in srcs + hrefs:
+                # пропускаем query-часть
+                path = src.split("?")[0]
+                resp = app_client.get(path)
+                assert resp.status_code == 200, f"{url}: {src} отдаёт {resp.status_code}"
+
+    def test_js_globals_defined_in_loaded_files(self, app_client):
+        """Для каждой страницы проверить что все /* global */ декларации
+        в загруженных JS-файлах определены в одном из загруженных файлов
+        или inline-скриптов — ИЛИ используются через typeof-проверку.
+        Ловит случаи когда функция из gallery-ui.js вызывается на странице
+        где gallery-ui.js не подключён (например _isMobile в albums)."""
+        import re
+        from pathlib import Path
+        web = Path(__file__).parent.parent / "web"
+        for url, _ in self.PAGES:
+            body = app_client.get(url).text
+            srcs = re.findall(r'<script[^>]+src="(/[^"]+)"', body)
+            # Собираем содержимое всех загруженных JS-файлов + inline-скриптов
+            all_js = ""
+            for src in srcs:
+                fname = src.split("?")[0].lstrip("/")
+                p = web / fname
+                if p.exists():
+                    all_js += "\n" + p.read_text()
+            # Inline-скрипты (без src)
+            inline_blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', body, re.DOTALL)
+            for block in inline_blocks:
+                all_js += "\n" + block
+
+            # Для каждого JS-файла извлекаем /* global ... */ и проверяем
+            for src in srcs:
+                fname = src.split("?")[0].lstrip("/")
+                p = web / fname
+                if not p.exists():
+                    continue
+                text = p.read_text()
+                m = re.search(r'/\*\s*global\s+(.*?)\*/', text)
+                if not m:
+                    continue
+                names = [n.strip().rstrip(',') for n in m.group(1).split() if n.strip().rstrip(',')]
+                for name in names:
+                    # Опциональная зависимость: typeof NAME в этом файле
+                    if re.search(rf'typeof\s+{re.escape(name)}', text):
+                        continue
+                    # Ищем определение в объединённом коде
+                    patterns = [
+                        rf'\bfunction\s+{re.escape(name)}\s*\(',
+                        rf'\bvar\s+[^;]*\b{re.escape(name)}\b',
+                        rf'\blet\s+[^;]*\b{re.escape(name)}\b',
+                        rf'\bconst\s+[^;]*\b{re.escape(name)}\b',
+                        rf'\b{re.escape(name)}\s*=\s*function',
+                        rf'\b{re.escape(name)}\s*:\s*function',
+                    ]
+                    found = any(re.search(pat, all_js) for pat in patterns)
+                    assert found, (
+                        f"{url}: {fname} объявляет /* global {name} */, "
+                        f"но ни один из загруженных JS-файлов или inline-скриптов "
+                        f"не определяет '{name}'"
+                    )
+
     def test_all_pages_load_shared_css(self, app_client):
         """Все страницы подключают shared.css — стили шапки."""
         for url, _ in self.PAGES:

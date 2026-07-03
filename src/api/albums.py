@@ -6,6 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 
+from api.photos import _enrich_photo
 from api.validators import json_body
 from database import get_db
 
@@ -57,22 +58,22 @@ def _date_title(dt):
 def _generate_clusters(db):
     """Кластеризация фото по времени (gap ≤ 2ч, ≥ 5 фото).
 
-    p.date для всех фото и видео — уже локальное время.
-    Для видео с date_tz='utc' конвертация UTC→локальное выполнена
-    в exif.py при записи (UTC + utc_offset = локальное). Дополнительно
-    конвертировать здесь НЕ нужно — это вызовет двойную конвертацию.
+    Сортировка по date_utc — единое временное пространство для фото и видео.
+    У фото date_utc = локальное - EXIF offset, у видео date_utc = UTC.
+    Это объединяет видео и фото одной съёмки даже если видео без utc_offset
+    (p.date остался UTC, но date_utc корректен).
 
     Фото с повреждённым временем (00:00:00 — нет реального EXIF) не
     участвуют в кластеризации самостоятельно, а привязываются к ближайшему
-    кластеру того же дня. Это объединяет фото со сбойного фотика
-    (положенные в папку вручную) с основной съёмкой.
+    кластеру того же дня.
     """
     rows = db.sqlite.execute(
-        "SELECT p.photo_id, p.date, cf.parent_dir "
+        "SELECT p.photo_id, COALESCE(p.date_utc, p.manual_date, p.date) as sort_date, "
+        "substr(COALESCE(p.manual_date, p.date), 1, 10) as day_str, cf.parent_dir "
         "FROM photos p "
         "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
         "WHERE p.deleted = 0 AND p.date IS NOT NULL "
-        "ORDER BY p.date"
+        "ORDER BY sort_date"
     ).fetchall()
 
     gap = GAP_HOURS * 3600
@@ -83,6 +84,7 @@ def _generate_clusters(db):
 
     for r in rows:
         date_str = r[1]
+        day_str = r[2]
         try:
             dt = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
         except (ValueError, TypeError):
@@ -90,7 +92,7 @@ def _generate_clusters(db):
 
         # Фото с неизвестным временем (00:00:00) — отложить
         if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
-            zero_time_photos.append((r[0], dt, r[2]))
+            zero_time_photos.append((r[0], day_str, r[3]))
             continue
 
         if prev_dt and (dt - prev_dt).total_seconds() > gap:
@@ -100,10 +102,11 @@ def _generate_clusters(db):
 
         if not cur["photo_ids"]:
             cur["start"] = dt
+            cur["day"] = day_str
         cur["end"] = dt
         cur["photo_ids"].append(r[0])
-        if r[2]:
-            cur["dirs"].add(r[2])
+        if r[3]:
+            cur["dirs"].add(r[3])
         prev_dt = dt
 
     if len(cur["photo_ids"]) >= MIN_PHOTOS:
@@ -112,35 +115,93 @@ def _generate_clusters(db):
     # Привязать фото с 00:00:00 к ближайшему кластеру того же дня
     clusters_by_day = {}
     for c in clusters:
-        day = c["start"].date()
+        day = c.get("day") or c["start"].strftime("%Y-%m-%d")
         clusters_by_day.setdefault(day, []).append(c)
 
     leftover_by_day = {}
-    for pid, dt, parent_dir in zero_time_photos:
-        day = dt.date()
-        if day in clusters_by_day:
-            # Если несколько кластеров в этот день — ближайший по времени
-            # (нулевое время = начало дня, берём первый кластер)
-            target = clusters_by_day[day][0]
+    for pid, day_str, parent_dir in zero_time_photos:
+        if day_str in clusters_by_day:
+            target = clusters_by_day[day_str][0]
             target["photo_ids"].append(pid)
             if parent_dir:
                 target["dirs"].add(parent_dir)
         else:
-            leftover_by_day.setdefault(day, []).append((pid, dt, parent_dir))
+            leftover_by_day.setdefault(day_str, []).append((pid, parent_dir))
 
     # Фото с 00:00:00 в днях без кластеров — образуют свои кластеры
     for day, items in leftover_by_day.items():
         if len(items) >= MIN_PHOTOS:
             clusters.append({
                 "photo_ids": [i[0] for i in items],
-                "dirs": {i[2] for i in items if i[2]},
-                "start": items[0][1],
-                "end": items[0][1],
+                "dirs": {i[1] for i in items if i[1]},
+                "start": datetime.strptime(day + " 00:00:00", "%Y-%m-%d %H:%M:%S"),
+                "end": datetime.strptime(day + " 00:00:00", "%Y-%m-%d %H:%M:%S"),
             })
 
     # Сортировка по дате начала
     clusters.sort(key=lambda c: c["start"])
     return clusters
+
+
+def _enrich_album_photos(db, photo_ids):
+    """Получить полные фото-объекты (с лицами, персонами, дублями) по списку UUID."""
+    photos = db.get_photos_by_ids(photo_ids)
+    if not photos:
+        return []
+
+    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+
+    photo_faces = {}
+    persona_ids_needed = set()
+    if hashes:
+        ph = ",".join("?" * len(hashes))
+        face_rows = db.sqlite.execute(
+            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
+            f"FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — values parameterized through ?
+            hashes
+        ).fetchall()
+        face_cols = ["face_id", "photo_id", "content_hash", "persona_id",
+                     "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+        for fr in face_rows:
+            fd = dict(zip(face_cols, fr))
+            ch = fd.get("content_hash") or ""
+            if ch:
+                photo_faces.setdefault(ch, []).append(fd)
+            if fd.get("persona_id"):
+                persona_ids_needed.add(fd["persona_id"])
+
+    persona_map = {}
+    if persona_ids_needed:
+        pids = list(persona_ids_needed)
+        pid_ph = ",".join("?" * len(pids))
+        p_rows = db.sqlite.execute(
+            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608
+            pids
+        ).fetchall()
+        for pr in p_rows:
+            pid = pr[0]
+            cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
+            persona_map[pid] = {
+                "persona_id": pid, "name": pr[1], "display_name": pr[2],
+                "comment": pr[3], "total_face_count": cnt_row[0] if cnt_row else 0,
+            }
+
+    result = []
+    for p in photos:
+        ep = _enrich_photo(p, photo_faces, persona_map, include_created=True)
+        hash_val = ep.get("content_hash")
+        try:
+            if hash_val:
+                ep["duplicate_paths"] = db.get_duplicate_paths(hash_val)
+                ep["edits"] = db.get_edits(hash_val)
+            else:
+                ep["duplicate_paths"] = []
+                ep["edits"] = []
+        except Exception:
+            ep["duplicate_paths"] = []
+            ep["edits"] = []
+        result.append(ep)
+    return result
 
 
 def _detect_junk_dirs(clusters):
@@ -160,13 +221,16 @@ async def list_albums():
 
 
 @router.get("/{album_id}")
-async def get_album(album_id: str):
-    """Один альбом со списком фото."""
+async def get_album(album_id: str, full: bool = False):
+    """Один альбом. При full=true — photos содержит полные объекты фото."""
     db = get_db()
     album = db.get_album(album_id)
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
-    album["photo_ids"] = db.get_album_photos(album_id)
+    photo_ids = db.get_album_photos(album_id)
+    album["photo_ids"] = photo_ids
+    if full:
+        album["photos"] = _enrich_album_photos(db, photo_ids)
     return album
 
 
