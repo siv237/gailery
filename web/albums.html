@@ -43,6 +43,43 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .desc-modal-cancel { background: #eaeef2; color: #24292f; border: 1px solid #d0d7de; }
 .album-desc-text { color: #8b949e; font-size: 12px; line-height: 1.5; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #21262d; }
 .light-theme .album-desc-text { color: #57606a; background: #f6f8fa; border-color: #d0d7de; }
+
+/* ─── Album card stack effect (real photos) ─── */
+.grid-albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 28px; padding: 24px 20px; }
+.album-card { position: relative; cursor: pointer; }
+.ac-photo { position: absolute; inset: 0; border-radius: 4px; overflow: hidden; background: #161b22; border: 1px solid #30363d; transition: transform .35s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease; }
+.ac-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #21262d; }
+.ac-photo .ac-no-cover { width: 100%; aspect-ratio: 1; background: #21262d; display: flex; align-items: center; justify-content: center; font-size: 36px; color: #30363d; }
+.ac-photo .ac-count { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.8); color: #c9d1d9; font-size: 11px; padding: 2px 8px; border-radius: 10px; z-index: 4; font-weight: 600; }
+.ac-photo .ac-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 8px; background: linear-gradient(transparent, rgba(0,0,0,.85)); font-size: 10px; line-height: 1.4; z-index: 3; pointer-events: none; }
+.ac-photo .ac-overlay .date { color: #8b949e; }
+.ac-photo .ac-overlay .desc { color: #c9d1d9; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ac-spread { position: relative; width: 100%; aspect-ratio: 1; }
+.ac-back-2 { z-index: 0; transform: translate(6px, 6px) rotate(-2.5deg); }
+.ac-back-1 { z-index: 1; transform: translate(3px, 3px) rotate(1.5deg); }
+.ac-front { z-index: 2; transform: none; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.album-card:hover .ac-back-2 { transform: translate(16px, 6px) rotate(-12deg); box-shadow: -6px 4px 14px rgba(0,0,0,.4); }
+.album-card:hover .ac-back-1 { transform: translate(-16px, 6px) rotate(12deg); box-shadow: 6px 4px 14px rgba(0,0,0,.4); }
+.album-card:hover .ac-front { transform: translateY(-8px); box-shadow: 0 12px 28px rgba(0,0,0,.5); }
+.ac-photo.ac-active { z-index: 10; transform: translateY(-14px) scale(1.06) rotate(0deg); box-shadow: 0 16px 32px rgba(0,0,0,.6); }
+.light-theme .ac-photo { background: #f6f8fa; border-color: #d0d7de; }
+.light-theme .ac-photo img { background: #eaeef2; }
+.light-theme .ac-photo .ac-no-cover { background: #eaeef2; color: #d0d7de; }
+.light-theme .ac-photo .ac-overlay { background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+.light-theme .ac-photo .ac-overlay .date { color: #b1bac4; }
+.light-theme .ac-photo .ac-overlay .desc { color: #fff; }
+.light-theme .ac-front { box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .album-card:hover .ac-back-2 { box-shadow: -6px 4px 14px rgba(0,0,0,.15); }
+.light-theme .album-card:hover .ac-back-1 { box-shadow: 6px 4px 14px rgba(0,0,0,.15); }
+.light-theme .album-card:hover .ac-front { box-shadow: 0 12px 28px rgba(0,0,0,.2); }
+.light-theme .ac-photo.ac-active { box-shadow: 0 16px 32px rgba(0,0,0,.25); }
+@media (max-width: 480px) {
+    .grid-albums { grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 10px 6px; }
+    .album-card:hover .ac-back-2 { transform: translate(8px, 3px) rotate(-8deg); }
+    .album-card:hover .ac-back-1 { transform: translate(-8px, 3px) rotate(8deg); }
+    .album-card:hover .ac-front { transform: translateY(-4px); }
+    .ac-photo.ac-active { transform: translateY(-8px) scale(1.04); }
+}
 </style>
 </head>
 <body>
@@ -124,22 +161,53 @@ async function loadAlbums() {
     return;
   }
 
-  var html = '<div class="grid">' + albums.map(function(a) {
-    var cover = a.cover_photo_id
-      ? '<img src="/api/photos/thumbnail?path=' + encodeURIComponent(a.cover_photo_id) + '&size=md" loading="lazy">'
-      : '';
+  var html = '<div class="grid-albums">' + albums.map(function(a) {
+    var previews = a.preview_photos || [];
     var date = a.date_start ? a.date_start.slice(0,10) : '';
     var desc = esc(a.title);
     var meta = a.photo_count + ' фото · ' + date + ' · ' + esc(a.source);
-    return '<div class="card" onclick="openAlbum(\'' + a.album_id + '\')">' +
-      cover +
-      '<div class="overlay">' +
-      '<div class="desc">' + desc + '</div>' +
-      '<div class="date">' + meta + '</div>' +
-      '</div></div>';
+    var classes = ['ac-front', 'ac-back-1', 'ac-back-2'];
+    var photosHtml = '';
+    for (var i = 0; i < previews.length && i < 3; i++) {
+      var pid = previews[i];
+      var img = '<img src="/api/photos/thumbnail?path=' + encodeURIComponent(pid) + '&size=md" loading="lazy">';
+      var overlay = i === 0
+        ? '<div class="ac-count">' + a.photo_count + '</div>' +
+          '<div class="ac-overlay"><div class="desc">' + desc + '</div><div class="date">' + meta + '</div></div>'
+        : '';
+      photosHtml += '<div class="ac-photo ' + classes[i] + '" onclick="event.stopPropagation();openAlbum(\'' + a.album_id + '\')">' + img + overlay + '</div>';
+    }
+    if (!photosHtml) {
+      photosHtml = '<div class="ac-photo ac-front"><div class="ac-no-cover">&#128247;</div><div class="ac-count">' + a.photo_count + '</div></div>';
+    }
+    return '<div class="album-card" onclick="openAlbum(\'' + a.album_id + '\')"><div class="ac-spread">' + photosHtml + '</div></div>';
   }).join('') + '</div>';
 
   document.getElementById('content').innerHTML = html;
+  _initAlbumStackThrottle();
+}
+
+var _acLastSwitch = 0;
+function _initAlbumStackThrottle() {
+  var cards = document.querySelectorAll('.album-card');
+  for (var i = 0; i < cards.length; i++) {
+    (function(card) {
+      var photos = card.querySelectorAll('.ac-photo');
+      for (var j = 0; j < photos.length; j++) {
+        photos[j].addEventListener('mouseenter', function() {
+          var now = Date.now();
+          if (now - _acLastSwitch < 300) return;
+          _acLastSwitch = now;
+          for (var k = 0; k < photos.length; k++) photos[k].classList.remove('ac-active');
+          this.classList.add('ac-active');
+        });
+      }
+      card.addEventListener('mouseleave', function() {
+        for (var k = 0; k < photos.length; k++) photos[k].classList.remove('ac-active');
+        _acLastSwitch = 0;
+      });
+    })(cards[i]);
+  }
 }
 
 async function openAlbum(id) {

@@ -279,9 +279,35 @@ def _exif_time(exif_raw_str):
 
 @router.get("/")
 async def list_albums():
-    """Список всех альбомов."""
+    """Список всех альбомов с preview-фото для стопки карточек.
+
+    cover_photo_id — на вершине стопки, остальные 2 — случайные каждый запрос.
+    """
+    import random as _random
     db = get_db()
-    return db.get_albums()
+    albums = db.get_albums()
+    if not albums:
+        return []
+    album_ids = [a["album_id"] for a in albums]
+    ph = ",".join("?" * len(album_ids))
+    rows = db.sqlite.execute(
+        "SELECT ap.album_id, ap.photo_id FROM album_photos ap "
+        "JOIN photos p ON p.photo_id = ap.photo_id "
+        "WHERE ap.album_id IN (" + ph + ")",
+        album_ids
+    ).fetchall()
+    all_pids = {}
+    for aid, pid in rows:
+        all_pids.setdefault(aid, []).append(pid)
+    for a in albums:
+        ids = all_pids.get(a["album_id"], [])
+        cover = a.get("cover_photo_id")
+        rest = [i for i in ids if i != cover]
+        if len(rest) > 2:
+            rest = _random.sample(rest, 2)
+        preview = ([cover] if cover else []) + rest
+        a["preview_photos"] = preview[:3]
+    return albums
 
 
 @router.get("/by_photo/{photo_id}")
