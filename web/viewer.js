@@ -46,8 +46,8 @@ var _topbarHideTimer = null;
 // ─── HTML injection ───
 var _viewerHTML = `
 <div class="modal-bg" id="photoModal">
-    <div class="modal-nav modal-prev" onclick="modalNav(-1)">&#8249;</div>
-    <div class="modal-nav modal-next" onclick="modalNav(1)">&#8250;</div>
+    <div class="modal-nav modal-prev" onclick="modalNav(-1)"><span class="nav-arrow">&#8249;<span class="nav-phantoms"><i>&#8249;</i><i>&#8249;</i><i>&#8249;</i></span></span></div>
+    <div class="modal-nav modal-next" onclick="modalNav(1)"><span class="nav-arrow">&#8250;<span class="nav-phantoms"><i>&#8250;</i><i>&#8250;</i><i>&#8250;</i></span></span></div>
     <div class="modal-content" id="modalContent">
         <div class="modal-img-wrap" id="modalImgWrap" style="cursor:grab">
             <img id="photoModalImg" src="" onclick="event.stopPropagation()">
@@ -152,6 +152,7 @@ Viewer.close = function() {
     if (pm) {
         pm.addEventListener('mousemove', function() {
             _scheduleTopbarHide();
+            _showNavButtons();
         });
         var lastTap = 0;
         pm.addEventListener('touchend', function(e) {
@@ -168,6 +169,7 @@ function openViewer(idx) {
     if (idx < 0 || idx >= Viewer.photos.length) return;
     Viewer.modalOpen = true;
     if (typeof closeDetail === 'function') closeDetail();
+    _showNavButtons();
     _mIdx = idx;
     var p = Viewer.photos[idx];
     _mDate = p.date || '';
@@ -335,6 +337,10 @@ function closePhotoModal() {
     document.getElementById('photoModal').classList.remove('fs');
     if (_ssTimer) { clearInterval(_ssTimer); _ssTimer = null; _ssDir = 0; }
     document.getElementById('modalTopbar').classList.remove('playing');
+    var np = document.querySelector('.modal-prev'), nn = document.querySelector('.modal-next');
+    if (np) np.classList.remove('visible');
+    if (nn) nn.classList.remove('visible');
+    clearTimeout(_navHideTimer);
     window.onmousemove = null; window.onmouseup = null;
     _flirDrag = false; _flirScaleCorner = null;
     _flirOX = 219; _flirOY = 141; _flirScaleX = 1.5; _flirScaleY = 1.5; _flirProbes = [];
@@ -505,6 +511,8 @@ function _positionModalControls() {
     var btns = document.getElementById('modalBtns');
     var bar = document.getElementById('modalTopbar');
     var modal = document.getElementById('photoModal');
+    var navPrev = document.querySelector('.modal-prev');
+    var navNext = document.querySelector('.modal-next');
     if (!btns || !bar || !modal || !modal.classList.contains('show')) return;
     var isVideo = vid && vid.style.display !== 'none';
     var cvs = document.getElementById('photoModalCanvas');
@@ -529,9 +537,52 @@ function _positionModalControls() {
     if (_mZoom > 1) { bar.style.top = barTop+'px'; bar.style.left = leftEdge+'px'; bar.style.width = 'auto'; bar.classList.add('zoomed'); }
     else { var barWidth = Math.min(rect.width, vpW - 2*pad); bar.style.top = barTop+'px'; bar.style.left = leftEdge+'px'; bar.style.width = barWidth+'px'; bar.classList.remove('zoomed'); }
     bar.style.transform = '';
+    // Nav кнопки — на торцах фото, по центру вертикали
+    var centerY = vpH / 2;
+    var navPad = 4;
+    if (navPrev) {
+        var prevLeft = Math.max(rect.left - navPad - 40, 0);
+        navPrev.style.top = centerY + 'px';
+        navPrev.style.left = prevLeft + 'px';
+        navPrev.style.right = 'auto';
+    }
+    if (navNext) {
+        var nextRight = Math.max(vpW - rect.right - navPad - 40, 0);
+        navNext.style.top = centerY + 'px';
+        navNext.style.right = nextRight + 'px';
+        navNext.style.left = 'auto';
+    }
 }
 
 // ─── Topbar auto-hide ───
+var _navHideTimer = null;
+var _navHovered = false;
+function _showNavButtons() {
+    var prev = document.querySelector('.modal-prev');
+    var next = document.querySelector('.modal-next');
+    if (prev) prev.classList.add('visible');
+    if (next) next.classList.add('visible');
+    clearTimeout(_navHideTimer);
+    if (_navHovered) return;
+    _navHideTimer = setTimeout(function() {
+        if (prev) prev.classList.remove('visible');
+        if (next) next.classList.remove('visible');
+    }, 1500);
+}
+
+(function() {
+    function attach(el) {
+        if (!el || el._navHoverInit) return;
+        el._navHoverInit = true;
+        el.addEventListener('mouseenter', function() { _navHovered = true; clearTimeout(_navHideTimer); });
+        el.addEventListener('mouseleave', function() { _navHovered = false; _showNavButtons(); });
+    }
+    setTimeout(function() {
+        attach(document.querySelector('.modal-prev'));
+        attach(document.querySelector('.modal-next'));
+    }, 100);
+})();
+
 function _scheduleTopbarHide() {
     var bar = document.getElementById('modalTopbar');
     var fs = document.querySelector('.modal-fs'), cl = document.querySelector('.modal-close'), ft = document.querySelector('.modal-fit');
