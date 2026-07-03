@@ -719,7 +719,7 @@ function setModalFlir(mode) {
         _flirThImg.src = _vAPI()+'/photos/flir_raw_palette?path='+pid+'&_t='+ts;
     } else {
         img.style.display = 'block'; cvs.style.display = 'none'; flirCtrl.style.display = 'none'; _flirToken++;
-        var ov2 = document.getElementById('faceOverlays'); if (ov2) { ov2.style.pointerEvents = 'auto'; _drawFaceBoxes(p, img); }
+        var ov2 = document.getElementById('faceOverlays'); if (ov2) { ov2.style.pointerEvents = ''; _drawFaceBoxes(p, img); }
         if (mode === 'thermal') img.src = _vAPI()+'/photos/?path='+pid;
         else if (mode === 'visual') img.src = _vAPI()+'/photos/flir_visual?path='+pid;
         applyModalTransform();
