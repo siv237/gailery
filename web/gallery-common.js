@@ -4,9 +4,58 @@
    Опциональные зависимости (есть только в gallery):
      isSemanticMode, goToTimelineFromCard, searchInput
 */
-/* global API, Viewer, currentPhotos, openDetail, openFaceModal, markDeleted, videoSrc, esc, formatDate, isSemanticMode, goToTimelineFromCard */
+/* global API, Viewer, closeDetail, currentPhotos, openDetail, openFaceModal, markDeleted, videoSrc, esc, formatDate, isSemanticMode, goToTimelineFromCard */
 
 function _isMobile() { return window.innerWidth <= 768; }
+
+// ─── Detail panel: swipe-to-close on mobile (инициализация после загрузки) ───
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof openDetail !== 'function') return;
+    var dpHandleAdded = false;
+    var _origOpenDetail = openDetail;
+    openDetail = function(idx) {
+        _origOpenDetail(idx);
+        if (!dpHandleAdded && _isMobile()) {
+            var dp = document.getElementById('detailPanel');
+            if (dp && !dp.querySelector('.dp-handle')) {
+                var handle = document.createElement('div');
+                handle.className = 'dp-handle';
+                dp.insertBefore(handle, dp.firstChild);
+                dpHandleAdded = true;
+            }
+        }
+    };
+    var dp = document.getElementById('detailPanel');
+    if (!dp) return;
+    var dpStartY = 0, dpCurY = 0, dpDragging = false;
+    dp.addEventListener('touchstart', function(e) {
+        var t = e.touches[0];
+        var handle = dp.querySelector('.dp-handle');
+        if (!handle) return;
+        var rect = handle.getBoundingClientRect();
+        if (t.clientY >= rect.top - 15 && t.clientY <= rect.bottom + 25) {
+            dpDragging = true;
+            dpStartY = t.clientY;
+            dp.style.transition = 'none';
+        }
+    }, { passive: true });
+    dp.addEventListener('touchmove', function(e) {
+        if (!dpDragging) return;
+        var dy = e.touches[0].clientY - dpStartY;
+        if (dy > 0) {
+            dpCurY = dy;
+            dp.style.transform = 'translateY(' + dy + 'px)';
+        }
+    }, { passive: true });
+    dp.addEventListener('touchend', function() {
+        if (!dpDragging) return;
+        dpDragging = false;
+        dp.style.transition = '';
+        dp.style.transform = '';
+        if (dpCurY > 80) closeDetail();
+        dpCurY = 0;
+    }, { passive: true });
+});
 
 if (typeof esc !== 'function') {
     function esc(s) {

@@ -151,59 +151,192 @@ class TestSharedHeader:
                 assert resp.status_code == 200, f"{url}: {src} отдаёт {resp.status_code}"
 
     def test_js_globals_defined_in_loaded_files(self, app_client):
-        """Для каждой страницы проверить что все /* global */ декларации
-        в загруженных JS-файлах определены в одном из загруженных файлов
-        или inline-скриптов — ИЛИ используются через typeof-проверку.
-        Ловит случаи когда функция из gallery-ui.js вызывается на странице
-        где gallery-ui.js не подключён (например _isMobile в albums)."""
+        """Загружает все JS-файлы страницы через node vm с заглушками browser API.
+        Ловит ReferenceError на этапе загрузки — когда файл на верхнем уровне
+        обращается к функции из файла загруженного ПОЗЖЕ (openDetail, esc и т.д.)."""
+        import json
         import re
+        import subprocess
+        import tempfile
         from pathlib import Path
         web = Path(__file__).parent.parent / "web"
+
+        # Node-скрипт: загружает JS-файлы в порядке, ловит ReferenceError
+        node_script = r"""
+const vm = require('vm');
+const fs = require('fs');
+const path = require('path');
+
+// Заглушки browser API
+const _eventListeners = {};
+function dispatchEvent(ev) {
+    const type = ev && ev.type;
+    if (type && _eventListeners[type]) {
+        for (const cb of _eventListeners[type]) { try { cb(ev); } catch(e) {} }
+    }
+}
+function mockEl() {
+    return new Proxy({}, {
+        get(t, p) {
+            if (p === 'style') return {};
+            if (p === 'classList') return {add(){},remove(){},toggle(){},contains(){return false;}};
+            if (p === 'children') return [];
+            if (p === 'firstChild') return null;
+            if (p === 'parentNode') return mockEl();
+            if (p === 'dataset') return {};
+            if (p === 'value') return '';
+            if (p === 'textContent') return '';
+            if (p === 'innerHTML') return '';
+            if (p === 'offsetWidth') return 100;
+            if (p === 'offsetHeight') return 100;
+            if (p === 'getBoundingClientRect') return () => ({top:0,left:0,right:100,bottom:100,width:100,height:100});
+            if (p === 'querySelector') return () => null;
+            if (p === 'querySelectorAll') return () => [];
+            if (p === 'addEventListener') return () => {};
+            if (p === 'removeEventListener') return () => {};
+            if (p === 'appendChild') return (c) => c;
+            if (p === 'insertBefore') return (c) => c;
+            if (p === 'removeChild') return (c) => c;
+            if (p === 'removeAttribute') return () => {};
+            if (p === 'setAttribute') return () => {};
+            if (p === 'getAttribute') return null;
+            if (p === 'remove') return () => {};
+            if (p === 'focus') return () => {};
+            if (p === 'play') return () => Promise.resolve();
+            if (p === 'pause') return () => {};
+            if (p === 'load') return () => {};
+            if (p === 'click') return () => {};
+            if (p === 'outerHTML') return '';
+            if (p === 'src') return '';
+            if (p === 'videoWidth') return 100;
+            if (p === 'videoHeight') return 100;
+            if (typeof p === 'string') return mockEl();
+            return undefined;
+        },
+        set(t, p, v) { t[p] = v; return true; },
+    });
+}
+
+const ctx = {
+    document: {
+        getElementById: () => mockEl(),
+        createElement: () => mockEl(),
+        createTextNode: () => mockEl(),
+        addEventListener: (type, cb) => { if (cb) { (_eventListeners[type] = _eventListeners[type] || []).push(cb); } },
+        removeEventListener: () => {},
+        dispatchEvent: dispatchEvent,
+        documentElement: {classList:{add(){},remove(){},toggle(){}}, requestFullscreen(){}, style:{}},
+        body: {appendChild(){}, insertBefore(){}, classList:{add(){},remove(){}}},
+        head: {appendChild(){}},
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        readyState: 'complete',
+        cookie: '',
+    },
+    window: {
+        innerWidth: 1024, innerHeight: 768,
+        addEventListener(){}, removeEventListener(){},
+        scrollTo(){}, scrollBy(){}, scrollY: 0, pageYOffset: 0,
+        open(){return {postMessage(){}};},
+        postMessage(){},
+        requestAnimationFrame(){return 1;},
+        cancelAnimationFrame(){},
+        visualViewport: {height: 768, width: 1024, addEventListener(){}},
+        matchMedia(){return {matches:false, addEventListener(){}};},
+    location: {search:'', pathname:'/', hash:'', href:''},
+    history: {pushState(){}, replaceState(){}, back(){}},
+    localStorage: {getItem(){return null;}, setItem(){}, removeItem(){}},
+    sessionStorage: {getItem(){return null;}, setItem(){}},
+        devicePixelRatio: 1,
+    },
+    navigator: {userAgent: 'node-test', platform: 'linux'},
+    location: {search:'', pathname:'/', hash:'', href:''},
+    history: {pushState(){}, replaceState(){}, back(){}},
+    localStorage: {getItem(){return null;}, setItem(){}, removeItem(){}},
+    console: console,
+    setTimeout, setInterval, clearInterval, clearTimeout,
+    fetch: () => Promise.resolve({json:()=>Promise.resolve({}), ok:true, text:()=>Promise.resolve('')}),
+    IntersectionObserver: function(){this.observe=function(){};this.unobserve=function(){};},
+    MutationObserver: function(){this.observe=function(){};this.disconnect=function(){};},
+    Image: function(){this.src='';},
+    URLSearchParams: URLSearchParams,
+    parseInt, parseFloat, isNaN, isFinite,
+    encodeURIComponent, decodeURIComponent, encodeURI, decodeURI,
+    CSS: {escape: s => String(s)},
+    Math, Date, String, Array, Object, Number, Boolean, RegExp, JSON, Error, Promise,
+    Proxy, Map, Set, Symbol, WeakMap, WeakSet,
+};
+ctx.window.document = ctx.document;
+ctx.window.window = ctx.window;
+ctx.window.navigator = ctx.navigator;
+ctx.window.localStorage = ctx.localStorage;
+ctx.self = ctx.window;
+ctx.globalThis = ctx;
+
+vm.createContext(ctx);
+const files = JSON.parse(process.argv[2]);
+const errors = [];
+for (const f of files) {
+    try {
+        const code = fs.readFileSync(f, 'utf8');
+        vm.runInContext(code, ctx, {filename: f, timeout: 5000});
+    } catch (e) {
+        if (e instanceof ReferenceError || e.name === 'ReferenceError') {
+            errors.push(f.split('/web/').pop() + ': ' + e.message);
+        }
+    }
+}
+// Fire DOMContentLoaded — инициализация отложенных обработчиков
+try {
+    vm.runInContext('if (typeof document !== "undefined" && document.dispatchEvent) document.dispatchEvent({type:"DOMContentLoaded"});', ctx, {timeout: 5000});
+} catch (e) {
+    if (e instanceof ReferenceError || e.name === 'ReferenceError') {
+        errors.push('DOMContentLoaded: ' + e.message);
+    }
+}
+if (errors.length) {
+    console.error('REFERENCE_ERRORS:\n' + errors.join('\n'));
+    process.exit(1);
+}
+process.exit(0);
+"""
+
         for url, _ in self.PAGES:
             body = app_client.get(url).text
             srcs = re.findall(r'<script[^>]+src="(/[^"]+)"', body)
-            # Собираем содержимое всех загруженных JS-файлов + inline-скриптов
-            all_js = ""
+            # Собираем пути к JS-файлам в порядке загрузки
+            js_files = []
             for src in srcs:
                 fname = src.split("?")[0].lstrip("/")
                 p = web / fname
-                if p.exists():
-                    all_js += "\n" + p.read_text()
-            # Inline-скрипты (без src)
+                if p.exists() and "/lib/" not in str(p) and "/admin/" not in str(p):
+                    js_files.append(str(p))
+            # Inline-скрипты (без src) — в конец
             inline_blocks = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', body, re.DOTALL)
-            for block in inline_blocks:
-                all_js += "\n" + block
+            inline_code = "\n".join(inline_blocks)
+            if inline_code.strip():
+                tmp_inline = tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False, dir=str(web))
+                tmp_inline.write(inline_code)
+                tmp_inline.close()
+                js_files.append(tmp_inline.name)
 
-            # Для каждого JS-файла извлекаем /* global ... */ и проверяем
-            for src in srcs:
-                fname = src.split("?")[0].lstrip("/")
-                p = web / fname
-                if not p.exists():
-                    continue
-                text = p.read_text()
-                m = re.search(r'/\*\s*global\s+(.*?)\*/', text)
-                if not m:
-                    continue
-                names = [n.strip().rstrip(',') for n in m.group(1).split() if n.strip().rstrip(',')]
-                for name in names:
-                    # Опциональная зависимость: typeof NAME в этом файле
-                    if re.search(rf'typeof\s+{re.escape(name)}', text):
-                        continue
-                    # Ищем определение в объединённом коде
-                    patterns = [
-                        rf'\bfunction\s+{re.escape(name)}\s*\(',
-                        rf'\bvar\s+[^;]*\b{re.escape(name)}\b',
-                        rf'\blet\s+[^;]*\b{re.escape(name)}\b',
-                        rf'\bconst\s+[^;]*\b{re.escape(name)}\b',
-                        rf'\b{re.escape(name)}\s*=\s*function',
-                        rf'\b{re.escape(name)}\s*:\s*function',
-                    ]
-                    found = any(re.search(pat, all_js) for pat in patterns)
-                    assert found, (
-                        f"{url}: {fname} объявляет /* global {name} */, "
-                        f"но ни один из загруженных JS-файлов или inline-скриптов "
-                        f"не определяет '{name}'"
-                    )
+            with tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False) as f:
+                f.write(node_script)
+                runner_path = f.name
+            try:
+                result = subprocess.run(
+                    ["node", runner_path, json.dumps(js_files)],
+                    capture_output=True, text=True, timeout=30,
+                    cwd=str(Path(__file__).parent.parent)
+                )
+                # Удаляем временный inline-файл
+                if len(js_files) > 0 and js_files[-1].startswith(str(web)) and js_files[-1].endswith(".js"):
+                    Path(js_files[-1]).unlink(missing_ok=True)
+                assert result.returncode == 0, (
+                    f"{url}: ReferenceError при загрузке JS:\n{result.stderr}"
+                )
+            finally:
+                Path(runner_path).unlink(missing_ok=True)
 
     def test_all_pages_load_shared_css(self, app_client):
         """Все страницы подключают shared.css — стили шапки."""

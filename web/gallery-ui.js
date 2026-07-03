@@ -1,4 +1,4 @@
-/* global API, FaceModalHooks, _canLoadMore, _canLoadPrev, _clampTlOffset, _dateToX, _drawFaceBoxes, _firstDate, _firstPath, _initTimeline, _isLoading, _isMobile, _lastDate, _lastPath, _mDate, _mIdx, _mPhotoId, _mZoom, _positionModalControls, _scheduleTopbarHide, _tlCanvas, _tlDefaultZoom, _tlOffsetX, _tlZoom, activeDate, activePerson, allPersonas, cancelDel, closeDetail, closeFaceModal, closePhotoModal, closeVideoModal, currentPhotos, dateData, doSearch, esc, isSemanticMode, list, loadAfter, loadBefore, loadTimeline, modalNav, onModeChange, openDetail, renderTimeline, updateCatFilterLabel, updateNeedleFlag, updateTypeFilterLabel */
+/* global API, FaceModalHooks, _canLoadMore, _canLoadPrev, _clampTlOffset, _dateToX, _drawFaceBoxes, _firstDate, _firstPath, _initTimeline, _isLoading, _isMobile, _lastDate, _lastPath, _mDate, _mIdx, _mPhotoId, _mZoom, _positionModalControls, _tlCanvas, _tlDefaultZoom, _tlOffsetX, _tlZoom, activeDate, activePerson, allPersonas, cancelDel, closeDetail, closeFaceModal, closePhotoModal, closeVideoModal, currentPhotos, dateData, doSearch, esc, isSemanticMode, list, loadAfter, loadBefore, loadTimeline, modalNav, onModeChange, openDetail, renderTimeline, updateCatFilterLabel, updateNeedleFlag, updateTypeFilterLabel */
 function goToTimeline() {
     var p = currentPhotos[_mIdx];
     if (!p) return;
@@ -24,14 +24,6 @@ function _goToTimeline(p) {
     _restorePhotoId = pid;
     doSearch();
 }
-
-document.getElementById('vidModal').addEventListener('click', function(e) {
-    if (e.target === this) closeVideoModal();
-});
-
-document.getElementById('photoModal').addEventListener('mousemove', function() {
-    _scheduleTopbarHide();
-});
 
 function filterByPerson(name) {
     activePerson = name;
@@ -463,65 +455,7 @@ function mobClearFilters() {
       let catMobs2 = ['chkCatPhotoMob','chkCatScreenshotMob','chkCatDocumentMob','chkCatMemeMob','chkCatIconMob','chkCatOtherMob'];
       for (let i = 0; i < catMobs2.length; i++) { let el = document.getElementById(catMobs2[i]); if (el) el.checked = true; }
      var modeMob = document.getElementById('searchModeMob'); if (modeMob) modeMob.value = 'exact';
-     clearFilters();
- }
+      clearFilters();
+  }
 
-(function() {
-    var modal = document.getElementById('photoModal');
-    var lastTap = 0;
-    modal.addEventListener('touchend', function(e) {
-        if (_mZoom > 1) return;
-        var dx = e.changedTouches[0].clientX;
-        var dy = e.changedTouches[0].clientY;
-        var dt = Date.now();
-        if (dt - lastTap < 300) { _scheduleTopbarHide(); }
-        lastTap = dt;
-    }, { passive: true });
-})();
 
-var dpHandleAdded = false;
-var _origOpenDetail = openDetail;
-openDetail = function(idx) {
-    _origOpenDetail(idx);
-    if (!dpHandleAdded && _isMobile()) {
-        var dp = document.getElementById('detailPanel');
-        if (dp && !dp.querySelector('.dp-handle')) {
-            var handle = document.createElement('div');
-            handle.className = 'dp-handle';
-            dp.insertBefore(handle, dp.firstChild);
-            dpHandleAdded = true;
-        }
-    }
-};
-
-(function() {
-    var dp = document.getElementById('detailPanel');
-    var dpStartY = 0, dpCurY = 0, dpDragging = false;
-    dp.addEventListener('touchstart', function(e) {
-        var t = e.touches[0];
-        var handle = dp.querySelector('.dp-handle');
-        if (!handle) return;
-        var rect = handle.getBoundingClientRect();
-        if (t.clientY >= rect.top - 15 && t.clientY <= rect.bottom + 25) {
-            dpDragging = true;
-            dpStartY = t.clientY;
-            dp.style.transition = 'none';
-        }
-    }, { passive: true });
-    dp.addEventListener('touchmove', function(e) {
-        if (!dpDragging) return;
-        var dy = e.touches[0].clientY - dpStartY;
-        if (dy > 0) {
-            dpCurY = dy;
-            dp.style.transform = 'translateY(' + dy + 'px)';
-        }
-    }, { passive: true });
-    dp.addEventListener('touchend', function() {
-        if (!dpDragging) return;
-        dpDragging = false;
-        dp.style.transition = '';
-        dp.style.transform = '';
-        if (dpCurY > 80) closeDetail();
-        dpCurY = 0;
-    }, { passive: true });
-})();

@@ -142,6 +142,27 @@ Viewer.close = function() {
     closePhotoModal();
 };
 
+// ─── UI event listeners (работают на любой странице) ───
+(function() {
+    var pm = document.getElementById('photoModal');
+    var vm = document.getElementById('vidModal');
+    if (vm) vm.addEventListener('click', function(e) {
+        if (e.target === this) closeVideoModal();
+    });
+    if (pm) {
+        pm.addEventListener('mousemove', function() {
+            _scheduleTopbarHide();
+        });
+        var lastTap = 0;
+        pm.addEventListener('touchend', function(e) {
+            if (_mZoom > 1) return;
+            var dt = Date.now();
+            if (dt - lastTap < 300) { _scheduleTopbarHide(); }
+            lastTap = dt;
+        }, { passive: true });
+    }
+})();
+
 // ─── Core: open/close ───
 function openViewer(idx) {
     if (idx < 0 || idx >= Viewer.photos.length) return;
