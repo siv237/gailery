@@ -666,11 +666,11 @@ function reindexAll() {
     var cards = document.querySelectorAll('.card');
     var isMobile = _isMobile();
     for (var i = 0; i < cards.length; i++) {
-        cards[i].setAttribute('onclick', 'openDetail(' + i + ')');
+        cards[i].setAttribute('onclick', 'Viewer.open(currentPhotos,' + i + ')');
         var p = currentPhotos[i] || {};
         var isVid = p.media_type === 'video';
         var btn = cards[i].querySelector('.expand-btn');
-        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();Viewer.open(currentPhotos,' + i + ')');
+        if (btn) btn.setAttribute('onclick', 'event.stopPropagation();openDetail(' + i + ')');
         if (isMobile) {
             cards[i].removeAttribute('ondblclick');
         } else {

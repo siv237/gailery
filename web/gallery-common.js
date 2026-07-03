@@ -176,8 +176,8 @@ function buildCardHtml(p, idx) {
         badge = '<div class="' + fcls + '"' + ftop + '>' + p.personas.length + ' лиц</div>';
     }
     var _videoHover = p.media_type === 'video' ? ' onmouseenter="startVideoPreview(this,' + idx + ')" onmouseleave="stopVideoPreview(this)"' : '';
-    var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date_utc || p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
-    html += '<button class="expand-btn" onclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ')">' + (p.media_type === 'video' ? '&#9654;' : '&#x2922;') + '</button>';
+    var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date_utc || p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="Viewer.open(currentPhotos,' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
+    html += '<button class="expand-btn" onclick="event.stopPropagation();openDetail(' + idx + ')" title="Подробности">&#8505;</button>';
     var q = '';
     var si = document.getElementById('searchInput');
     if (si) q = si.value.trim();
