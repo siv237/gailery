@@ -1,4 +1,4 @@
-/* global Viewer, ViewerHooks, _embeddedMode, _isMobile, _lastScrollY, _mIdx, _modalOpen, _needleDateISO, _openViewerOnLoad, _restoreNeedleDate, _restorePhotoId, _syncTimelineToPhoto, _tlMonthFrom, _tlMonthTo, addPhotoGps, clearPhotoGps, formatDate, markDeleted, saveFilters, saveRotate, undeletePhoto, updateNeedleFlag, updateTimelinePosition */
+/* global Viewer, ViewerHooks, _embeddedMode, _isMobile, _lastScrollY, _mIdx, _modalOpen, _needleDateISO, _openViewerOnLoad, _programmaticScroll, _restoreNeedleDate, _restorePhotoId, _syncTimelineToPhoto, _tlMonthFrom, _tlMonthTo, addPhotoGps, clearPhotoGps, formatDate, markDeleted, saveFilters, saveRotate, undeletePhoto, updateNeedleFlag, updateTimelinePosition */
 var API = '/api';
 function videoSrc(p) {
     if (p.media_type === 'video' && p.needs_stream) {
@@ -32,7 +32,7 @@ ViewerHooks.onClose = function() {
     var lastPid = currentPhotos[_mIdx] && currentPhotos[_mIdx].photo_id;
     if (lastPid) {
         var c = document.querySelector('.card[data-photo-id="' + CSS.escape(lastPid) + '"]');
-        if (c) c.scrollIntoView({block:'center'});
+        if (c) { _programmaticScroll = true; c.scrollIntoView({block:'center'}); _lastScrollY = window.scrollY; setTimeout(function() { _programmaticScroll = false; }, 0); }
     }
     if (typeof _embeddedMode !== 'undefined' && _embeddedMode && window.parent) {
         window.parent.postMessage({type: 'closeModal'}, '*');
@@ -372,7 +372,10 @@ function _applyBatch(data) {
                   function scrollToPhoto() {
                       var el = document.querySelector('.card[data-photo-id="' + CSS.escape(rid) + '"]');
                       if (el) {
+                          _programmaticScroll = true;
                           el.scrollIntoView({ block: 'start' });
+                          _lastScrollY = window.scrollY;
+                          setTimeout(function() { _programmaticScroll = false; }, 0);
                           if (_openViewerOnLoad) {
                               _openViewerOnLoad = false;
                               var idx = currentPhotos.findIndex(function(p) { return p.photo_id === rid; });
@@ -404,7 +407,10 @@ function _applyBatch(data) {
               }
               if (bestIdx < 0 && currentPhotos.length > 0) bestIdx = 0;
               if (bestIdx >= 0 && cards[bestIdx]) {
+                  _programmaticScroll = true;
                   cards[bestIdx].scrollIntoView({ block: 'start' });
+                  _lastScrollY = window.scrollY;
+                  setTimeout(function() { _programmaticScroll = false; }, 0);
                   var bp = currentPhotos[bestIdx];
                   if (bp && bp.date) {
                       _needleDateISO = bp.date;
@@ -537,8 +543,10 @@ function loadBefore(beforeDate, beforePath, onComplete) {
         _canLoadPrev = data.photos.length >= pageSize;
         _updateSentinel();
         var newScrollH = document.documentElement.scrollHeight;
+        _programmaticScroll = true;
         window.scrollBy(0, newScrollH - oldScrollH);
         _lastScrollY = window.scrollY;
+        setTimeout(function() { _programmaticScroll = false; }, 0);
         _isLoading = false;
         updateInfo();
         if (onComplete) onComplete(data.photos || []);
@@ -1410,8 +1418,10 @@ function _tlNavigateAt(clickX) {
             _isLoading = false;
             _needleMode = false;
             setTimeout(function() {
+                _programmaticScroll = true;
                 window.scrollTo(0, document.documentElement.scrollHeight);
                 _lastScrollY = window.scrollY;
+                setTimeout(function() { _programmaticScroll = false; }, 0);
                 updateTimelinePosition();
             }, 100);
         }).catch(function(e) {

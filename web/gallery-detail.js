@@ -44,7 +44,7 @@ function selectYear(year) {
           html = '<video class="dp-img" id="detailVideo" src="' + vidUrl + '" controls preload="metadata" style="width:100%;max-height:400px;background:#000;border-radius:4px"></video>';
      } else {
          html = '<img class="dp-img" id="dpImg" src="' + thumbUrl + '" loading="lazy" onerror="this.style.display=\'none\'">';
-         html += '<div class="dp-img-bar"><button onclick="rotateDetail(-90)">&#8634;</button><button onclick="rotateDetail(90)">&#8635;</button></div>';
+          html += '<div class="dp-img-bar"><button onclick="rotateDetail(-90)">&#8634;</button><button onclick="rotateDetail(90)">&#8635;</button></div>';
          if (p.is_flir) {
              html += '<div class="flir-mode-bar" id="flirModeBar">';
              html += '<button class="active" onclick="setFlirMode(\'thermal\')">Тепловизор</button>';
@@ -562,7 +562,7 @@ function enrichPhoto(photoId) {
                 preview.innerHTML =
                     '<div class="dp-desc rich">' + esc(d.rich_description) + '</div>' +
                     '<div class="rich-actions">' +
-                    '<button class="btn-save" onclick="acceptRich(\'' + esc(photoId) + '\')">Сохранить</button>' +
+                    '<button onclick="acceptRich(\'' + esc(photoId) + '\')" style="padding:3px 10px;font-size:11px">Сохранить</button>' +
                     '<button class="btn-reject" onclick="rejectRich()">Отклонить</button>' +
                     '</div>';
                 _pendingRich = d.rich_description;
@@ -619,7 +619,7 @@ function showCustomDesc(photoId) {
     area.innerHTML =
         '<textarea id="customDescInput">' + esc(existingText) + '</textarea>' +
         '<div class="rich-actions">' +
-        '<button class="btn-save" onclick="saveCustomDesc(\'' + esc(photoId) + '\')">Сохранить</button>' +
+        '<button onclick="saveCustomDesc(\'' + esc(photoId) + '\')" style="padding:3px 10px;font-size:11px">Сохранить</button>' +
         '<button class="btn-cancel" onclick="document.getElementById(\'customDescArea\').style.display=\'none\'">Отмена</button>' +
         '</div>';
 }

@@ -1,7 +1,51 @@
 # Gailery Design System — STYLE.md
 
-> Единый источник истины для всех страниц. Тест `test_style_conformance` парсит этот файл
-> и проверяет что CSS всех страниц соответствует стандартам. Отклонение = fail.
+> Единый источник истины для всех страниц. Тесты парсят CSS и проверяют соответствие.
+> Отклонение = fail.
+
+---
+
+## Манифест принципов
+
+### 1. Single source of truth (NN/g)
+Каждый компонент определён **один раз** в `shared.css` и переиспользуется везде.
+Дублирование одного стиля под разными именами классов — нарушение.
+Если 3 класса определяют одинаковый визуальный стиль — это 3 ошибки.
+
+### 2. Limit your choices (Refactoring UI)
+Чем меньше разновидностей — тем консистентнее.
+- Кнопки: **3** варианта (base/secondary, primary/go, danger/stop) — не 18
+- Инпуты: **1** стиль на всех страницах — не 8
+- Карточки: **1** базовый стиль — не 28
+Каждая новая разновидность — техдолг. Тесты фиксируют потолок, он только снижается.
+
+### 3. Design tokens, not hardcoded values (Material 3 / Primer)
+Цвета, отступы, размеры — именованные значения из палитры.
+Hex напрямую — только в STYLE.md и shared.css. На страницах — классы.
+`#fff` в `<button style="...">` = нарушение.
+
+### 4. Use fewer borders (Refactoring UI)
+Вместо бордюров — box-shadow, контраст фонов, больше пространства.
+Меньше `border` = чище интерфейс.
+
+### 5. Hierarchy through contrast, not size (Refactoring UI)
+Не все элементы равны. Размер — не единственный инструмент.
+Color, weight, spacing передают иерархию лучше чем `font-size: 999px`.
+
+### 6. Theme-aware from the start (Primer)
+Каждый цветной селектор имеет `.light-theme` вариант.
+Инлайн `style=""` с цветом — запрещён (нельзя переопределить тему).
+CSS variables (`var(--c-*)`) — для admin, hex из палитры — для страниц.
+
+### 7. shared.css is the component library (NN/g Component Library)
+Общие стили компонентов живут в `shared.css`, не дублируются per-page.
+Страница использует `.btn`, `.card`, `.input` — не переопределяет их.
+Per-page определения кнопок/инпутов/карточек → 0.
+
+### 8. Consistency metric — testable (NN/g + Refactoring UI)
+Консистентность измерима: число разновидностей стиля на тип элемента.
+Тесты парсят CSS, считают уникальные сигнатуры, падают при росте.
+Порог (baseline) только снижается — это метрика техдолга.
 
 ---
 
@@ -63,6 +107,7 @@
 | `success` | `#1f883d` | Успех |
 | `success-bg` | `#1f883d` | Кнопки |
 | `success-hover` | `#29994a` | Hover успеха |
+| `success-deep` | `#1a7f37` | Глубокий зелёный (hover light) |
 | `warning` | `#9a6700` | Предупреждение |
 | `danger` | `#cf222e` | Опасность |
 | `danger-bg` | `#a40e26` | Кнопки |
@@ -87,18 +132,29 @@
 |---|---|---|
 | `font-family` | `monospace` | Все страницы |
 | `font-family` | `system-ui, sans-serif` | Запрещён для страниц |
-| Заголовок страницы (h1/h2) | `16px` | В шапке |
-| Заголовок секции | `14px`, `font-weight: 600` | .cfg-group-head, .task-info .tn |
-| Заголовок карточки | `13px`, `font-weight: 600` | .card-title, .task-info .tn |
-| Основной текст | `13px` | Тело карточек, панелей |
-| Метаданные | `12px` | .card-meta, .detail-header .meta |
-| Приглушённый текст | `11px` | .wcard-row, .cfg-desc, .status-val |
+| Очень мелкий текст | `8px` | Микро-метки |
+| Мелкий текст | `9px` | Микро-бейджи |
 | Мелкий текст | `10px` | .card-source, .sidebar-footer .ver |
+| Приглушённый текст | `11px` | .wcard-row, .cfg-desc, .status-val |
+| Метаданные | `12px` | .card-meta, .detail-header .meta |
+| Основной текст | `13px` | Тело карточек, панелей |
+| Заголовок карточки | `14px`, `font-weight: 600` | .card-title, .task-info .tn |
+| Средний заголовок | `15px` | Промежуточный |
+| Заголовок страницы (h1/h2) | `16px` | В шапке |
+| Крупный заголовок | `18px` | Подзаголовки |
+| Большой текст | `20px` | Акценты |
+| Большой заголовок | `22px` | Разделы |
+| Крупный заголовок | `24px` | Разделы (admin) |
+| Числа дашборда | `28px` | Admin dashboard |
+| Числа дашборда | `30px` | Admin dashboard |
+| Числа дашборда | `32px` | Admin dashboard |
+| Числа дашборда | `36px` | Admin dashboard |
+| Числа дашборда | `40px` | Admin dashboard |
+| Числа дашборда | `44px` | Admin dashboard |
 | `line-height` | `1.3` — `1.5` | По умолчанию |
 
 ### Запрещённые размеры шрифтов
-- `< 10px` — слишком мелко
-- `> 18px` — слишком крупно для контента (кроме чисел в дашборде)
+- Любой размер не из таблицы выше = нарушение
 
 ---
 
@@ -172,7 +228,7 @@ Disabled: `bg:#21262d, text:#484f58, cursor: default`
 | Свойство | Значение | Назначение |
 |---|---|---|
 | `transition` | `.15s` (colors), `.2s` (transform), `.3s` (panel) | Плавность |
-| `border-radius` | `6px` (cards), `4px` (buttons/inputs), `3px` (badges) | Скругление |
+| `border-radius` | `0` (none), `2px` (хairline), `3px` (badges), `4px` (buttons/inputs), `6px` (cards), `8px` (panels), `10px` (special), `12px` (large cards), `16px` (modals), `50%` (circles) | Скругление |
 | `box-shadow` | `0 8px 24px rgba(0,0,0,.4)` (dropdowns) | Тени только для overlay |
 | `transform` | `translateY(-2px)` (card hover) | Подъём карточки |
 | `cursor` | `pointer` (clickable), `default` (disabled) | Указатели |
@@ -214,3 +270,92 @@ Disabled: `bg:#21262d, text:#484f58, cursor: default`
 8. **`renderHeader()`** — все страницы используют единую шапку.
 9. **`shared.css` + `shared.js`** — подключаются на всех страницах.
 10. **Компонентные классы** — `.btn`, `.card`, `.grid` используются, не переопределяются с другими цветами.
+
+---
+
+## Тесты дизайн-системы
+
+Все тесты в `tests/test_middleware.py`. Пороги (baseline) только снижаются.
+
+### TestSharedHeader — единая шапка (12 тестов)
+
+| Тест | Что проверяет | Best practice |
+|---|---|---|
+| `test_all_pages_200` | Все страницы отдают 200 | Доступность |
+| `test_all_pages_have_render_header` | `renderHeader()` вызывается | Single source (NN/g) |
+| `test_all_pages_load_shared_js_before_header` | shared.js загружается до шапки | Порядок инициализации |
+| `test_all_pages_load_shared_css` | shared.css подключён | Component library (NN/g) |
+| `test_shared_js_syntax_valid` | JS синтаксис валиден | Качество кода |
+| `test_shared_css_has_header_styles` | CSS содержит стили шапки | Component library |
+| `test_theme_styles_complete` | Light/dark темы полны | Theme-aware (Primer) |
+| `test_no_duplicate_header_styles_in_pages` | Страницы не дублируют стили шапки | Single source |
+| `test_theme_toggle_works_in_shared_js` | Переключатель темы работает | Theme-aware |
+| `test_all_pages_have_shared_css` | shared.css на всех страницах | Component library |
+| `test_all_css_elements_have_light_theme` | Все селекторы имеют light вариант | Theme-aware |
+| `test_no_light_theme_body_selector` | Нет `.light-theme body` (неправильно) | CSS корректность |
+| `test_no_inline_color_styles` | Нет инлайн стилей с цветом (baseline 17) | Design tokens, не hardcoded |
+
+### TestPageStyleConformance — соответствие палитре (10 тестов)
+
+| Тест | Что проверяет | Best practice |
+|---|---|---|
+| `test_no_forbidden_colors` | Нет запрещённых цветов | Design tokens (M3) |
+| `test_all_hex_in_standard_palette` | Все hex из STYLE.md палитры | Design tokens |
+| `test_no_inline_color_styles` | Инлайн стилей с цветом ≤ 17 (backlog) | Theme-aware |
+| `test_all_pages_use_monospace_font` | `font-family: monospace` | Type scale (Refactoring UI) |
+| `test_all_pages_have_light_theme_block` | `.light-theme {}` для body | Theme-aware |
+| `test_dark_body_matches_standard` | Тёмный фон = `#0d1117` | Design tokens |
+| `test_light_body_matches_standard` | Светлый фон = `#ffffff` / `#f6f8fa` | Design tokens |
+| `test_admin_uses_css_variables` | Admin CSS использует `var(--c-*)` | Design tokens (Primer) |
+| `test_font_sizes_in_standard_range` | Размеры только из таблицы | Type scale (Refactoring UI) |
+| `test_no_non_monospace_font_family` | Нет запрещённых шрифтов | Type scale |
+| `test_border_radius_in_standard` | radius только `0/2/3/4/6/8/10/12/16/50%` | Limit choices |
+| `test_transition_not_too_slow` | transition ≤ .45s | Limit choices |
+
+### TestStyleConsistency — метрика консистентности (5 тестов)
+
+Парсят CSS всех страниц, считают уникальные визуальные сигнатуры
+`(background, color, border, border-radius)` для каждого типа элемента.
+
+| Тест | Что проверяет | Baseline | Цель | Best practice |
+|---|---|---|---|---|
+| `test_button_style_varieties` | Разновидностей стиля кнопок | **15** | ≤3 | Limit choices (Refactoring UI) |
+| `test_input_style_varieties` | Разновидностей стиля инпутов | **8** | ≤1 | Single style |
+| `test_card_style_varieties` | Разновидностей стиля карточек | **28** | ≤1 | Single style |
+| `test_button_definitions_per_page` | Per-page определений кнопок | **9** | 0 | Component library в shared.css (NN/g) |
+| `test_duplicate_button_styles_different_classes` | Дубликатов (один стиль, разные классы) | **6** | 0 | Single source of truth (NN/g) |
+| `test_buttons_use_shared_classes` | Кнопок без общих классов | **11** | 0 | Component library (NN/g) |
+| `test_no_page_with_alien_classes` | % уникальных классов на странице | **91%** | ≤40% | Single source (NN/g) |
+| `test_no_shared_class_redefined_with_different_style` | Один класс — разные стили | **10** | 0 | Single source of truth (NN/g) |
+
+#### Как работает метрика
+
+```
+CSS всех страниц → парсинг правил → (selector, {props})
+  → фильтр по типу (button/input/card)
+  → сигнатура (bg, color, border, radius)
+  → группировка по сигнатуре
+  → count уникальных = variety
+```
+
+- **Variety = 1** → все кнопки/инпуты/карточки выглядят одинаково (идеал)
+- **Variety = 3** → base + primary + danger (допустимо для кнопок)
+- **Variety = 18** → каждая страница придумала свой стиль (техдолг)
+
+#### Как снижать baseline
+
+1. Вынести стиль в `shared.css` как общий класс (`.btn`, `.btn-go`, `.btn-danger`)
+2. Заменить per-page классы на общий (`.search-bar button` → `.btn-go`)
+3. Убрать инлайн `style=""` → использовать класс
+4. Запустить тест → variety уменьшилась → понизить baseline
+5. Коммит
+
+### Источники best practices
+
+| Источник | Применённый принцип |
+|---|---|
+| Nielsen Norman Group — Design Systems 101 | Single source, component library, visual consistency |
+| Refactoring UI (Wathan/Schoger) | Limit choices, type scale, fewer borders, hierarchy |
+| Google Material Design 3 | Design tokens, primitives |
+| GitHub Primer | CSS variables, theme-aware, component variants |
+| web.dev / Google UX | Double diamond, validate with users |

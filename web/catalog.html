@@ -46,6 +46,8 @@
         .light-theme .modal-fs { color: #c9d1d9; }
         .light-theme .modal-date { background: rgba(255,255,255,.8); color: #24292f; }
         .light-theme .empty-msg { color: #57606a; }
+        .light-theme .empty-dir { color: #57606a; }
+        .light-theme .empty-roots { color: #57606a; }
         .light-theme .add-source-btn { background: #eaeef2; color: #24292f; border-color: #d0d7de; }
         .light-theme .add-source-btn:hover { background: #d0d7de; }
         .light-theme .add-dialog { background: #ffffff; border-color: #d0d7de; color: #24292f; }
@@ -58,13 +60,16 @@
         .light-theme .add-dialog .ad-dir-item { color: #24292f; }
         .light-theme .add-dialog .ad-dir-item:hover { background: #eaeef2; }
         .light-theme .add-dialog .ad-dir-item.selected { background: #0969da; color: #fff; }
+        .light-theme .ad-box-h3 { color: #0969da; }
+        .light-theme .ad-label { color: #57606a; }
+        .light-theme .ad-input { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
+        .light-theme .ad-input:focus { border-color: #0969da; }
         .light-theme .root-menu-item:hover { background: #eaeef2; }
         .light-theme .root-menu-item.active { background: #d0d7de; color: #0969da; }
         .light-theme .root-menu-item.disabled .rm-alias { color: #8c949e; }
         .light-theme .root-menu-item.disabled .rm-path { color: #d0d7de; }
         .light-theme .t-loading { color: #57606a; }
         .light-theme .t-root-item .t-icon { color: #9a6700; }
-        .light-theme .loading { color: #57606a; }
         .light-theme .sidebar-toggle { background: #1f883d; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
         .light-theme .sidebar-close-overlay { background: rgba(0,0,0,.4); }
         .light-theme .face-box { border: 2px solid rgba(9,105,218,.8); }
@@ -169,6 +174,8 @@
         .badge-no { color: #484f58; font-size: 9px; }
 
         .empty-msg { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #484f58; font-size: 13px; }
+        .empty-dir { padding: 10px; color: #484f58; font-size: 11px; }
+        .empty-roots { color: #484f58; font-size: 11px; padding: 12px; }
 
         .modal-bg { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.9); z-index: 1000; justify-content: center; align-items: center; }
         .modal-bg.show { display: flex; }
@@ -208,13 +215,17 @@
         .add-dialog .ad-dir-item.selected { background: #1f6feb; color: #fff; }
         .add-dialog .ad-dir-item .di-icon { color: #e3b341; }
         .add-dialog .ad-btns { margin-top: 14px; display: flex; gap: 8px; }
-        .add-dialog .ad-btns button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .ad-box-h3 { color: #58a6ff; font-size: 16px; margin: 0 0 12px; }
+        .ad-label { display: block; color: #8b949e; font-size: 11px; margin-bottom: 3px; }
+        .ad-input { width: 100%; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 12px; box-sizing: border-box; }
+        .ad-input:focus { outline: none; border-color: #58a6ff; }
+        .ad-dir-list-mb { margin-bottom: 10px; }
         .ad-ok { background: #238636; color: #fff; }
         .ad-ok:hover { background: #2ea043; }
         .ad-cancel { background: #21262d; color: #c9d1d9; }
         .ad-cancel:hover { background: #30363d; }
 
-        .loading { text-align: center; padding: 40px; color: #484f58; font-size: 12px; }
+        .loading { font-size: 12px; }
 .sidebar-toggle { display: none; position: fixed; bottom: 20px; left: 20px; z-index: 90; background: #238636; color: #fff; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 22px; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; }
 .sidebar-close-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; }
 .sidebar-close-overlay.mob-open { display: block; }
@@ -338,17 +349,17 @@ function showAddDialog() {
     box.style.cssText = 'background:#1c2128;border:2px solid #58a6ff;border-radius:8px;padding:20px;width:480px;max-width:90vw;color:#c9d1d9;font-size:13px;';
     box.onclick = function(e) { e.stopPropagation(); };
 
-    box.innerHTML = '<h3 style="color:#58a6ff;font-size:16px;margin:0 0 12px">Добавить источник</h3>' +
-        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
-            '<button id="browseUpBtn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:14px;padding:4px 8px">⬆</button>' +
-            '<span id="browseCwd" style="color:#8b949e;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">/</span>' +
+    box.innerHTML = '<h3 class="ad-box-h3">Добавить источник</h3>' +
+        '<div class="ad-path-bar">' +
+            '<button id="browseUpBtn" class="btn" style="font-size:14px;padding:4px 8px">⬆</button>' +
+            '<span id="browseCwd" class="ad-cwd">/</span>' +
         '</div>' +
-        '<div id="browseList" style="max-height:240px;overflow-y:auto;border:1px solid #30363d;border-radius:4px;background:#0d1117;margin-bottom:10px"></div>' +
-        '<label style="display:block;color:#8b949e;font-size:11px;margin-bottom:3px">Псевдоним (необязательно)</label>' +
-        '<input type="text" id="newRootAlias" placeholder="Фото" style="width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;box-sizing:border-box">' +
-        '<div style="margin-top:14px;display:flex;gap:8px">' +
-            '<button id="addRootBtn" style="padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;background:#238636;color:#fff">Добавить и сканировать</button>' +
-            '<button id="cancelRootBtn" style="padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;background:#21262d;color:#c9d1d9">Отмена</button>' +
+        '<div id="browseList" class="ad-dir-list ad-dir-list-mb"></div>' +
+        '<label class="ad-label">Псевдоним (необязательно)</label>' +
+        '<input type="text" id="newRootAlias" class="ad-input" placeholder="Фото">' +
+        '<div class="ad-btns">' +
+            '<button id="addRootBtn" class="btn-go" style="padding:6px 14px">Добавить и сканировать</button>' +
+            '<button id="cancelRootBtn" class="btn" style="padding:6px 14px">Отмена</button>' +
         '</div>';
 
     overlay.appendChild(box);
@@ -377,7 +388,7 @@ function browseDirs(path) {
         list.innerHTML = '';
         var dirs = data.dirs || [];
         if (!dirs.length) {
-            list.innerHTML = '<div style="padding:10px;color:#484f58;font-size:11px;">Папок нет</div>';
+            list.innerHTML = '<div class="empty-dir">Папок нет</div>';
         }
         for (var i = 0; i < dirs.length; i++) {
             var d = dirs[i];
@@ -546,7 +557,7 @@ function loadRoots() {
             html += '<div class="t-children" id="rtree_' + r.root_id + '"></div>';
         }
         if (roots.length === 0) {
-            html += '<div style="color:#484f58;font-size:11px;padding:12px">Нет источников. Нажмите + чтобы добавить.</div>';
+            html += '<div class="empty-roots">Нет источников. Нажмите + чтобы добавить.</div>';
         }
         document.getElementById('sidebarTree').innerHTML = html;
         initCatalog();

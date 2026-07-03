@@ -26,7 +26,7 @@ function _activeNavPath() {
     return null;
 }
 
-function renderHeader(pageTitle) {
+function renderHeader(pageTitle, headerInner) {
     var active = _activeNavPath();
     var navHtml = '';
     for (var i = 0; i < _NAV_ITEMS.length; i++) {
@@ -45,6 +45,7 @@ function renderHeader(pageTitle) {
         '<div class="nav">' + navHtml + '</div>' +
         '<button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">\u2600\uFE0F</button>' +
         '</h1>' +
+        (headerInner || '') +
         '</div>' +
         '<div class="mm-overlay" id="mmOverlay"></div>' +
         '<div class="mm-edge" id="mmEdge"></div>' +

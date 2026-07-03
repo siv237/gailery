@@ -19,8 +19,6 @@
         .light-theme .toolbar input { background: #ffffff; color: #24292f; border-color: #d0d7de; }
         .light-theme .toolbar input:focus { border-color: #0969da; }
         .light-theme .toolbar select { background: #ffffff; color: #24292f; border-color: #d0d7de; }
-        .light-theme .toolbar button { background: #1f883d; }
-        .light-theme .toolbar button:hover { background: #29994a; }
         .light-theme .personas-layout { background: #f6f8fa; }
         .light-theme .named-panel { background: #ffffff; }
         .light-theme .named-panel h3 { color: #0969da; border-color: #d0d7de; }
@@ -45,10 +43,7 @@
         .light-theme .uc-detail { border-color: #d0d7de; }
         .light-theme .rename-dialog { background: rgba(0,0,0,.5); }
         .light-theme .rd-box { background: #ffffff; border-color: #d0d7de; color: #24292f; }
-        .light-theme .rd-all { background: #1f883d; }
-        .light-theme .rd-all:hover { background: #29994a; }
         .light-theme .rd-one { background: #0969da; }
-        .light-theme .rd-abort { background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; }
         .light-theme .persona-modal { background: #ffffff; border-color: #d0d7de; }
         .light-theme .pm-overlay { background: rgba(0,0,0,.3); }
         .light-theme .pm-header { background: #f6f8fa; border-color: #d0d7de; }
@@ -76,16 +71,16 @@
         .light-theme .ac-face { border-color: #d0d7de; }
         .light-theme .ac-name { color: #24292f; }
         .light-theme .ac-cnt { color: #57606a; }
-        .light-theme .loading, .light-theme .empty { color: #57606a; }
+        .light-theme .error-msg { color: #cf222e; }
+        .light-theme .grid-empty-dim { color: #6e7681; }
+        .light-theme .grid-error { color: #cf222e; }
 
-        .toolbar { padding: 8px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+        .toolbar { padding: 8px 20px; font-size: 12px; flex-wrap: wrap; }
         .toolbar .stat { color: #8b949e; }
         .toolbar .stat b { color: #58a6ff; }
         .toolbar input { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 4px 8px; font-family: monospace; font-size: 12px; }
         .toolbar input:focus { outline: none; border-color: #58a6ff; }
         .toolbar select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 4px 8px; font-family: monospace; font-size: 12px; }
-        .toolbar button { background: #238636; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-        .toolbar button:hover { background: #2ea043; }
         .personas-layout { display: flex; gap: 12px; padding: 12px 20px; min-height: calc(100vh - 120px); }
         .named-panel { flex-shrink: 0; overflow-y: auto; max-height: calc(100vh - 120px); }
         .named-panel h3 { font-size: 12px; color: #58a6ff; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #21262d; }
@@ -124,10 +119,8 @@
         .rd-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 400px; color: #c9d1d9; font-size: 13px; }
         .rd-box p { margin-bottom: 12px; line-height: 1.5; }
         .rd-box .rd-btns { display: flex; gap: 8px; }
-        .rd-box button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .rd-all { background: #238636; color: #fff; }
-        .rd-one { background: #58a6ff; color: #fff; }
-        .rd-abort { background: #21262d; color: #c9d1d9; }
+        .rd-box button { padding: 6px 14px; }
+        .rd-one { background: #1f6feb; color: #fff; }
 
         .persona-modal { display: none; position: fixed; top: 10%; left: 10%; width: 80%; height: 80%; background: #161b22; border: 1px solid #30363d; border-radius: 10px; z-index: 1000; overflow: hidden; }
         .persona-modal.show { display: flex; flex-direction: column; }
@@ -148,7 +141,7 @@
         .pm-comment-input { width: 100%; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; font-family: monospace; font-size: 13px; resize: vertical; }
         .pm-comment-input:focus { outline: none; border-color: #58a6ff; }
         .pm-edit .btn-row { margin-top: 6px; display: flex; gap: 6px; }
-        .pm-edit button { border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .pm-edit button { padding: 4px 12px; }
         .pm-faces-title { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
         .pm-cluster-title { color: #6e7681; font-size: 10px; margin: 10px 0 6px; padding: 4px 0; border-bottom: 1px solid #21262d; }
         .pm-body .faces-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
@@ -166,8 +159,9 @@
         .ac-name { flex: 1; }
         .ac-cnt { font-size: 10px; color: #484f58; }
 
-        .loading { text-align: center; padding: 40px; color: #8b949e; }
-        .empty { text-align: center; padding: 30px; color: #6e7681; font-size: 13px; }
+        .error-msg { color: #f85149; }
+        .grid-empty-dim { color: #6e7681; font-size: 11px; padding: 4px; }
+        .grid-error { color: #f85149; font-size: 11px; padding: 8px; }
 @media (max-width: 768px) {
     .toolbar { flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
     .toolbar input, .toolbar select { font-size: 14px; padding: 8px; min-width: 0; flex: 1; }
@@ -204,7 +198,7 @@
         </select>
         <span class="stat">Всего: <b id="totalCount">?</b></span>
         <span class="stat">С именем: <b id="namedCount">?</b></span>
-        <button onclick="loadPersonas()">Обновить</button>
+        <button class="btn-go" style="padding:4px 10px;font-size:11px" onclick="loadPersonas()">Обновить</button>
     </div>
     <div id="personas" class="personas-layout">
         <div class="named-panel" id="namedPanel"><h3>С именем</h3><div class="loading">Загрузка...</div></div>
@@ -215,9 +209,9 @@
         <div class="rd-box">
             <p id="rdText"></p>
             <div class="rd-btns">
-                <button class="rd-all" onclick="doSaveAll()">Ко всем кластерам с этим именем</button>
+                <button class="btn-go rd-all" onclick="doSaveAll()">Ко всем кластерам с этим именем</button>
                 <button class="rd-one" onclick="doSaveOne()">Только к этому</button>
-                <button class="rd-abort" onclick="doSaveAbort()">Отмена</button>
+                <button class="btn rd-abort" onclick="doSaveAbort()">Отмена</button>
             </div>
         </div>
     </div>
@@ -267,7 +261,7 @@ function loadPersonas() {
         applyFilter();
         loadAcNames();
     }).catch(function() {
-        document.getElementById('personas').innerHTML = '<div class="loading" style="color:#f85149">Ошибка загрузки</div>';
+         document.getElementById('personas').innerHTML = '<div class="loading error-msg">Ошибка загрузки</div>';
     });
 }
 
@@ -460,17 +454,17 @@ function openPersonaModal(name, faceId, faceCount, clusterIds, isGroup, singlePi
     bodyHtml += '<label style="margin-top:8px">Комментарий</label>';
     bodyHtml += '<textarea id="pmCommentInput" rows="2" class="pm-comment-input" placeholder="Мама, бабушка, друг семьи...">' + esc(comment || '') + '</textarea>';
     bodyHtml += '<div class="btn-row">';
-    bodyHtml += '<button class="btn-save" onclick="pmSaveName(\'' + esc(pid) + '\')">Сохранить</button>';
+    bodyHtml += '<button class="btn-go" style="padding:4px 12px;font-size:12px" onclick="pmSaveName(\'' + esc(pid) + '\')">Сохранить</button>';
     bodyHtml += '</div></div>';
 
     bodyHtml += '<div class="pm-faces-title">Лица (' + faceCount + ')</div>';
     if (isGroup && clusterIds.length > 1) {
         for (var ci = 0; ci < clusterIds.length; ci++) {
-            bodyHtml += '<div class="pm-cluster-title">Кластер ' + (ci + 1) + ' (' + clusterIds[ci] + ') <button class="btn-clear" style="font-size:10px;padding:1px 6px;margin-left:8px" onclick="pmDetachCluster(\'' + clusterIds[ci] + '\')">Отвязать</button></div>';
+            bodyHtml += '<div class="pm-cluster-title">Кластер ' + (ci + 1) + ' (' + clusterIds[ci] + ') <button class="btn" style="font-size:10px;padding:1px 6px;margin-left:8px" onclick="pmDetachCluster(\'' + clusterIds[ci] + '\')">Отвязать</button></div>';
             bodyHtml += '<div class="faces-grid" id="pmFaces_' + ci + '"></div>';
         }
     } else if (isGroup && clusterIds.length === 1) {
-        bodyHtml += '<div style="margin-bottom:8px"><button class="btn-clear" onclick="pmDetachCluster(\'' + clusterIds[0] + '\')">Отвязать от имени</button></div>';
+        bodyHtml += '<div style="margin-bottom:8px"><button class="btn" onclick="pmDetachCluster(\'' + clusterIds[0] + '\')">Отвязать от имени</button></div>';
         bodyHtml += '<div class="faces-grid" id="pmFaces_0"></div>';
     } else {
         bodyHtml += '<div class="faces-grid" id="pmFaces_0"></div>';
@@ -598,7 +592,7 @@ function loadPersonaFaces(personaId, grid) {
     fetch(API + '/persons/' + personaId + '/faces?limit=30').then(function(r) { return r.json(); }).then(function(faces) {
         grid.innerHTML = '';
         if (faces.length === 0) {
-            grid.innerHTML = '<div style="color:#6e7681;font-size:11px;padding:4px">0 лиц</div>';
+            grid.innerHTML = '<div class="grid-empty-dim">0 лиц</div>';
             return;
         }
         var photos = faces.map(function(f) {
@@ -632,7 +626,7 @@ function loadPersonaFaces(personaId, grid) {
             grid.appendChild(preview);
         }
     }).catch(function() {
-        grid.innerHTML = '<div style="color:#f85149;font-size:11px;padding:8px">Ошибка</div>';
+        grid.innerHTML = '<div class="grid-error">Ошибка</div>';
     });
 }
 

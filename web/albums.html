@@ -8,66 +8,6 @@
 <style>
 body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme { background: #ffffff; color: #24292f; }
-
-.albums-toolbar { padding: 10px 20px; display: flex; align-items: center; gap: 12px; background: #161b22; border-bottom: 1px solid #30363d; }
-.albums-toolbar button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px; }
-.albums-toolbar button:hover { background: #30363d; }
-.albums-toolbar .btn-danger { background: #21262d; border-color: #f85149; color: #f85149; }
-.albums-toolbar .btn-danger:hover { background: rgba(248,81,73,.15); }
-.albums-toolbar .spacer { flex: 1; }
-.albums-toolbar .count { color: #8b949e; font-size: 12px; }
-.light-theme .albums-toolbar { background: #f6f8fa; border-bottom-color: #d0d7de; }
-.light-theme .albums-toolbar button { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
-.light-theme .albums-toolbar button:hover { background: #eaeef2; }
-.light-theme .albums-toolbar .btn-danger { background: #f6f8fa; color: #cf222e; border-color: #cf222e; }
-.light-theme .albums-toolbar .btn-danger:hover { background: rgba(207,34,46,.1); }
-.light-theme .albums-toolbar .count { color: #57606a; }
-
-.grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(280px,1fr)); gap: 16px; padding: 20px; }
-.card { background: #161b22; border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform .15s, border-color .15s; border: 1px solid #21262d; }
-.card:hover { transform: translateY(-2px); border-color: #30363d; }
-.card-cover { width: 100%; aspect-ratio: 16/10; object-fit: cover; background: #0d1117; }
-.card-cover-placeholder { width: 100%; aspect-ratio: 16/10; background: #0d1117; display: flex; align-items: center; justify-content: center; color: #484f58; font-size: 40px; }
-.card-body { padding: 12px 14px; }
-.card-title { font-size: 13px; font-weight: 600; margin: 0 0 4px; line-height: 1.3; color: #c9d1d9; }
-.card-meta { font-size: 11px; color: #8b949e; display: flex; gap: 10px; }
-.card-meta span { white-space: nowrap; }
-.card-source { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #21262d; color: #8b949e; }
-.light-theme .card { background: #ffffff; border-color: #d0d7de; }
-.light-theme .card:hover { border-color: #afb8c1; }
-.light-theme .card-cover { background: #f6f8fa; }
-.light-theme .card-cover-placeholder { background: #f6f8fa; color: #8c959f; }
-.light-theme .card-title { color: #24292f; }
-.light-theme .card-meta { color: #57606a; }
-.light-theme .card-source { background: #eaeef2; color: #57606a; }
-
-.empty { text-align: center; padding: 60px; color: #484f58; }
-.empty p { font-size: 14px; margin: 8px 0; }
-.light-theme .empty { color: #8c959f; }
-
-.back { color: #58a6ff; text-decoration: none; font-size: 12px; }
-.back:hover { text-decoration: underline; }
-.light-theme .back { color: #0969da; }
-
-.detail-header { padding: 20px; border-bottom: 1px solid #21262d; }
-.detail-header h2 { margin: 0 0 4px; font-size: 16px; color: #c9d1d9; }
-.detail-header .meta { color: #8b949e; font-size: 12px; }
-.light-theme .detail-header { border-bottom-color: #d0d7de; }
-.light-theme .detail-header h2 { color: #24292f; }
-.light-theme .detail-header .meta { color: #57606a; }
-
-.photo-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr)); gap: 8px; padding: 20px; }
-.photo-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #21262d; }
-.photo-grid img:hover { border-color: #58a6ff; }
-.light-theme .photo-grid img { border-color: #d0d7de; }
-.light-theme .photo-grid img:hover { border-color: #0969da; }
-
-@media (max-width: 768px) {
-    .grid { grid-template-columns: repeat(auto-fill,minmax(160px,1fr)); gap: 8px; padding: 10px; }
-    .card-title { font-size: 12px; }
-    .card-meta { font-size: 10px; }
-    .photo-grid { grid-template-columns: repeat(auto-fill,minmax(120px,1fr)); }
-}
 </style>
 </head>
 <body>
@@ -75,11 +15,10 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 <script src="/shared.js"></script>
 <script>renderHeader('Альбомы');</script>
 
-<div class="albums-toolbar">
+<div class="search-bar">
   <button onclick="generate()">Сгенерировать</button>
-  <button onclick="clearAll()" class="btn-danger">Очистить все</button>
-  <div class="spacer"></div>
-  <span class="count" id="albumCount"></span>
+  <button class="btn-secondary" onclick="clearAll()">Очистить все</button>
+  <span class="info-bar" style="padding:0;border:none;background:none;flex:1" id="albumCount"></span>
 </div>
 
 <div id="content">
@@ -96,30 +35,28 @@ async function loadAlbums() {
   const resp = await fetch('/api/albums/');
   const albums = await resp.json();
   document.getElementById('albumCount').textContent = albums.length + ' альбомов';
-  
+
   if (!albums.length) {
     document.getElementById('content').innerHTML = '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>';
     return;
   }
-  
+
   const html = '<div class="grid">' + albums.map(a => {
     const cover = a.cover_photo_id
-      ? `<img class="card-cover" src="/api/photos/thumbnail?path=${a.cover_photo_id}&size=md" loading="lazy">`
-      : `<div class="card-cover-placeholder">📷</div>`;
+      ? `<img src="/api/photos/thumbnail?path=${a.cover_photo_id}&size=md" loading="lazy">`
+      : '';
     const date = a.date_start ? a.date_start.slice(0,10) : '';
+    const desc = escapeHtml(a.title);
+    const meta = `${a.photo_count} фото · ${date} · ${escapeHtml(a.source)}`;
     return `<div class="card" onclick="openAlbum('${a.album_id}')">
       ${cover}
-      <div class="card-body">
-        <div class="card-title">${escapeHtml(a.title)}</div>
-        <div class="card-meta">
-          <span>${a.photo_count} фото</span>
-          <span>${date}</span>
-          <span class="card-source">${a.source}</span>
-        </div>
+      <div class="overlay">
+        <div class="desc">${desc}</div>
+        <div class="date">${meta}</div>
       </div>
     </div>`;
   }).join('') + '</div>';
-  
+
   document.getElementById('content').innerHTML = html;
 }
 
@@ -127,21 +64,21 @@ async function openAlbum(id) {
   const resp = await fetch('/api/albums/' + id);
   const album = await resp.json();
   currentAlbum = album;
-  
+
   let photosHtml = '';
   if (album.photo_ids && album.photo_ids.length) {
-    photosHtml = '<div class="photo-grid">' + album.photo_ids.map(pid =>
-      `<img src="/api/photos/thumbnail?path=${pid}&size=sm" loading="lazy" onclick="openPhoto('${pid}')">`
+    photosHtml = '<div class="grid">' + album.photo_ids.map(pid =>
+      `<div class="card" onclick="openPhoto('${pid}')"><img src="/api/photos/thumbnail?path=${pid}&size=sm" loading="lazy"></div>`
     ).join('') + '</div>';
   } else {
     photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
   }
-  
+
+  const meta = `${album.photo_count} фото · ${album.date_start ? album.date_start.slice(0,10) : ''} — ${album.date_end ? album.date_end.slice(0,10) : ''} · ${escapeHtml(album.source)}`;
   document.getElementById('content').innerHTML = `
-    <div class="detail-header">
-      <a href="#" class="back" onclick="loadAlbums();return false">← Все альбомы</a>
-      <h2>${escapeHtml(album.title)}</h2>
-      <div class="meta">${album.photo_count} фото · ${album.date_start ? album.date_start.slice(0,10) : ''} — ${album.date_end ? album.date_end.slice(0,10) : ''} · ${album.source}</div>
+    <div class="search-bar">
+      <button class="btn-secondary" onclick="loadAlbums()">← Все альбомы</button>
+      <span class="info-bar" style="padding:0;border:none;background:none;flex:1">${escapeHtml(album.title)} · ${meta}</span>
     </div>
     ${photosHtml}
   `;

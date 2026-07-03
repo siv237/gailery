@@ -289,6 +289,7 @@ var _scrollYear = '';
 var _lastScrollY = 0;
 var _tlSyncPaused = false;
 var _modalOpen = false;
+var _programmaticScroll = false;
 
 function _syncTimelineToPhoto() {
     var p = currentPhotos[_mIdx];
@@ -340,6 +341,7 @@ function updateTimelinePosition(targetDate) {
 
 window.addEventListener('scroll', function() {
      if (_modalOpen || _tlSyncPaused) return;
+     if (_programmaticScroll) { _lastScrollY = window.scrollY || window.pageYOffset; return; }
      var scrollY = window.scrollY || window.pageYOffset;
      var vvH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
      var docH = document.documentElement.scrollHeight;

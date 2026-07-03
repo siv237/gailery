@@ -37,8 +37,6 @@
         .light-theme .popup-clear-gps { background: rgba(207,34,46,.8); color: #fff; }
         .light-theme .popup-clear-gps:hover { background: rgba(207,34,46,1); }
         .light-theme .pick-dialog-btns button { color: #24292f; }
-        .light-theme .pick-btn-link { background: #1f883d; color: #fff; }
-        .light-theme .pick-btn-link:hover { background: #1a7f37; }
         .light-theme .pick-success { background: #1f883d; color: #fff; }
 
         #map { flex: 1; width: 100%; }
@@ -69,12 +67,7 @@
         .pick-dialog-box p { margin-bottom: 20px; font-size: 13px; color: #8b949e; }
         .light-theme .pick-dialog-box p { color: #57606a; }
         .pick-dialog-btns { display: flex; gap: 10px; justify-content: center; }
-        .pick-dialog-btns button { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; }
-        .pick-btn-link { background: #238636; color: #fff; }
-        .pick-btn-link:hover { background: #2ea043; }
-        .pick-btn-cancel { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
-        .pick-btn-cancel:hover { background: #30363d; }
-        .light-theme .pick-btn-cancel { background: #f6f8fa; color: #24292f; border-color: #d0d7de; }
+        .pick-dialog-btns button { padding: 8px 16px; font-size: 13px; }
         .light-theme .pick-btn-cancel:hover { background: #eaeef2; }
         .pick-success { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: #238636; color: #fff; padding: 10px 20px; border-radius: 6px; z-index: 3001; font-size: 14px; display: none; }
         .thumb-wrap { position: relative; border-radius: 6px; border: 2px solid #fff; box-shadow: 0 0 6px rgba(0,0,0,.6); overflow: hidden; background: #21262d; }
@@ -108,8 +101,8 @@
             <h3>Связать фото с этим местом?</h3>
             <p id="pickDialogCoords"></p>
             <div class="pick-dialog-btns">
-                <button class="pick-btn-link" onclick="confirmPick()">Связать</button>
-                <button class="pick-btn-cancel" onclick="cancelPick()">Отмена</button>
+                <button class="btn-go pick-btn-link" onclick="confirmPick()">Связать</button>
+                <button class="btn pick-btn-cancel" onclick="cancelPick()">Отмена</button>
             </div>
         </div>
     </div>

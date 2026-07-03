@@ -119,20 +119,8 @@ function _vIsMobile() {
     return window.innerWidth <= 768;
 }
 
-function formatDate(ds, dateTz) {
+function formatDate(ds) {
     if (!ds) return '';
-    // Видео в UTC — конвертировать в локальное время браузера
-    if (dateTz === 'utc') {
-        var iso = ds.substring(0, 19).replace(' ', 'T') + 'Z';
-        var d = new Date(iso);
-        var y = d.getFullYear();
-        var mo = String(d.getMonth() + 1).padStart(2, '0');
-        var da = String(d.getDate()).padStart(2, '0');
-        var h = String(d.getHours()).padStart(2, '0');
-        var mi = String(d.getMinutes()).padStart(2, '0');
-        var s = String(d.getSeconds()).padStart(2, '0');
-        return da + '.' + mo + '.' + y + ' ' + h + ':' + mi + ':' + s;
-    }
     var p = ds.substring(0, 19).replace('T', ' ');
     return p.replace(/^(\d{4})[:\-](\d{2})[:\-](\d{2})/, function(m, y, mo, d) { return d + '.' + mo + '.' + y; });
 }
@@ -217,7 +205,7 @@ function openViewer(idx) {
             wrap.style.transform = 'rotate(' + _mRot + 'deg)';
         }
     }
-    var txt = formatDate(p.date, p.date_tz);
+    var txt = formatDate(p.date);
     if (p.is_raw) txt += '<span class="modal-raw">RAW</span>';
     if (p.camera_make || p.camera_model) txt += '<span class="modal-cam">' + _vEsc((p.camera_make||'')+' '+(p.camera_model||'')) + '</span>';
     document.getElementById('modalDate').innerHTML = txt;
@@ -266,8 +254,8 @@ function openViewer(idx) {
             if (Math.abs(px - corners[i].cx) < hit && Math.abs(py - corners[i].cy) < hit) { _flirScaleCorner = corners[i].corner; break; }
         }
         if (!_flirScaleCorner) {
-            for (let i = 0; i < edges.length; i++) {
-                if (Math.abs(px - edges[i].cx) < hit && Math.abs(py - edges[i].cy) < hit) { _flirScaleCorner = edges[i].corner; break; }
+            for (var j = 0; j < edges.length; j++) {
+                if (Math.abs(px - edges[j].cx) < hit && Math.abs(py - edges[j].cy) < hit) { _flirScaleCorner = edges[j].corner; break; }
             }
         }
         var onMask = (px >= _flirOX - hit && px <= _flirOX + sw + hit && py >= _flirOY - hit && py <= _flirOY + sh + hit);
@@ -481,7 +469,7 @@ function _updateFitIcon(p, isCover) {
         w = maxW; h = Math.max(4, Math.round(maxW / ratio));
         icon.classList.add('outer'); if (btn) btn.title = 'Сжать';
     } else {
-        let pw = p.img_width || 4, ph = p.img_height || 3, ratio = pw / ph;
+        var pw = p.img_width || 4, ph = p.img_height || 3; ratio = pw / ph;
         if (ratio >= 1) { w = maxW; h = Math.max(4, Math.round(maxW / ratio)); }
         else { h = maxH; w = Math.max(4, Math.round(h * ratio)); }
         icon.classList.remove('outer'); if (btn) btn.title = 'Растянуть';
