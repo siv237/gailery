@@ -315,6 +315,9 @@ class DatabaseManager:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_album_photos_pid ON album_photos(photo_id)")
         self.sqlite.commit()
 
+        self._add_column_if_missing(cur, 'albums', 'user_modified', 'INTEGER DEFAULT 0')
+        self.sqlite.commit()
+
     def _apply_migrations(self, cur):
         self._migrate_catalog_files_cols(cur)
         self._migrate_photos_cols(cur)
@@ -1577,17 +1580,22 @@ class DatabaseManager:
         now = datetime.now().isoformat()
         sets = []
         vals = []
+        user_modified = False
         if title is not None:
             sets.append("title = ?")
             vals.append(title)
+            user_modified = True
         if description is not None:
             sets.append("description = ?")
             vals.append(description)
+            user_modified = True
         if cover_photo_id is not None:
             sets.append("cover_photo_id = ?")
             vals.append(cover_photo_id)
         if not sets:
             return
+        if user_modified:
+            sets.append("user_modified = 1")
         sets.append("updated_at = ?")
         vals.append(now)
         vals.append(album_id)

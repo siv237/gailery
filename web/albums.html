@@ -10,6 +10,39 @@
 <style>
 body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme { background: #ffffff; color: #24292f; }
+.album-bar { position: sticky; top: 0; z-index: 50; background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.light-theme .album-bar { background: #f6f8fa; border-color: #d0d7de; }
+.album-bar-title { font-size: 14px; font-weight: 600; color: #c9d1d9; cursor: pointer; padding: 2px 6px; border-radius: 4px; border: 1px solid transparent; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-bar-title:hover { border-color: #30363d; background: #0d1117; }
+.light-theme .album-bar-title { color: #24292f; }
+.light-theme .album-bar-title:hover { border-color: #d0d7de; background: #eaeef2; }
+.album-bar-title-input { font-size: 14px; font-weight: 600; font-family: monospace; background: #0d1117; color: #c9d1d9; border: 1px solid #58a6ff; border-radius: 4px; padding: 2px 6px; max-width: 400px; }
+.light-theme .album-bar-title-input { background: #fff; color: #24292f; }
+.album-bar-meta { color: #6e7681; font-size: 11px; flex: 1; }
+.light-theme .album-bar-meta { color: #57606a; }
+.album-bar-desc-btn { padding: 4px 12px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 11px; white-space: nowrap; }
+.album-bar-desc-btn:hover { border-color: #58a6ff; }
+.light-theme .album-bar-desc-btn { background: #eaeef2; color: #24292f; border-color: #d0d7de; }
+.album-desc-badge { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d29922; margin-left: 4px; }
+.light-theme .album-desc-badge { background: #d29922; }
+.desc-modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 1050; justify-content: center; align-items: center; }
+.light-theme .desc-modal-bg { background: rgba(0,0,0,.5); }
+.desc-modal-bg.show { display: flex; }
+.desc-modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; width: 90%; max-width: 500px; padding: 20px; }
+.light-theme .desc-modal-box { background: #f6f8fa; border-color: #d0d7de; }
+.desc-modal-box h3 { color: #58a6ff; margin: 0 0 12px; font-size: 15px; }
+.light-theme .desc-modal-box h3 { color: #0969da; }
+.desc-modal-box textarea { width: 100%; min-height: 120px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 13px; resize: vertical; box-sizing: border-box; }
+.light-theme .desc-modal-box textarea { background: #fff; color: #24292f; border-color: #d0d7de; }
+.desc-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.desc-modal-actions button { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px; }
+.light-theme .desc-modal-actions button { }
+.desc-modal-save { background: #238636; color: #fff; }
+.light-theme .desc-modal-save { background: #238636; }
+.desc-modal-cancel { background: #21262d; color: #c9d1d9; }
+.light-theme .desc-modal-cancel { background: #eaeef2; color: #24292f; border: 1px solid #d0d7de; }
+.album-desc-text { color: #8b949e; font-size: 12px; line-height: 1.5; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #21262d; }
+.light-theme .album-desc-text { color: #57606a; background: #f6f8fa; border-color: #d0d7de; }
 </style>
 </head>
 <body>
@@ -44,10 +77,21 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
     </div>
 </div>
 
+<div class="desc-modal-bg" id="albumDescModal">
+    <div class="desc-modal-box">
+        <h3>Описание альбома</h3>
+        <textarea id="albumDescInput" placeholder="Введите описание альбома..."></textarea>
+        <div class="desc-modal-actions">
+            <button class="desc-modal-cancel" onclick="closeAlbumDescModal()">Отмена</button>
+            <button class="desc-modal-save" onclick="saveAlbumDesc()">Сохранить</button>
+        </div>
+    </div>
+</div>
+
 <script src="/gallery-common.js"></script>
 <script src="/viewer.js?v=9"></script>
 <script src="/face-modal.js"></script>
-<script src="/gallery-detail.js?v=9"></script>
+<script src="/gallery-detail.js?v=39"></script>
 
 <script>
 var API = '/api';
@@ -117,13 +161,79 @@ async function openAlbum(id) {
     photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
   }
 
-  var meta = album.photo_count + ' фото · ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' — ' + album.date_end.slice(0,10) : '') + ' · ' + esc(album.source);
+  var meta = album.photo_count + ' фото \u00b7 ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' \u2014 ' + album.date_end.slice(0,10) : '') + ' \u00b7 ' + esc(album.source);
+  var hasDesc = album.description && album.description.trim();
+  var descHtml = hasDesc ? '<div class="album-desc-text">' + esc(album.description) + '</div>' : '';
   document.getElementById('content').innerHTML =
-    '<div class="search-bar">' +
-    '<button class="btn-secondary" onclick="loadAlbums()">&#8592; Все альбомы</button>' +
-    '<span class="info-bar" style="padding:0;border:none;background:none;flex:1">' + esc(album.title) + ' · ' + meta + '</span>' +
-    '</div>' +
-    photosHtml;
+    '<div class="album-bar">' +
+    '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>' +
+    '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
+    '<span class="album-bar-meta">' + meta + '</span>' +
+    '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>' +
+    '</div>' + descHtml + photosHtml;
+}
+
+function editAlbumTitle() {
+  var span = document.getElementById('albumBarTitle');
+  if (!span || !currentAlbum) return;
+  var t = currentAlbum.title || '';
+  var inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'album-bar-title-input'; inp.value = t; inp.id = 'albumBarTitle';
+  span.parentNode.replaceChild(inp, span);
+  inp.focus(); inp.select();
+  inp.addEventListener('blur', function() { saveAlbumTitle(); });
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+    if (e.key === 'Escape') { inp.value = t; inp.blur(); }
+  });
+}
+
+function saveAlbumTitle() {
+  var inp = document.getElementById('albumBarTitle');
+  if (!inp || !currentAlbum || inp.tagName !== 'INPUT') return;
+  var nt = inp.value.trim();
+  if (!nt || nt === currentAlbum.title) { _restAT(currentAlbum.title || ''); return; }
+  fetch('/api/albums/' + encodeURIComponent(currentAlbum.album_id), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: nt})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) { currentAlbum.title = nt; _restAT(nt); }
+    else _restAT(currentAlbum.title || '');
+  }).catch(function() { _restAT(currentAlbum.title || ''); });
+}
+
+function _restAT(t) {
+  var inp = document.getElementById('albumBarTitle');
+  if (!inp || inp.tagName !== 'INPUT') return;
+  var sp = document.createElement('span');
+  sp.className = 'album-bar-title'; sp.id = 'albumBarTitle';
+  sp.title = '\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f';
+  sp.setAttribute('onclick', 'editAlbumTitle()'); sp.textContent = t;
+  inp.parentNode.replaceChild(sp, inp);
+}
+
+function showAlbumDescModal() {
+  var m = document.getElementById('albumDescModal');
+  var i = document.getElementById('albumDescInput');
+  if (!m || !i || !currentAlbum) return;
+  i.value = currentAlbum.description || '';
+  m.classList.add('show');
+  setTimeout(function() { i.focus(); }, 100);
+}
+
+function closeAlbumDescModal() {
+  var m = document.getElementById('albumDescModal');
+  if (m) m.classList.remove('show');
+}
+
+function saveAlbumDesc() {
+  var i = document.getElementById('albumDescInput');
+  if (!i || !currentAlbum) return;
+  var desc = i.value.trim();
+  fetch('/api/albums/' + encodeURIComponent(currentAlbum.album_id), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({description: desc})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) { currentAlbum.description = desc; closeAlbumDescModal(); openAlbum(currentAlbum.album_id); }
+  }).catch(function(e) { alert('\u041e\u0448\u0438\u0431\u043a\u0430: ' + e.message); });
 }
 
 async function generate() {

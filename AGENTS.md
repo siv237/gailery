@@ -445,7 +445,7 @@ RawThermalImage (PNG 16-bit) хранит raw ADU сенсора, НЕ темп�
 - При обновлении зависимостей (LanceDB, FastAPI и т.д.)
 
 ## Правила
-- Сервис перезапускается через `systemctl restart gailery.service`
+- Имя сервиса может меняться от установки. Смотри `GALLERY_SERVICE_NAME` в `.env` (по умолчанию `gailray`). Перезапуск: `systemctl restart gailray.service`. Также доступен через API: `curl -X POST http://localhost:8000/api/services/{SERVICE_NAME}/restart`
 - Работать на русском языке
 - Критичные правила — см. начало файла (## ⚠️ КРИТИЧНЫЕ ПРАВИЛА)
 

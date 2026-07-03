@@ -9,7 +9,10 @@
     "sourceType": "script"
   },
   "globals": {
-    "uPlot": "readonly"
+    "uPlot": "readonly",
+    "currentAlbum": "readonly",
+    "openAlbum": "readonly",
+    "loadAlbums": "readonly"
   },
   "rules": {
     "no-undef": "error",

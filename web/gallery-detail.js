@@ -77,6 +77,7 @@ function openDetail(idx) {
     if (_fakeCam.test(_camMake)) _camMake = '';
     if (_fakeCam.test(_camModel)) _camModel = '';
     if (p.media_type !== 'video' && (_camMake || _camModel)) html += '<div class="dp-meta">Камера: ' + esc(_camMake + ' ' + _camModel) + '</div>';
+    if (p.media_type !== 'video' && (_camMake || _camModel)) html += '<div id="camTimeArea"></div>';
     if (p.media_type === 'video') {
         html += '<div id="videoMetaArea"><div class="dp-meta" style="color:#6e7681">Загрузка метаданных…</div></div>';
         (function(){
@@ -298,6 +299,7 @@ function openDetail(idx) {
      document.getElementById('dpContent').innerHTML = html;
      document.getElementById('detailPanel').classList.add('show');
      if (_isMobile()) document.documentElement.classList.add('scroll-lock');
+     _checkCamAlbum(p);
  }
 
  function closeDetail() {
@@ -614,4 +616,429 @@ function saveCustomDesc(photoId) {
             if (btn) btn.textContent = 'Обновить описание';
         }
     });
+}
+
+// ─── Коррекция времени камеры ──────────────────────────────
+
+var _camD = null, _camS = 0, _camCss = false, _camDrag = false;
+
+function _checkCamAlbum(p) {
+    var area = document.getElementById('camTimeArea');
+    if (!area || !p.db_id) return;
+    if (typeof currentAlbum !== 'undefined' && currentAlbum && currentAlbum.photo_ids) {
+        if (currentAlbum.photo_ids.indexOf(p.db_id) >= 0) {
+            _camBtn(area, currentAlbum.album_id, p.db_id);
+            return;
+        }
+    }
+    fetch(API + '/albums/by_photo/' + encodeURIComponent(p.db_id))
+        .then(function(r) { if (!r.ok) return null; return r.json(); })
+        .then(function(d) {
+            if (d && d.albums && d.albums.length > 0)
+                _camBtn(area, d.albums[0].album_id, d.photo_uuid);
+        }).catch(function() {});
+}
+
+function _camBtn(area, aid, pid) {
+    area.innerHTML = '<button onclick="openCam(\'' + esc(aid) + '\',\'' + esc(pid) + '\')" ' +
+        'style="padding:4px 12px;background:#1f6feb;color:#fff;border:none;border-radius:4px;' +
+        'cursor:pointer;font-size:11px;font-family:monospace;margin-top:4px">' +
+        'Коррекция времени камеры</button>';
+}
+
+function _camStyles() {
+    if (_camCss) return;
+    var s = document.createElement('style');
+    s.textContent = [
+        '.cm-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;display:flex;justify-content:center;align-items:center}',
+        '.cm-box{background:#161b22;border:1px solid #30363d;border-radius:8px;width:90vw;max-width:1400px;height:90vh;display:flex;flex-direction:column;padding:20px;color:#c9d1d9;font-family:monospace;font-size:13px;box-sizing:border-box}',
+        '.cm-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0}',
+        '.cm-head h2{color:#58a6ff;font-size:18px;margin:0}',
+        '.cm-x{cursor:pointer;color:#6e7681;font-size:28px}',
+        '.cm-x:hover{color:#f85149}',
+        '.cm-info{color:#8b949e;margin-bottom:10px;flex-shrink:0}',
+        '.cm-info b{color:#c9d1d9}',
+        '.cm-strip-w{flex:1;min-height:0;background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;margin-bottom:12px}',
+        '.cm-strip{height:100%;overflow-y:auto;overflow-x:hidden;white-space:normal;padding:8px;display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px}',
+        '.cm-ph{width:90px;height:90px;border-radius:4px;object-fit:cover;opacity:0.5;flex-shrink:0}',
+        '.cm-cm{width:120px;height:120px;border-radius:5px;object-fit:cover;border:2px solid #d29922;opacity:0.85;flex-shrink:0}',
+        '.cm-an{width:120px;height:120px;border-radius:5px;object-fit:cover;border:3px solid #d29922;box-shadow:0 0 12px rgba(210,153,2,.7);cursor:grab;flex-shrink:0;position:relative;z-index:2}',
+        '.cm-an.drag{cursor:grabbing;box-shadow:0 0 20px rgba(210,153,2,1);z-index:5}',
+        '.cm-bot{flex-shrink:0}',
+        '.cm-row{display:flex;align-items:center;gap:14px;padding:12px;background:#0d1117;border-radius:6px;border:1px solid #21262d;margin-bottom:10px}',
+        '.cm-row input[type=range]{flex:1;height:8px;-webkit-appearance:none;appearance:none;background:#21262d;border-radius:4px;outline:none}',
+        '.cm-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#d29922;cursor:pointer;border:2px solid #161b22}',
+        '.cm-row input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#d29922;cursor:pointer;border:2px solid #161b22}',
+        '.cm-sv{color:#d29922;font-weight:bold;min-width:90px;text-align:center;font-size:15px}',
+        '.cm-ir{display:flex;gap:12px;align-items:center;padding:12px;background:#0d1117;border-radius:6px;border:1px solid #21262d;margin-bottom:10px}',
+        '.cm-ir label{color:#8b949e;font-size:11px;white-space:nowrap}',
+        '.cm-ir input{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;padding:8px;font-family:monospace;font-size:15px;flex:1}',
+        '.cm-act{display:flex;gap:12px;justify-content:flex-end}',
+        '.cm-act button{padding:10px 24px;border:none;border-radius:6px;cursor:pointer;font-family:monospace;font-size:14px}',
+        '.cm-ok{background:#238636;color:#fff}',
+        '.cm-no{background:#21262d;color:#c9d1d9}',
+        '.light-theme .cm-box{background:#f6f8fa;border-color:#d0d7de;color:#24292f}',
+        '.light-theme .cm-head h2{color:#0969da}',
+        '.light-theme .cm-info{color:#57606a}',
+        '.light-theme .cm-strip-w{background:#eaeef2;border-color:#d0d7de}',
+        '.light-theme .cm-row{background:#eaeef2;border-color:#d0d7de}',
+        '.light-theme .cm-ir{background:#eaeef2;border-color:#d0d7de}',
+        '.light-theme .cm-ir input{background:#fff;color:#24292f;border-color:#d0d7de}',
+        '.light-theme .cm-no{background:#eaeef2;color:#24292f;border:1px solid #d0d7de}',
+        '.cm-prev{position:fixed;z-index:1200;pointer-events:none;display:none;border-radius:8px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.8)}',
+        '.cm-prev img{width:80vw;max-width:1000px;max-height:80vh;object-fit:contain;display:block}',
+        '.cm-prev-info{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;font-family:monospace;font-size:16px;text-align:center}',
+        '.cm-cap{text-align:center;flex-shrink:0;margin-bottom:4px}',
+        '.cm-cap-time{font-size:12px;font-weight:bold;color:#d29922;white-space:nowrap}',
+        '.cm-cap-date{font-size:9px;color:#6e7681;white-space:nowrap}',
+        '.cm-cap-anc .cm-cap-time{color:#d29922;font-size:14px}',
+        '.cm-cap-ph .cm-cap-time{color:#8b949e;font-size:10px;font-weight:normal}',
+        '.cm-item-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0}'
+    ].join('\n');
+    document.head.appendChild(s);
+    _camCss = true;
+}
+
+function _d2j(s) { return s ? new Date(s.replace(' ', 'T')) : null; }
+function _d2jTz(s, tz) {
+    if (!s) return null;
+    if (tz === 'utc') {
+        var d = new Date(s.replace(' ', 'T') + 'Z');
+        return new Date(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0'));
+    }
+    return new Date(s.replace(' ', 'T'));
+}
+function _j2a(d) {
+    if (!d) return '';
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+
+        String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+}
+function _j2i(d) {
+    if (!d) return '';
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+
+        String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function _fd(d) {
+    if (!d) return '';
+    return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear()+' '+
+        String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function _fs(sc) {
+    var sg = sc >= 0 ? '+' : '-', a = Math.abs(sc);
+    var h = Math.floor(a/3600), m = Math.floor((a%3600)/60);
+    return sg + (h > 0 ? h+'\u0447 '+m+'\u043c' : m+'\u043c');
+}
+
+function openCam(aid, pid) {
+    closeDetail();
+    fetch(API + '/albums/' + encodeURIComponent(aid) + '/camera_group?photo_id=' + encodeURIComponent(pid))
+        .then(function(r) { if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+        .then(function(d) { d.album_id = aid; _camD = d; _camS = 0; _camRender(); })
+        .catch(function(e) { alert('\u041e\u0448\u0438\u0431\u043a\u0430: ' + e.message); });
+}
+
+function _camRender() {
+    _camStyles();
+    var d = _camD;
+    if (!d) return;
+    var old = document.getElementById('cmModal');
+    if (old) old.remove();
+
+    var items = [];
+    for (var i = 0; i < d.timeline.length; i++) {
+        var t = d.timeline[i];
+        var dt = _d2jTz(t.date, t.date_tz);
+        if (!dt) continue;
+        items.push({i: i, d: dt, cam: t.is_camera, anc: t.is_anchor, id: t.db_id});
+    }
+    items.sort(function(a, b) { return a.d - b.d; });
+    d._items = items;
+
+    var sh = '';
+    for (var k = 0; k < items.length; k++) {
+        var it = items[k];
+        var url = API + '/photos/thumbnail?path=' + encodeURIComponent(it.id) + '&size=sm';
+        var fullUrl = API + '/photos/?path=' + encodeURIComponent(it.id);
+        var capCls = it.anc ? 'cm-cap-anc' : (it.cam ? '' : 'cm-cap-ph');
+        var imgCls = it.anc ? 'cm-an' : (it.cam ? 'cm-cm' : 'cm-ph');
+        var idAttr = it.anc ? ' id="cmAnc"' : '';
+        var timeStr = _fd(it.d);
+        var dateStr = it.d.getFullYear()+'-'+String(it.d.getMonth()+1).padStart(2,'0')+'-'+String(it.d.getDate()).padStart(2,'0');
+        var timeOnly = String(it.d.getHours()).padStart(2,'0')+':'+String(it.d.getMinutes()).padStart(2,'0')+':'+String(it.d.getSeconds()).padStart(2,'0');
+        sh += '<div class="cm-item-wrap">' +
+            '<img class="' + imgCls + '"' + idAttr + ' data-k="' + it.i + '" data-full="' + esc(fullUrl) + '" ' +
+            'data-time="' + esc(timeStr) + '" src="' + url + '" loading="lazy" onerror="this.style.opacity=0.3" ' +
+            'onmouseenter="_cmHover(this)" onmouseleave="_cmHoverEnd()">' +
+            '<div class="cm-cap ' + capCls + '">' +
+            '<div class="cm-cap-time">' + esc(timeOnly) + '</div>' +
+            '<div class="cm-cap-date">' + esc(dateStr) + '</div>' +
+            '</div></div>';
+    }
+
+    var aOrig = _d2j(d.anchor_date);
+
+    var m = document.createElement('div');
+    m.id = 'cmModal';
+    m.className = 'cm-modal';
+    m.innerHTML =
+        '<div class="cm-box">' +
+        '<div class="cm-head"><h2>\u041a\u043e\u0440\u0440\u0435\u043a\u0446\u0438\u044f \u0432\u0440\u0435\u043c\u0435\u043d\u0438 \u043a\u0430\u043c\u0435\u0440\u044b</h2>' +
+        '<span class="cm-x" onclick="closeCam()">&times;</span></div>' +
+        '<div class="cm-info">\u041a\u0430\u043c\u0435\u0440\u0430: <b>' + esc(d.camera_name) + '</b> \u00b7 ' +
+        '\u041a\u0430\u0434\u0440\u043e\u0432: <b>' + d.camera_count + '</b> \u00b7 ' +
+        '\u0414\u0440\u0443\u0433\u0438\u0445: <b>' + d.other_count + '</b>' +
+        ' \u2014 \u0442\u044f\u043d\u0438\u0442\u0435 \u043a\u0430\u0434\u0440 \u0441 \u0437\u043e\u043b\u043e\u0442\u043e\u0439 \u0440\u0430\u043c\u043a\u043e\u0439</div>' +
+        '<div class="cm-strip-w"><div class="cm-strip" id="cmStrip">' + sh + '</div></div>' +
+        '<div class="cm-bot">' +
+        '<div class="cm-ir"><label>\u041f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u043e\u0435 \u0432\u0440\u0435\u043c\u044f:</label>' +
+        '<input type="datetime-local" id="cmInput" value="' + (aOrig ? _j2i(aOrig) : '') + '">' +
+        '<span style="color:#8b949e;font-size:11px">\u0418\u0441\u0445\u043e\u0434\u043d\u043e\u0435: ' + (aOrig ? _fd(aOrig) : '') + '</span></div>' +
+        '<div class="cm-row"><span style="color:#8b949e;font-size:12px;white-space:nowrap">\u0421\u0434\u0432\u0438\u0433:</span>' +
+        '<input type="range" id="cmSlider" min="-86400" max="86400" step="60" value="0">' +
+        '<span class="cm-sv" id="cmSv">+0\u043c</span></div>' +
+        '<div class="cm-act"><button class="cm-no" onclick="closeCam()">\u041e\u0442\u043c\u0435\u043d\u0430</button>' +
+        '<button class="cm-ok" onclick="_cmOk()">\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c</button></div>' +
+        '</div></div>';
+
+    document.body.appendChild(m);
+    _camInit();
+}
+
+function _camInit() {
+    var sl = document.getElementById('cmSlider');
+    var ip = document.getElementById('cmInput');
+    var d = _camD;
+    if (!d || !sl || !ip) return;
+    var aOrig = _d2j(d.anchor_date);
+
+    sl.addEventListener('input', function() {
+        _camS = parseInt(sl.value, 10);
+        if (aOrig) ip.value = _j2i(new Date(aOrig.getTime() + _camS * 1000));
+        _camUpd();
+    });
+
+    ip.addEventListener('change', function() {
+        var nt = new Date(ip.value);
+        if (isNaN(nt) || !aOrig) return;
+        _camS = Math.round((nt - aOrig) / 1000);
+        _camS = Math.max(-86400, Math.min(86400, _camS));
+        sl.value = _camS;
+        _camUpd();
+    });
+
+    _camDragInit();
+}
+
+function _camUpd() {
+    var d = _camD;
+    if (!d) return;
+    var sv = document.getElementById('cmSv');
+    if (sv) sv.textContent = _fs(_camS);
+    _camReorder();
+}
+
+function _camReorder() {
+    var d = _camD;
+    if (!d || !d._items) return;
+    var strip = document.getElementById('cmStrip');
+    if (!strip) return;
+
+    var sorted = d._items.map(function(it) {
+        var sh = it.cam ? new Date(it.d.getTime() + _camS * 1000) : it.d;
+        var img = strip.querySelector('[data-k="' + it.i + '"]');
+        var el = img ? (img.closest('.cm-item-wrap') || img) : null;
+        if (el && it.cam) {
+            var timeOnly = String(sh.getHours()).padStart(2,'0')+':'+String(sh.getMinutes()).padStart(2,'0')+':'+String(sh.getSeconds()).padStart(2,'0');
+            var dateStr = sh.getFullYear()+'-'+String(sh.getMonth()+1).padStart(2,'0')+'-'+String(sh.getDate()).padStart(2,'0');
+            var tEl = el.querySelector('.cm-cap-time');
+            var dEl = el.querySelector('.cm-cap-date');
+            if (tEl) tEl.textContent = timeOnly;
+            if (dEl) dEl.textContent = dateStr;
+            if (img) img.dataset.time = _fd(sh);
+        }
+        return {el: el, d: sh};
+    }).filter(function(x) { return x.el; });
+
+    sorted.sort(function(a, b) { return a.d - b.d; });
+    for (var k = 0; k < sorted.length; k++) strip.appendChild(sorted[k].el);
+
+}
+
+function _camDragInit() {
+    var an = document.getElementById('cmAnc');
+    var strip = document.getElementById('cmStrip');
+    var d = _camD;
+    if (!an || !strip || !d) return;
+    var aOrig = _d2j(d.anchor_date);
+    if (!aOrig) return;
+
+    function start(e) {
+        e.preventDefault(); e.stopPropagation();
+        _camDrag = true; an.classList.add('drag');
+        document.addEventListener('mousemove', mv);
+        document.addEventListener('mouseup', en);
+        document.addEventListener('touchmove', mv, {passive: false});
+        document.addEventListener('touchend', en);
+    }
+
+    function mv(e) {
+        if (!_camDrag) return;
+        e.preventDefault();
+        var cx = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        var cy = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        var rect = strip.getBoundingClientRect();
+        var curX = cx - rect.left + strip.scrollLeft;
+        var curY = cy - rect.top + strip.scrollTop;
+
+        var others = strip.querySelectorAll('.cm-ph');
+        var pos = [];
+        for (var i = 0; i < others.length; i++) {
+            var k = parseInt(others[i].dataset.k, 10);
+            var it = null;
+            for (var mi = 0; mi < d._items.length; mi++) { if (d._items[mi].i === k) { it = d._items[mi]; break; } }
+            if (!it) continue;
+            var wr = others[i].closest('.cm-item-wrap') || others[i];
+            pos.push({c: wr.offsetLeft + wr.offsetWidth/2, y: wr.offsetTop + wr.offsetHeight/2, d: it.d});
+        }
+        pos.sort(function(a, b) { return a.c - b.c; });
+
+        var pv = null, nx = null;
+        for (var j = 0; j < pos.length; j++) {
+            if (Math.abs(pos[j].y - curY) > 80) continue;
+            if (pos[j].c <= curX) pv = pos[j];
+            else { nx = pos[j]; break; }
+        }
+
+        var nt = null;
+        if (pv && nx) {
+            var r = (curX - pv.c) / (nx.c - pv.c);
+            nt = new Date(pv.d.getTime() + r * (nx.d.getTime() - pv.d.getTime()));
+        } else if (pv) nt = new Date(pv.d.getTime() + 60000);
+        else if (nx) nt = new Date(nx.d.getTime() - 60000);
+
+        if (nt) {
+            _camS = Math.round((nt - aOrig) / 1000);
+            _camS = Math.max(-86400, Math.min(86400, _camS));
+            var sl = document.getElementById('cmSlider'); if (sl) sl.value = _camS;
+            var ip = document.getElementById('cmInput'); if (ip) ip.value = _j2i(new Date(aOrig.getTime() + _camS * 1000));
+            var sv = document.getElementById('cmSv'); if (sv) sv.textContent = _fs(_camS);
+            _camReorder();
+        }
+    }
+
+    function en() {
+        _camDrag = false; an.classList.remove('drag');
+        document.removeEventListener('mousemove', mv);
+        document.removeEventListener('mouseup', en);
+        document.removeEventListener('touchmove', mv);
+        document.removeEventListener('touchend', en);
+    }
+
+    an.addEventListener('mousedown', start);
+    an.addEventListener('touchstart', start, {passive: false});
+}
+
+function closeCam() {
+    var m = document.getElementById('cmModal');
+    if (m) m.remove();
+    _camD = null;
+}
+
+function _cmOk() {
+    var d = _camD;
+    if (!d) return;
+    var btn = document.querySelector('.cm-ok');
+    if (btn) { btn.textContent = '\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435...'; btn.disabled = true; }
+
+    // Собираем время из подписей каждого кадра камеры
+    var updates = [];
+    var strip = document.getElementById('cmStrip');
+    if (strip) {
+        var cams = strip.querySelectorAll('.cm-cm, .cm-an');
+        for (var i = 0; i < cams.length; i++) {
+            var wrap = cams[i].closest('.cm-item-wrap');
+            if (!wrap) continue;
+            var tEl = wrap.querySelector('.cm-cap-time');
+            var dEl = wrap.querySelector('.cm-cap-date');
+            if (!tEl || !dEl) continue;
+            var timeOnly = tEl.textContent;
+            var dateStr = dEl.textContent;
+            // dateStr = '2026-07-01', timeOnly = '15:14:17'
+            var fullDate = dateStr + ' ' + timeOnly;
+            var dbId = cams[i].dataset.k;
+            // Найти UUID из _items
+            for (var mi = 0; mi < d._items.length; mi++) {
+                if (d._items[mi].i == dbId && d._items[mi].cam) {
+                    updates.push({photo_id: d._items[mi].id, manual_date: fullDate});
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!updates.length) {
+        alert('\u041d\u0435\u0442 \u043a\u0430\u0434\u0440\u043e\u0432 \u043a\u0430\u043c\u0435\u0440\u044b');
+        if (btn) { btn.textContent = '\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c'; btn.disabled = false; }
+        return;
+    }
+
+    var tzOffset = -new Date().getTimezoneOffset();
+
+    fetch(API + '/albums/' + encodeURIComponent(d.album_id) + '/save_manual_dates', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({updates: updates, tz_offset: tzOffset})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(r) {
+        if (r.ok) {
+            closeCam();
+            if (typeof currentAlbum !== 'undefined' && currentAlbum)
+                openAlbum(currentAlbum.album_id);
+        } else {
+            alert('\u041e\u0448\u0438\u0431\u043a\u0430: ' + (r.detail || ''));
+            if (btn) { btn.textContent = '\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c'; btn.disabled = false; }
+        }
+    })
+    .catch(function(e) {
+        alert('\u041e\u0448\u0438\u0431\u043a\u0430: ' + e.message);
+        if (btn) { btn.textContent = '\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c'; btn.disabled = false; }
+    });
+}
+
+var _cmHoverTimer = null;
+var _cmHoverEl = null;
+
+function _cmHover(img) {
+    if (_camDrag) return;
+    _cmHoverEl = img;
+    clearTimeout(_cmHoverTimer);
+    _cmHoverTimer = setTimeout(function() { _cmShowHover(img); }, 300);
+}
+
+function _cmShowHover(img) {
+    if (img !== _cmHoverEl) return;
+    var full = img.dataset.full;
+    var time = img.dataset.time;
+    if (!full) return;
+    var old = document.getElementById('cmPrev');
+    if (old) old.remove();
+    var p = document.createElement('div');
+    p.id = 'cmPrev';
+    p.className = 'cm-prev';
+    p.style.display = 'block';
+    p.innerHTML = '<img src="' + esc(full) + '" onerror="this.style.display=\'none\'">' +
+        '<div class="cm-prev-info">' + esc(time || '') + '</div>';
+    document.body.appendChild(p);
+    var vw = window.innerWidth, vh = window.innerHeight;
+    p.style.left = ((vw - p.offsetWidth) / 2) + 'px';
+    p.style.bottom = '0';
+    p.style.top = '';
+}
+
+function _cmHoverEnd() {
+    _cmHoverEl = null;
+    clearTimeout(_cmHoverTimer);
+    var p = document.getElementById('cmPrev');
+    if (p) p.remove();
 }

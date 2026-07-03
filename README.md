@@ -243,7 +243,7 @@ mkdir -p /opt/gailery/{data,thumbnails,logs}
 ### 10. systemd сервис
 
 ```bash
-cat > /etc/systemd/system/gailery.service << 'EOF'
+cat > /etc/systemd/system/gailray.service << 'EOF'
 [Unit]
 Description=Gailery Photo Gallery API
 After=network.target
