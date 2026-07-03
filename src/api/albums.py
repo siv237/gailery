@@ -1,9 +1,8 @@
 """albums.py — API endpoints for photo albums (auto-generated + manual)."""
 
-import json
 import re
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -55,39 +54,21 @@ def _date_title(dt):
     return f"{dt.day} {_MONTHS[dt.month - 1]} {dt.year} года ({_WEEKDAYS[dt.weekday()]})"
 
 
-def _video_local_date(date_str, exif_raw_json):
-    """Конвертировать UTC дату видео в локальную используя utc_offset из ffprobe.
-
-    Если utc_offset есть в exif_raw — используем его (точный для телефона).
-    Иначе — не трогаем (старые видео без raw или локальное время фотика).
-    """
-    if not exif_raw_json:
-        return date_str
-    try:
-        raw = json.loads(exif_raw_json)
-        offset_str = raw.get("format", {}).get("tags", {}).get("com.samsung.android.utc_offset", "")
-        if not offset_str:
-            return date_str
-        mo = re.match(r"([+-])(\d{2})(\d{2})", offset_str)
-        if not mo:
-            return date_str
-        sign = 1 if mo.group(1) == "+" else -1
-        offset = timedelta(hours=sign * int(mo.group(2)), minutes=sign * int(mo.group(3)))
-        dt_utc = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
-        dt_local = dt_utc + offset
-        return dt_local.strftime("%Y-%m-%d %H:%M:%S")
-    except (json.JSONDecodeError, ValueError, TypeError, KeyError):
-        return date_str
-
-
 def _generate_clusters(db):
     """Кластеризация фото по времени (gap ≤ 2ч, ≥ 5 фото).
 
-    Видео с date_tz='utc' конвертируются в локальное время через utc_offset
-    из exif_raw перед кластеризацией, чтобы правильно группировать с фото.
+    p.date для всех фото и видео — уже локальное время.
+    Для видео с date_tz='utc' конвертация UTC→локальное выполнена
+    в exif.py при записи (UTC + utc_offset = локальное). Дополнительно
+    конвертировать здесь НЕ нужно — это вызовет двойную конвертацию.
+
+    Фото с повреждённым временем (00:00:00 — нет реального EXIF) не
+    участвуют в кластеризации самостоятельно, а привязываются к ближайшему
+    кластеру того же дня. Это объединяет фото со сбойного фотика
+    (положенные в папку вручную) с основной съёмкой.
     """
     rows = db.sqlite.execute(
-        "SELECT p.photo_id, p.date, p.date_tz, p.exif_raw, cf.parent_dir "
+        "SELECT p.photo_id, p.date, cf.parent_dir "
         "FROM photos p "
         "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
         "WHERE p.deleted = 0 AND p.date IS NOT NULL "
@@ -98,15 +79,18 @@ def _generate_clusters(db):
     clusters = []
     cur = {"photo_ids": [], "dirs": set(), "start": None, "end": None}
     prev_dt = None
+    zero_time_photos = []  # фото с 00:00:00 — привязать потом
 
     for r in rows:
         date_str = r[1]
-        # Видео в UTC → конвертировать в локальное для кластеризации
-        if r[2] == "utc" and date_str:
-            date_str = _video_local_date(date_str, r[3])
         try:
             dt = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
         except (ValueError, TypeError):
+            continue
+
+        # Фото с неизвестным временем (00:00:00) — отложить
+        if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+            zero_time_photos.append((r[0], dt, r[2]))
             continue
 
         if prev_dt and (dt - prev_dt).total_seconds() > gap:
@@ -118,13 +102,44 @@ def _generate_clusters(db):
             cur["start"] = dt
         cur["end"] = dt
         cur["photo_ids"].append(r[0])
-        if r[4]:
+        if r[2]:
             cur["dirs"].add(r[2])
         prev_dt = dt
 
     if len(cur["photo_ids"]) >= MIN_PHOTOS:
         clusters.append(cur)
 
+    # Привязать фото с 00:00:00 к ближайшему кластеру того же дня
+    clusters_by_day = {}
+    for c in clusters:
+        day = c["start"].date()
+        clusters_by_day.setdefault(day, []).append(c)
+
+    leftover_by_day = {}
+    for pid, dt, parent_dir in zero_time_photos:
+        day = dt.date()
+        if day in clusters_by_day:
+            # Если несколько кластеров в этот день — ближайший по времени
+            # (нулевое время = начало дня, берём первый кластер)
+            target = clusters_by_day[day][0]
+            target["photo_ids"].append(pid)
+            if parent_dir:
+                target["dirs"].add(parent_dir)
+        else:
+            leftover_by_day.setdefault(day, []).append((pid, dt, parent_dir))
+
+    # Фото с 00:00:00 в днях без кластеров — образуют свои кластеры
+    for day, items in leftover_by_day.items():
+        if len(items) >= MIN_PHOTOS:
+            clusters.append({
+                "photo_ids": [i[0] for i in items],
+                "dirs": {i[2] for i in items if i[2]},
+                "start": items[0][1],
+                "end": items[0][1],
+            })
+
+    # Сортировка по дате начала
+    clusters.sort(key=lambda c: c["start"])
     return clusters
 
 
