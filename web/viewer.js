@@ -119,8 +119,20 @@ function _vIsMobile() {
     return window.innerWidth <= 768;
 }
 
-function formatDate(ds) {
+function formatDate(ds, dateTz) {
     if (!ds) return '';
+    // Видео в UTC — конвертировать в локальное время браузера
+    if (dateTz === 'utc') {
+        var iso = ds.substring(0, 19).replace(' ', 'T') + 'Z';
+        var d = new Date(iso);
+        var y = d.getFullYear();
+        var mo = String(d.getMonth() + 1).padStart(2, '0');
+        var da = String(d.getDate()).padStart(2, '0');
+        var h = String(d.getHours()).padStart(2, '0');
+        var mi = String(d.getMinutes()).padStart(2, '0');
+        var s = String(d.getSeconds()).padStart(2, '0');
+        return da + '.' + mo + '.' + y + ' ' + h + ':' + mi + ':' + s;
+    }
     var p = ds.substring(0, 19).replace('T', ' ');
     return p.replace(/^(\d{4})[:\-](\d{2})[:\-](\d{2})/, function(m, y, mo, d) { return d + '.' + mo + '.' + y; });
 }
@@ -205,7 +217,7 @@ function openViewer(idx) {
             wrap.style.transform = 'rotate(' + _mRot + 'deg)';
         }
     }
-    var txt = formatDate(p.date);
+    var txt = formatDate(p.date, p.date_tz);
     if (p.is_raw) txt += '<span class="modal-raw">RAW</span>';
     if (p.camera_make || p.camera_model) txt += '<span class="modal-cam">' + _vEsc((p.camera_make||'')+' '+(p.camera_model||'')) + '</span>';
     document.getElementById('modalDate').innerHTML = txt;

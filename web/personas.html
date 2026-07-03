@@ -12,12 +12,7 @@
     <link rel="stylesheet" href="/face-modal.css">
     <style>
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
-        h1 { position: relative; }
         .light-theme { background: #ffffff; color: #24292f; }
-        .light-theme h1 { background: #f6f8fa; border-bottom: 1px solid #d0d7de; color: #0969da; }
-        .light-theme h1 .nav a { color: #57606a; }
-        .light-theme h1 .nav a:hover { color: #0969da; }
-        .light-theme h1 .nav a.active { color: #0969da; }
         .light-theme .toolbar { background: #f6f8fa; border-color: #d0d7de; }
         .light-theme .toolbar .stat { color: #57606a; }
         .light-theme .toolbar .stat b { color: #0969da; }
@@ -69,6 +64,8 @@
         .light-theme .pm-edit input[type=text]:focus { border-color: #0969da; }
         .light-theme .pm-edit textarea { background: #ffffff; color: #24292f; border-color: #d0d7de; }
         .light-theme .pm-edit textarea:focus { border-color: #0969da; }
+        .light-theme .pm-comment-input { background: #ffffff; color: #24292f; border-color: #d0d7de; }
+        .light-theme .pm-comment-input:focus { border-color: #0969da; }
         .light-theme .pm-faces-title { color: #57606a; }
         .light-theme .pm-cluster-title { color: #57606a; border-color: #d0d7de; }
         .light-theme .pm-body .face-preview { background: #f6f8fa; }
@@ -81,12 +78,6 @@
         .light-theme .ac-cnt { color: #57606a; }
         .light-theme .loading, .light-theme .empty { color: #57606a; }
 
-        h1 { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 16px; color: #58a6ff; display: flex; align-items: center; justify-content: space-between; position: relative; }
-        h1 .nav { font-size: 13px; padding-right: 50px; }
-        h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
-        h1 { display: flex; align-items: center; }
-        
-        h1 .nav a:hover { color: #58a6ff; }
         .toolbar { padding: 8px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
         .toolbar .stat { color: #8b949e; }
         .toolbar .stat b { color: #58a6ff; }
@@ -178,8 +169,6 @@
         .loading { text-align: center; padding: 40px; color: #8b949e; }
         .empty { text-align: center; padding: 30px; color: #6e7681; font-size: 13px; }
 @media (max-width: 768px) {
-    h1 { padding-right: 12px; }
-    h1 span { font-size: 14px; }
     .toolbar { flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
     .toolbar input, .toolbar select { font-size: 14px; padding: 8px; min-width: 0; flex: 1; }
     .toolbar button { padding: 10px 16px; font-size: 14px; min-height: 44px; }
@@ -204,32 +193,8 @@
     </style>
 </head>
 <body>
-    <h1>
-        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Персоны</span>
-        <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
-        <div class="nav">
-            <a href="/gallery">Галерея</a>
-            <a href="/catalog">Каталог</a>
-            <a href="/map">Карта</a>
-            <a href="/persons" class="active">Персоны</a>
-            <a href="/admin">Управление</a>
-        </div>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
-    </h1>
-
-    <div class="mm-overlay" id="mmOverlay"></div>
-    <div class="mm-edge" id="mmEdge"></div>
-    <div class="mm-panel" id="mmPanel">
-        <div class="mm-head"><img src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt=""><span>Gailery</span><button class="mm-x" onclick="closeMobileNav()">&times;</button></div>
-        <div class="mm-nav">
-            <a href="/gallery" class="mm-a"><span class="mm-ico">&#9638;</span><span class="mm-lbl">Галерея</span></a>
-            <a href="/catalog" class="mm-a"><span class="mm-ico">&#9654;</span><span class="mm-lbl">Каталог</span></a>
-            <a href="/map" class="mm-a"><span class="mm-ico">&#9673;</span><span class="mm-lbl">Карта</span></a>
-            <a href="/persons" class="mm-a active"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
-            <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
-        </div>
-        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
-    </div>
+    <script src="/shared.js"></script>
+    <script>renderHeader('Персоны');</script>
     <div class="toolbar">
         <input type="text" id="filterInput" placeholder="Фильтр по имени/кластеру..." oninput="applyFilter()">
         <select id="filterMode" onchange="applyFilter()">
@@ -806,7 +771,6 @@ document.addEventListener('keydown', function(e) {
 
 loadPersonas();
 </script>
-<script src="/shared.js"></script>
 <script src="/viewer.js?v=9"></script>
 <script src="/face-modal.js"></script>
 </body>

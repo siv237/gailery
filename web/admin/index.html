@@ -1,21 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head><meta charset="UTF-8"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"><link rel="icon" type="image/png" sizes="636x636" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/admin/css/style.css?v=56"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=56"></head>
+<head><meta charset="UTF-8"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"><link rel="icon" type="image/png" sizes="636x636" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Gailery — Админка</title><link rel="stylesheet" href="/shared.css"><link rel="stylesheet" href="/admin/css/style.css?v=57"><link rel="stylesheet" href="/admin/css/uplot.min.css?v=56"></head>
 <body>
-<div class="topbar">
-    <button class="burger">☰</button>
-    <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a>
-    <nav class="topbar-nav">
-        <a href="/gallery">Галерея</a>
-        <a href="/catalog">Каталог</a>
-        <a href="/map">Карта</a>
-        <a href="/persons">Персоны</a>
-        <a href="/admin" class="active">Управление</a>
-    </nav>
-    <span class="mqtt-summary" id="mqttSummary"></span>
-    <span class="c-dim" style="font-size:11px;margin-left:8px" id="watchdogInfo"></span>
-    <button class="theme-btn" id="themeBtn" title="Дневная тема">☀️</button>
-</div>
+<script src="/shared.js"></script>
+<script>renderHeader('Управление');</script>
 <nav class="sidebar" id="sidebar">
     <div class="sidebar-scroll">
     <div class="section"><div class="section-title">Главное</div>
@@ -43,7 +31,10 @@
         <a href="#" data-page="workers"><span class="ico">🔌</span> Воркеры MQTT</a>
         <a href="#" data-page="logs"><span class="ico">📜</span> Логи</a></div>
     </div>
-    <div class="sidebar-footer" id="versionInfo"></div>
+    <div class="sidebar-footer" id="versionInfo">
+        <div class="mqtt-summary" id="mqttSummary"></div>
+        <div class="c-dim" style="font-size:11px" id="watchdogInfo"></div>
+    </div>
 </nav>
 <main class="main" id="mainContent">
 <div class="page active" id="page-dashboard"></div>

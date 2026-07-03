@@ -183,6 +183,17 @@ async def gallery_page():
     return {"error": "Page not found"}
 
 
+@app.get("/albums")
+async def albums_page():
+    from pathlib import Path
+    from fastapi.responses import HTMLResponse
+    albums_html = Path(__file__).parent.parent / "web" / "albums.html"
+    if albums_html.exists():
+        with open(albums_html) as f:
+            return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    return {"error": "Page not found"}
+
+
 @app.get("/persons")
 async def persons_page():
     from pathlib import Path
@@ -902,7 +913,7 @@ async def get_changes(limit: int = 100):
     return {"changes": result, "server_time": datetime.now().isoformat()}
 
 
-from api import photos, persons, catalog, models, video, search, flir
+from api import photos, persons, catalog, models, video, search, flir, albums
 from api.validators import json_body
 app.include_router(photos.router)
 app.include_router(persons.router)
@@ -911,6 +922,7 @@ app.include_router(models.router)
 app.include_router(video.router)
 app.include_router(search.router)
 app.include_router(flir.router)
+app.include_router(albums.router)
 
 
 @app.get("/api/settings/{key}")

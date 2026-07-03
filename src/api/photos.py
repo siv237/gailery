@@ -181,6 +181,61 @@ def _rel_path(abs_path):
     return abs_path or ""
 
 
+def _compute_date_utc(p):
+    """Вычислить UTC дату для сортировки/таймлайна.
+
+    Видео с date_tz='utc' — date уже UTC, отдаём как есть.
+    Фото с EXIF OffsetTimeOriginal в exif_raw — date локальное, вычитаем offset → UTC.
+    Без offset — отдаём date как есть (старые камеры, нет данных).
+    """
+    import json as _json
+    import re as _re
+    from datetime import datetime, timedelta
+
+    date_str = p.get("manual_date") or p.get("date")
+    if not date_str:
+        return None
+
+    # Видео уже в UTC
+    if p.get("date_tz") == "utc":
+        return date_str
+
+    # Фото — ищем offset в exif_raw
+    raw_str = p.get("exif_raw")
+    if not raw_str:
+        return date_str
+
+    try:
+        raw = _json.loads(raw_str)
+    except (ValueError, TypeError):
+        return date_str
+
+    offset_str = None
+    for k in ("EXIF OffsetTimeOriginal", "EXIF OffsetTime", "EXIF OffsetTimeDigitized"):
+        if k in raw:
+            offset_str = raw[k]
+            break
+
+    if not offset_str:
+        return date_str
+
+    # "+10:00" или "+1000"
+    m = _re.match(r'([+-])(\d{2}):?(\d{2})', offset_str)
+    if not m:
+        return date_str
+
+    sign = 1 if m.group(1) == "+" else -1
+    offset = timedelta(hours=sign * int(m.group(2)), minutes=sign * int(m.group(3)))
+
+    try:
+        dt_local = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return date_str
+
+    dt_utc = dt_local - offset
+    return dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_thumbnail=False, include_score=False, score=None):
     rel = _rel_path(p.get("path", ""))
     content_hash = p.get("content_hash", "")
@@ -254,6 +309,8 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
         "is_raw": is_raw,
         "media_type": p.get("media_type", "photo"),
         "duration_seconds": p.get("duration_seconds", 0),
+        "date_tz": p.get("date_tz"),
+        "date_utc": p.get("date_utc"),
         "needs_stream": _video_needs_stream(p),
         "is_canonical": p.get("is_canonical", True),
         "duplicate_paths": p.get("duplicate_paths", []),
@@ -613,7 +670,7 @@ def _fetch_default_photos(db, limit, offset):
     rows = db.sqlite.execute(
         "SELECT p.*, cf.content_hash FROM photos p "
         "LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
-        "WHERE p.deleted=0 ORDER BY p.date DESC LIMIT ? OFFSET ?",
+        "WHERE p.deleted=0 ORDER BY COALESCE(p.date_utc, p.manual_date, p.date) DESC LIMIT ? OFFSET ?",
         (limit, offset)
     ).fetchall()
     p_cols = [d[0] for d in db.sqlite.execute("SELECT * FROM photos LIMIT 0").description]
@@ -1296,13 +1353,13 @@ async def get_neighbor(date: str, dir: str = "next"):
     if dir == "next":
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
-            "FROM photos WHERE COALESCE(manual_date, date) > ? AND deleted = 0 ORDER BY effective_date ASC LIMIT 1",
+            "FROM photos WHERE COALESCE(date_utc, manual_date, date) > ? AND deleted = 0 ORDER BY COALESCE(date_utc, manual_date, date) ASC LIMIT 1",
             (date,)
         ).fetchone()
     else:
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
-            "FROM photos WHERE COALESCE(manual_date, date) < ? AND deleted = 0 ORDER BY effective_date DESC LIMIT 1",
+            "FROM photos WHERE COALESCE(date_utc, manual_date, date) < ? AND deleted = 0 ORDER BY COALESCE(date_utc, manual_date, date) DESC LIMIT 1",
             (date,)
         ).fetchone()
 

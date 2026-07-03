@@ -396,21 +396,72 @@ def _get_mtime(path):
 
 
 def _apply_video_metadata(path, updates, stats):
-    from video_metadata import extract_metadata, extract_video_date
+    from video_metadata import extract_metadata
     v_meta = extract_metadata(path)
     if not v_meta:
         return
+    import json as _json
+
     updates["media_type"] = "video"
     updates["duration_seconds"] = v_meta["duration_seconds"]
     if v_meta["width"] and v_meta["height"]:
         updates["img_width"] = v_meta["width"]
         updates["img_height"] = v_meta["height"]
     updates["camera_model"] = v_meta.get("codec", "")
-    v_date = extract_video_date(path)
+
+    # GPS из видео (Samsung/Apple пишут в tags)
+    gps = v_meta.get("gps")
+    if gps:
+        updates["gps_lat"] = gps["lat"]
+        updates["gps_lon"] = gps["lon"]
+        stats["gps_found"] += 1
+
+    # Полный ffprobe JSON в exif_raw — ничего не теряется
+    raw = v_meta.get("raw")
+    if raw:
+        updates["exif_raw"] = _json.dumps(raw, ensure_ascii=False)
+
+    # Дата + признак UTC (из уже полученного v_meta, без повторного ffprobe)
+    ct = v_meta.get("creation_time", "")
+    # 1970-01-01T00:00:00Z = Unix epoch 0 = creation_time нет в файле
+    is_utc = bool(ct and "Z" in ct and "1970-01-01T00:00:00" not in ct)
+    v_date = None
+    if ct:
+        import re as _re
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        m = _re.match(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})', ct)
+        if m:
+            if is_utc:
+                dt_utc = _dt(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                             int(m.group(4)), int(m.group(5)), int(m.group(6)), tzinfo=_tz.utc)
+                offset_str = v_meta.get("utc_offset", "")
+                offset = _td(0)
+                mo = _re.match(r'([+-])(\d{2})(\d{2})', offset_str)
+                if mo:
+                    sign = 1 if mo.group(1) == "+" else -1
+                    offset = _td(hours=sign * int(mo.group(2)), minutes=sign * int(mo.group(3)))
+                dt_local = dt_utc + offset
+                v_date = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                v_date = f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:{m.group(6)}"
+        else:
+            m = _re.match(r'(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})', ct)
+            if m:
+                v_date = f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:{m.group(6)}"
     mtime = _get_mtime(path)
     resolved, conflict = resolve_date(v_date or None, path, mtime)
     if resolved:
         updates["date"] = resolved
+        updates["date_tz"] = "utc" if is_utc else "local"
+        # date_utc: для видео UTC = исходная creation_time, для локальных = date
+        if is_utc and ct:
+            m = _re.match(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})', ct)
+            if m:
+                updates["date_utc"] = f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:{m.group(6)}"
+            else:
+                updates["date_utc"] = resolved
+        else:
+            updates["date_utc"] = resolved
     if conflict:
         updates["date_conflict"] = 1
     stats["with_data"] += 1
@@ -443,6 +494,28 @@ def _apply_photo_exif(path, exif, updates, stats):
     resolved, conflict = resolve_date(exif_date, path, mtime)
     if resolved:
         updates["date"] = resolved
+        # date_utc: вычислить UTC если есть offset в EXIF
+        raw = (exif or {}).get("exif_raw") or {}
+        offset_str = None
+        for k in ("EXIF OffsetTimeOriginal", "EXIF OffsetTime", "EXIF OffsetTimeDigitized"):
+            if k in raw:
+                offset_str = raw[k]
+                break
+        if offset_str:
+            import re as _re
+            from datetime import datetime as _dt, timedelta as _td
+            m = _re.match(r'([+-])(\d{2}):?(\d{2})', offset_str)
+            if m:
+                sign = 1 if m.group(1) == "+" else -1
+                offset = _td(hours=sign * int(m.group(2)), minutes=sign * int(m.group(3)))
+                try:
+                    dt_local = _dt.strptime(resolved[:19], "%Y-%m-%d %H:%M:%S")
+                    dt_utc = dt_local - offset
+                    updates["date_utc"] = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
+        if "date_utc" not in updates:
+            updates["date_utc"] = resolved
     if conflict:
         updates["date_conflict"] = 1
 

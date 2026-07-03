@@ -10,13 +10,8 @@
     <link rel="stylesheet" href="/shared.css">
     <style>
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        h1 { position: relative; }
 
         .light-theme { background: #ffffff; color: #24292f; }
-        .light-theme h1 { background: #f6f8fa; border-bottom: 1px solid #d0d7de; color: #0969da; }
-        .light-theme h1 .nav a { color: #57606a; }
-        .light-theme h1 .nav a:hover { color: #0969da; }
-        .light-theme h1 .nav a.active { color: #0969da; }
         .light-theme .sidebar-wrap { }
         .light-theme .sidebar-wrap::-webkit-resizer { background: #d0d7de; border-left: 3px solid #0969da; }
         .light-theme .sidebar { background: #f6f8fa; border-color: #d0d7de; }
@@ -67,14 +62,18 @@
         .light-theme .root-menu-item.active { background: #d0d7de; color: #0969da; }
         .light-theme .root-menu-item.disabled .rm-alias { color: #8c949e; }
         .light-theme .root-menu-item.disabled .rm-path { color: #d0d7de; }
-
-        h1 { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 16px; color: #58a6ff; display: flex; align-items: center; justify-content: space-between; position: relative; flex-shrink: 0; }
-        h1 .nav { font-size: 13px; padding-right: 50px; }
-        h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
-        h1 { display: flex; align-items: center; }
-        
-        h1 .nav a:hover { color: #58a6ff; }
-        h1 .nav a.active { color: #58a6ff; }
+        .light-theme .t-loading { color: #57606a; }
+        .light-theme .t-root-item .t-icon { color: #9a6700; }
+        .light-theme .loading { color: #57606a; }
+        .light-theme .sidebar-toggle { background: #1f883d; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+        .light-theme .sidebar-close-overlay { background: rgba(0,0,0,.4); }
+        .light-theme .face-box { border: 2px solid rgba(9,105,218,.8); }
+        .light-theme .face-box:hover { border-color: #0969da; }
+        .light-theme .face-box-label { background: rgba(9,105,218,.9); color: #fff; }
+        .light-theme .ad-ok { background: #1f883d; color: #fff; }
+        .light-theme .ad-ok:hover { background: #1a7f37; }
+        .light-theme .ad-cancel { background: #f6f8fa; color: #24292f; }
+        .light-theme .ad-cancel:hover { background: #eaeef2; }
 
         .fm { display: flex; flex: 1; min-height: 0; }
         .sidebar-wrap { width: 260px; min-width: 160px; max-width: 500px; overflow: hidden; resize: horizontal; position: relative; }
@@ -220,8 +219,6 @@
 .sidebar-close-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; }
 .sidebar-close-overlay.mob-open { display: block; }
 @media (max-width: 768px) {
-    h1 { padding-right: 12px; flex-shrink: 0; }
-    h1 span { font-size: 14px; }
     .sidebar-wrap { display: none; position: fixed; top: 0; left: 0; width: 80%; height: 100%; z-index: 100; resize: none; }
     .sidebar-wrap.mob-open { display: block; }
     .sidebar-toggle { display: flex; }
@@ -248,32 +245,8 @@
     </style>
 </head>
 <body>
-    <h1>
-        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Каталог</span>
-        <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
-        <div class="nav">
-            <a href="/gallery">Галерея</a>
-            <a href="/catalog" class="active">Каталог</a>
-            <a href="/map">Карта</a>
-            <a href="/persons">Персоны</a>
-            <a href="/admin">Управление</a>
-        </div>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
-    </h1>
-
-    <div class="mm-overlay" id="mmOverlay"></div>
-    <div class="mm-edge" id="mmEdge"></div>
-    <div class="mm-panel" id="mmPanel">
-        <div class="mm-head"><img src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt=""><span>Gailery</span><button class="mm-x" onclick="closeMobileNav()">&times;</button></div>
-        <div class="mm-nav">
-            <a href="/gallery" class="mm-a"><span class="mm-ico">&#9638;</span><span class="mm-lbl">Галерея</span></a>
-            <a href="/catalog" class="mm-a active"><span class="mm-ico">&#9654;</span><span class="mm-lbl">Каталог</span></a>
-            <a href="/map" class="mm-a"><span class="mm-ico">&#9673;</span><span class="mm-lbl">Карта</span></a>
-            <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
-            <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
-        </div>
-        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
-    </div>
+    <script src="/shared.js"></script>
+    <script>renderHeader('Каталог');</script>
 
     <div class="fm">
         <button class="sidebar-toggle" onclick="toggleMobileSidebar()">&#128193;</button>
@@ -959,6 +932,5 @@ function toggleMobileSidebar() {
 
 loadRoots();
 </script>
-<script src="/shared.js"></script>
 </body>
 </html>

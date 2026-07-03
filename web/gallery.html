@@ -16,12 +16,7 @@
         html { overflow-anchor: none; }
         body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
         html.embedded, html.embedded body { background: transparent; }
-        html.embedded .page-header, html.embedded .search-bar, html.embedded .filter-sheet-overlay, html.embedded .filter-sheet, html.embedded #timelineWrap, html.embedded #grid, html.embedded #gridTools, html.embedded .info-bar, html.embedded .hamburger { display: none !important; }
-        h1 { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 16px; color: #58a6ff; display: flex; align-items: center; justify-content: space-between; position: relative; }
-        h1 .nav { font-size: 13px; padding-right: 50px; }
-        h1 .nav a { color: #6e7681; text-decoration: none; margin-left: 14px; }
-        h1 .nav a:hover { color: #58a6ff; }
-        h1 .nav a.active { color: #58a6ff; }
+        html.embedded .page-header, html.embedded .search-bar, html.embedded .filter-sheet-overlay, html.embedded .filter-sheet, html.embedded #timelineWrap, html.embedded #grid, html.embedded #gridTools, html.embedded .info-bar, html.embedded .header-sticky .hamburger { display: none !important; }
 
         .search-bar { padding: 10px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
         .search-bar input[type="text"] { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 6px 10px; font-family: monospace; font-size: 13px; flex: 1; min-width: 200px; }
@@ -54,8 +49,7 @@
         .timeline.dragging { cursor: grabbing; }
 
         .header-sticky { position: sticky; top: 0; z-index: 20; background: #161b22; transition: transform .2s; }
-        .header-sticky h1 { margin: 0; display: flex; align-items: center; }
-        .header-sticky h1 .logo { height: 32px; width: auto; margin-right: 6px; }
+        .header-sticky h1 { margin: 0; display: flex; align-items: center; justify-content: space-between; position: relative; }
         #tlCanvas { display: block; width: 100%; height: 100%; }
         .tl-needle { position: absolute; bottom: 0; transform: translateX(-50%); z-index: 2; pointer-events: none; transition: left .4s ease-out; filter: drop-shadow(0 0 4px rgba(218,54,51,.6)); display: flex; flex-direction: column; align-items: center; }
         .tl-needle-arrow { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid #da3633; }
@@ -206,10 +200,7 @@
         .dd-cancel:hover { background: #30363d; }
 
         .light-theme { background: #ffffff; color: #24292f; }
-        .light-theme h1 { background: #f6f8fa; border-bottom: 1px solid #d0d7de; color: #0969da; }
-        .light-theme h1 .nav a { color: #57606a; }
-        .light-theme h1 .nav a:hover { color: #0969da; }
-        .light-theme h1 .nav a.active { color: #0969da; }
+        .light-theme .header-sticky { background: #f6f8fa; }
         .light-theme .search-bar { background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
         .light-theme .search-bar input[type=text] { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; }
         .light-theme .search-bar input[type=text]:focus { border-color: #0969da; }
@@ -290,6 +281,35 @@
         .light-theme .dd-confirm:hover { background: #a40e26; }
         .light-theme .dd-cancel { background: #eaeef2; color: #24292f; }
         .light-theme .dd-cancel:hover { background: #d0d7de; }
+        .light-theme .card-preview-video { background: #eaeef2; }
+        .light-theme .loading { color: #57606a; }
+        .light-theme .empty { color: #6e7681; }
+        .light-theme .copy-hash-btn { background: #f6f8fa; color: #57606a; border-color: #d0d7de; }
+        .light-theme .manual-date-badge { background: rgba(207,34,46,.85); color: #fff; }
+        .light-theme .manual-date-badge:hover { background: rgba(207,34,46,1); }
+        .light-theme .dp-date-btn { color: #57606a; }
+        .light-theme .dp-date-btn:hover { color: #0969da; }
+        .light-theme .dp-date-clear { color: #cf222e; }
+        .light-theme .dp-date-clear:hover { color: #a40e26; }
+        .light-theme .dp-date-input { background: #ffffff; color: #24292f; border: 1px solid #d0d7de; }
+        .light-theme .dp-date-input:focus { border-color: #0969da; }
+        .light-theme .dp-date-save { background: #1f883d; color: #fff; }
+        .light-theme .dp-date-save:hover { background: #29994a; }
+        .light-theme .dp-date-cancel { background: #eaeef2; color: #24292f; }
+        .light-theme .dp-date-cancel:hover { background: #d0d7de; }
+        .light-theme .pf-box { background: #f6f8fa; border: 1px solid #d0d7de; }
+        .light-theme .pf-box h3 { color: #0969da; }
+        .light-theme .pf-item { border-radius: 4px; }
+        .light-theme .pf-item:hover { background: #eaeef2; }
+        .light-theme .pf-item img { border-radius: 2px; }
+        .light-theme .pf-item .nm { color: #24292f; }
+        .light-theme .pf-item .cnt { color: #6e7681; }
+        .light-theme .mob-filter-btn { background: #eaeef2; color: #24292f; border: 1px solid #d0d7de; }
+        .light-theme .mob-filter-btn .badge-dot { background: #0969da; }
+        .light-theme .filter-sheet-overlay { background: rgba(0,0,0,.5); }
+        .light-theme .fs-actions button { border: none; }
+        .light-theme .fs-btn-apply { background: #1f883d; color: #fff; }
+        .light-theme .fs-btn-person { background: #0969da; color: #fff; }
 
         .mob-filter-btn { display: none; background: #21262d; color: #c9d1d9; border: none; padding: 10px 14px; border-radius: 4px; cursor: pointer; font-size: 18px; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
         .mob-filter-btn .badge-dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; background: #58a6ff; border-radius: 50%; display: none; }
@@ -336,8 +356,8 @@
 
         @media (max-width: 768px) {
             html, body { overflow-x: clip; max-width: 100svw; }
-            h1 { padding: 10px 12px; max-width: 100svw; box-sizing: border-box; }
-            h1 span { font-size: 15px; }
+            .header-sticky h1 { padding: 10px 12px; max-width: 100svw; box-sizing: border-box; }
+            .header-sticky h1 span { font-size: 15px; }
             .header-sticky { max-width: 100svw; overflow: hidden; }
 
             .search-bar { padding: 6px 12px; gap: 6px; max-width: 100svw; box-sizing: border-box; }
@@ -349,7 +369,7 @@
             .detail-panel { display: block; width: 100%; height: 85svh; top: auto; bottom: 0; left: 0; right: 0; border-left: none; border-top: 1px solid #30363d; border-radius: 16px 16px 0 0; transform: translateY(100%); transition: transform .3s ease; visibility: hidden; pointer-events: none; overflow-x: hidden; }
             .detail-panel.show { visibility: visible; pointer-events: auto; transform: translateY(0); }
             .detail-panel .dp-img { max-width: 100%; height: auto; object-fit: contain; border-radius: 4px; display: block; }
-            .detail-panel .dp-close { font-size: 32px; padding: 14px; min-width: 56px; min-height: 56px; top: 6px; right: 6px; z-index: 10; color: #f0f0f0; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 5px #000; }
+            .detail-panel .dp-close { font-size: 32px; padding: 14px; min-width: 56px; min-height: 56px; top: 6px; right: 6px; z-index: 10; color: #c9d1d9; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 5px #000; }
             .dp-handle { display: block; width: 40px; height: 5px; background: #30363d; border-radius: 3px; margin: 8px auto 0; }
             .light-theme .dp-handle { background: #d0d7de; }
 
@@ -452,19 +472,8 @@
     </style>
 </head>
 <body>
-    <div class="header-sticky" id="headerSticky">
-    <h1>
-         <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Галерея</span>
-        <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
-        <div class="nav">
-            <a href="/gallery" class="active">Галерея</a>
-            <a href="/catalog">Каталог</a>
-            <a href="/map">Карта</a>
-            <a href="/persons">Персоны</a>
-             <a href="/admin">Управление</a>
-        </div>
-          <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
-     </h1>
+    <script src="/shared.js"></script>
+    <script>renderHeader('Галерея');</script>
 
      <div class="search-bar">
           <input type="text" id="searchInput" placeholder="Поиск по описанию, пути или хешу..." onkeydown="if(event.key==='Enter')doSearch()">
@@ -506,23 +515,8 @@
          <button class="btn-secondary" onclick="openPersonFilter()">По персоне</button>
          <button class="btn-secondary" onclick="clearFilters()">Сброс</button>
           <button class="mob-filter-btn" onclick="openFilterSheet()" aria-label="Фильтры">&#9881;<span class="badge-dot"></span></button>
-      </div>
-     </div>
-
-     <div class="mm-overlay" id="mmOverlay"></div>
-     <div class="mm-edge" id="mmEdge"></div>
-     <div class="mm-panel" id="mmPanel">
-         <div class="mm-head"><img src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt=""><span>Gailery</span><button class="mm-x" onclick="closeMobileNav()">&times;</button></div>
-         <div class="mm-nav">
-              <a href="/gallery" class="mm-a active"><span class="mm-ico">&#9638;</span><span class="mm-lbl">Галерея</span></a>
-              <a href="/catalog" class="mm-a"><span class="mm-ico">&#9654;</span><span class="mm-lbl">Каталог</span></a>
-              <a href="/map" class="mm-a"><span class="mm-ico">&#9673;</span><span class="mm-lbl">Карта</span></a>
-              <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
-               <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
-         </div>
-         <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
-     </div>
-
+       </div>
+ 
       <div class="filter-sheet-overlay" id="filterSheetOverlay" onclick="closeFilterSheet()"></div>
     <div class="filter-sheet" id="filterSheet">
         <div class="fs-handle"></div>
@@ -599,7 +593,6 @@
         </div>
     </div>
 
-<script src="/shared.js"></script>
 <script src="/viewer.js?v=9"></script>
 <script src="/face-modal.js"></script>
 <script src="/gallery.js"></script>

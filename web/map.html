@@ -17,30 +17,30 @@
     <link rel="stylesheet" href="/viewer.css">
     <link rel="stylesheet" href="/face-modal.css">
     <style>
-        body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
-        h1 { position: relative; }
+        body { font-family: monospace; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
         .light-theme { background: #ffffff; color: #24292f; }
-        .light-theme h1 { background: #f6f8fa; border-bottom: 1px solid #d0d7de; color: #0969da; }
-        .light-theme h1 .nav a { color: #57606a; }
-        .light-theme h1 .nav a:hover { color: #0969da; }
-        .light-theme h1 .nav a.active { color: #0969da; }
-        .light-theme h1 span { color: #24292f; }
-        .light-theme .nav a { color: #57606a; }
-        .light-theme .nav a:hover { background: #eaeef2; color: #24292f; }
-        .light-theme .nav a.active { color: #0969da; }
         .light-theme .info-bar { background: #f6f8fa; border-color: #d0d7de; color: #57606a; }
         .light-theme .thumb-wrap { background: #eaeef2; border-color: #ffffff; box-shadow: 0 0 6px rgba(0,0,0,.2); }
         .light-theme .thumb-ph { background: #d0d7de; }
         .light-theme .thumb-ph svg { fill: #8c949e; }
+        .light-theme .marker-cluster-small { background: rgba(31, 136, 61, 0.4); }
+        .light-theme .marker-cluster-small div { background: rgba(31, 136, 61, 0.7); color: #fff; font-size: 11px; }
+        .light-theme .marker-cluster-medium { background: rgba(9, 105, 218, 0.4); }
+        .light-theme .marker-cluster-medium div { background: rgba(9, 105, 218, 0.7); color: #fff; font-size: 11px; }
+        .light-theme .marker-cluster-large { background: rgba(163, 113, 247, 0.4); }
+        .light-theme .marker-cluster-large div { background: rgba(163, 113, 247, 0.7); color: #fff; font-size: 11px; }
+        .light-theme .popup-thumb { background: #f6f8fa; }
+        .light-theme .popup-desc { color: #24292f; }
+        .light-theme .popup-date { color: #57606a; }
+        .light-theme .dot-marker { background: #0969da; border: 1.5px solid #fff; box-shadow: 0 0 3px rgba(0,0,0,.3); }
+        .light-theme .dot-marker.manual { background: #cf222e; }
+        .light-theme .popup-clear-gps { background: rgba(207,34,46,.8); color: #fff; }
+        .light-theme .popup-clear-gps:hover { background: rgba(207,34,46,1); }
+        .light-theme .pick-dialog-btns button { color: #24292f; }
+        .light-theme .pick-btn-link { background: #1f883d; color: #fff; }
+        .light-theme .pick-btn-link:hover { background: #1a7f37; }
+        .light-theme .pick-success { background: #1f883d; color: #fff; }
 
-        h1 { background: #161b22; border-bottom: 1px solid #30363d; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 600; }
-        h1 span { color: #f0f6fc; }
-        .nav { display: flex; gap: 4px; padding-right: 54px; }
-        .nav a { color: #8b949e; text-decoration: none; font-size: 12px; padding: 4px 8px; border-radius: 4px; }
-        h1 { display: flex; align-items: center; }
-        
-        .nav a:hover { background: #21262d; color: #c9d1d9; }
-        .nav a.active { color: #58a6ff; }
         #map { flex: 1; width: 100%; }
         .info-bar { background: #161b22; border-top: 1px solid #30363d; padding: 6px 20px; font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; }
         .marker-cluster-small { background: rgba(35, 134, 54, 0.4); }
@@ -84,8 +84,6 @@
         .thumb-ph svg { width: 18px; height: 18px; fill: #484f58; }
         .thumb-ph-big svg { width: 48px; height: 48px; fill: #484f58; }
 @media (max-width: 768px) {
-    h1 { padding-right: 12px; }
-    h1 span { font-size: 14px; }
     .info-bar { font-size: 10px; padding: 4px 12px; }
     .pick-dialog-box { max-width: 90vw; padding: 16px; }
     .pick-dialog-btns button { min-height: 44px; font-size: 14px; padding: 10px 18px; }
@@ -93,32 +91,8 @@
     </style>
 </head>
 <body>
-    <h1>
-        <a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>Карта</span>
-        <button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>
-        <div class="nav">
-            <a href="/gallery">Галерея</a>
-            <a href="/catalog">Каталог</a>
-            <a href="/map" class="active">Карта</a>
-            <a href="/persons">Персоны</a>
-            <a href="/admin">Управление</a>
-        </div>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">☀️</button>
-    </h1>
-
-    <div class="mm-overlay" id="mmOverlay"></div>
-    <div class="mm-edge" id="mmEdge"></div>
-    <div class="mm-panel" id="mmPanel">
-        <div class="mm-head"><img src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt=""><span>Gailery</span><button class="mm-x" onclick="closeMobileNav()">&times;</button></div>
-        <div class="mm-nav">
-            <a href="/gallery" class="mm-a"><span class="mm-ico">&#9638;</span><span class="mm-lbl">Галерея</span></a>
-            <a href="/catalog" class="mm-a"><span class="mm-ico">&#9654;</span><span class="mm-lbl">Каталог</span></a>
-            <a href="/map" class="mm-a active"><span class="mm-ico">&#9673;</span><span class="mm-lbl">Карта</span></a>
-            <a href="/persons" class="mm-a"><span class="mm-ico">&#9670;</span><span class="mm-lbl">Персоны</span></a>
-            <a href="/admin" class="mm-a"><span class="mm-ico">&#9881;</span><span class="mm-lbl">Управление</span></a>
-        </div>
-        <div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">☀️</span><span id="mmThemeLbl">Дневная тема</span></button></div>
-    </div>
+    <script src="/shared.js"></script>
+    <script>renderHeader('Карта');</script>
     <div id="map"></div>
     <div class="info-bar">
         <span id="infoLeft">Загрузка...</span>
@@ -144,7 +118,6 @@
 
     <script src="/lib/leaflet/leaflet.js"></script>
     <script src="/lib/leaflet/leaflet.markercluster.js"></script>
-    <script src="/shared.js"></script>
     <script src="/viewer.js?v=9"></script>
     <script src="/face-modal.js"></script>
     <script>

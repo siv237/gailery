@@ -1,6 +1,65 @@
-/* ===== Gailery shared JS — theme toggle + mobile nav ===== */
+/* ===== Gailery shared JS — theme toggle + mobile nav + header ===== */
 
 var _isLightTheme = false;
+
+// Читаем сохранённую тему сразу, но не применяем до рендера шапки
+var _savedTheme = localStorage.getItem('gallery-theme');
+if (_savedTheme === 'light') {
+    _isLightTheme = true;
+}
+
+var _NAV_ITEMS = [
+    { href: '/gallery',  ico: '\u25A0', label: 'Галерея' },
+    { href: '/albums',   ico: '\u25A0', label: 'Альбомы' },
+    { href: '/catalog',  ico: '\u25B6', label: 'Каталог' },
+    { href: '/map',      ico: '\u25C9', label: 'Карта' },
+    { href: '/persons',  ico: '\u25C6', label: 'Персоны' },
+    { href: '/admin',    ico: '\u2699', label: 'Управление' },
+];
+
+function _activeNavPath() {
+    var p = window.location.pathname;
+    for (var i = 0; i < _NAV_ITEMS.length; i++) {
+        if (p === _NAV_ITEMS[i].href || p.indexOf(_NAV_ITEMS[i].href + '/') === 0) return _NAV_ITEMS[i].href;
+    }
+    if (p === '/' || p === '/gallery') return '/gallery';
+    return null;
+}
+
+function renderHeader(pageTitle) {
+    var active = _activeNavPath();
+    var navHtml = '';
+    for (var i = 0; i < _NAV_ITEMS.length; i++) {
+        var cls = _NAV_ITEMS[i].href === active ? ' class="active"' : '';
+        navHtml += '<a href="' + _NAV_ITEMS[i].href + '"' + cls + '>' + _NAV_ITEMS[i].label + '</a>';
+    }
+    var mmNavHtml = '';
+    for (var j = 0; j < _NAV_ITEMS.length; j++) {
+        var mcls = _NAV_ITEMS[j].href === active ? ' class="mm-a active"' : ' class="mm-a"';
+        mmNavHtml += '<a href="' + _NAV_ITEMS[j].href + '"' + mcls + '><span class="mm-ico">' + _NAV_ITEMS[j].ico + '</span><span class="mm-lbl">' + _NAV_ITEMS[j].label + '</span></a>';
+    }
+    var html = '<div class="header-sticky" id="headerSticky">' +
+        '<h1>' +
+        '<a href="/gallery" class="logo-link"><img class="logo" src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt="Gailery"></a><span>' + (pageTitle || '') + '</span>' +
+        '<button class="hamburger" onclick="toggleMobileNav()" aria-label="Меню">&#9776;</button>' +
+        '<div class="nav">' + navHtml + '</div>' +
+        '<button class="theme-toggle" onclick="toggleTheme()" title="Дневная тема">\u2600\uFE0F</button>' +
+        '</h1>' +
+        '</div>' +
+        '<div class="mm-overlay" id="mmOverlay"></div>' +
+        '<div class="mm-edge" id="mmEdge"></div>' +
+        '<div class="mm-panel" id="mmPanel">' +
+        '<div class="mm-head"><img src="/logo-dark.png" data-light="/logo-light.png" data-dark="/logo-dark.png" alt=""><span>Gailery</span><button class="mm-x" onclick="closeMobileNav()">&times;</button></div>' +
+        '<div class="mm-nav">' + mmNavHtml + '</div>' +
+        '<div class="mm-foot"><button class="mm-theme" onclick="toggleTheme();updateMmTheme()"><span class="mm-theme-ico" id="mmThemeIco">\u2600\uFE0F</span><span id="mmThemeLbl">Дневная тема</span></button></div>' +
+        '</div>';
+    document.write(html);
+    // Применить тему после рендера — document.write пересоздаёт DOM
+    if (_isLightTheme) {
+        document.body.classList.add('light-theme');
+    }
+    updateThemeIcon();
+}
 
 function toggleTheme() {
     _isLightTheme = !_isLightTheme;
@@ -10,12 +69,12 @@ function toggleTheme() {
 }
 
 function updateThemeIcon() {
-    var btn = document.querySelector('.theme-toggle');
+    var btn = document.querySelector('.header-sticky .theme-toggle');
     if (btn) {
         btn.innerHTML = _isLightTheme ? '🌙' : '☀️';
         btn.title = _isLightTheme ? 'Тёмная тема' : 'Дневная тема';
     }
-    var logo = document.querySelector('h1 .logo');
+    var logo = document.querySelector('.header-sticky h1 .logo');
     if (logo) {
         logo.src = _isLightTheme ? logo.dataset.light : logo.dataset.dark;
     }
@@ -66,7 +125,8 @@ function updateMmTheme() {
     if (mmLogo) mmLogo.src = _isLightTheme ? mmLogo.dataset.light : mmLogo.dataset.dark;
 }
 
-document.getElementById('mmOverlay').addEventListener('click', closeMobileNav);
+var _mmOverlay = document.getElementById('mmOverlay');
+if (_mmOverlay) _mmOverlay.addEventListener('click', closeMobileNav);
 
 (function() {
     var panel = document.getElementById('mmPanel');
@@ -146,10 +206,3 @@ document.getElementById('mmOverlay').addEventListener('click', closeMobileNav);
         isPanelSwipe = false;
     }, { passive: true });
 })();
-
-var _savedTheme = localStorage.getItem('gallery-theme');
-if (_savedTheme === 'light') {
-    _isLightTheme = true;
-    document.body.classList.add('light-theme');
-    updateThemeIcon();
-}

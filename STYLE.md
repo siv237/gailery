@@ -1,0 +1,216 @@
+# Gailery Design System — STYLE.md
+
+> Единый источник истины для всех страниц. Тест `test_style_conformance` парсит этот файл
+> и проверяет что CSS всех страниц соответствует стандартам. Отклонение = fail.
+
+---
+
+## Палитра
+
+### Тёмная тема (базовая)
+
+| Токен | Hex | Назначение |
+|---|---|---|
+| `bg-page` | `#0d1117` | Фон страницы |
+| `bg-card` | `#161b22` | Фон карточек, панелей, toolbar |
+| `bg-input` | `#0d1117` | Фон инпутов, текстовых полей |
+| `bg-secondary` | `#21262d` | Вторичный фон (бейджи, hover) |
+| `bg-deep-alt` | `#0d2240` | Альтернативный тёмный фон (embed) |
+| `bg-green-tint` | `#0d2818` | Зелёный фон (success state) |
+| `bg-red-tint` | `#2d0a0a` | Красный фон (danger state) |
+| `border-default` | `#21262d` | Стандартная граница |
+| `border-strong` | `#30363d` | Яркая граница (hover, акцент) |
+| `border-muted` | `#d8dee4` | Светлая граница (редко) |
+| `text-primary` | `#c9d1d9` | Основной текст |
+| `text-bright` | `#e6edf3` | Яркий текст (заголовки) |
+| `text-muted` | `#8b949e` | Приглушённый текст |
+| `text-dim` | `#6e7681` | Дим текст (метаданные) |
+| `text-faint` | `#484f58` | Очень тусклый (placeholder) |
+| `accent` | `#58a6ff` | Акцент (ссылки, активные) |
+| `accent-bg` | `#1f6feb` | Акцент фон (кнопки) |
+| `success` | `#3fb950` | Успех |
+| `success-bg` | `#238636` | Кнопки успеха |
+| `success-hover` | `#2ea043` | Hover успеха |
+| `warning` | `#d29922` | Предупреждение |
+| `danger` | `#f85149` | Опасность |
+| `danger-bg` | `#da3633` | Кнопки опасности |
+| `orange` | `#f0883e` | Оранжевый (метки) |
+| `gold` | `#e3b341` | Золото (theme toggle) |
+| `purple` | `#d2a8ff` | Фиолетовый (config keys) |
+| `purple-bg` | `#8250df` | Фиолетовый фон |
+| `green-soft` | `#dafbe1` | Мягкий зелёный фон (diff) |
+| `blue-soft` | `#ddf4ff` | Мягкий синий фон (diff) |
+| `red-soft` | `#ffebe9` | Мягкий красный фон (diff) |
+| `gray-light` | `#8c949e` | Серый (светлый faint) |
+| `border-light-gray` | `#b1bac4` | Светло-серая граница |
+| `panel-dark` | `#1c2128` | Тёмная панель (catalog) |
+
+### Светлая тема
+
+| Токен | Hex | Назначение |
+|---|---|---|
+| `bg-page` | `#ffffff` | Фон страницы |
+| `bg-card` | `#f6f8fa` | Фон карточек |
+| `bg-input` | `#f6f8fa` | Фон инпутов |
+| `bg-secondary` | `#eaeef2` | Вторичный фон |
+| `border-default` | `#d0d7de` | Граница |
+| `border-strong` | `#afb8c1` | Яркая граница |
+| `text-primary` | `#24292f` | Основной текст |
+| `text-muted` | `#57606a` | Приглушённый |
+| `text-dim` | `#6e7681` | Дим |
+| `text-faint` | `#8c959f` | Очень тусклый |
+| `accent` | `#0969da` | Акцент |
+| `success` | `#1f883d` | Успех |
+| `success-bg` | `#1f883d` | Кнопки |
+| `success-hover` | `#29994a` | Hover успеха |
+| `warning` | `#9a6700` | Предупреждение |
+| `danger` | `#cf222e` | Опасность |
+| `danger-bg` | `#a40e26` | Кнопки |
+| `orange` | `#bc4c00` | Оранжевый |
+| `gold` | `#0969da` | Золото (→ акцент) |
+| `purple` | `#8250df` | Фиолетовый |
+| `gray` | `#333` | Тёмно-серый (map borders) |
+| `gray-mid` | `#999` | Серый (map) |
+
+### Запрещённые цвета
+
+Любой hex не из таблиц выше = нарушение. Исключения:
+- `#fff` / `#ffffff` — белый (текст на цветных кнопках)
+- `#000` — чёрный (text-shadow)
+- `transparent` / `rgba(...)` с прозрачностью — допустимо
+
+---
+
+## Типографика
+
+| Свойство | Значение | Назначение |
+|---|---|---|
+| `font-family` | `monospace` | Все страницы |
+| `font-family` | `system-ui, sans-serif` | Запрещён для страниц |
+| Заголовок страницы (h1/h2) | `16px` | В шапке |
+| Заголовок секции | `14px`, `font-weight: 600` | .cfg-group-head, .task-info .tn |
+| Заголовок карточки | `13px`, `font-weight: 600` | .card-title, .task-info .tn |
+| Основной текст | `13px` | Тело карточек, панелей |
+| Метаданные | `12px` | .card-meta, .detail-header .meta |
+| Приглушённый текст | `11px` | .wcard-row, .cfg-desc, .status-val |
+| Мелкий текст | `10px` | .card-source, .sidebar-footer .ver |
+| `line-height` | `1.3` — `1.5` | По умолчанию |
+
+### Запрещённые размеры шрифтов
+- `< 10px` — слишком мелко
+- `> 18px` — слишком крупно для контента (кроме чисел в дашборде)
+
+---
+
+## Компоненты
+
+### Кнопки
+
+| Класс | Назначение | Стиль dark | Стиль light |
+|---|---|---|---|
+| `.btn` | Базовая (secondary) | bg:#21262d, text:#c9d1d9, border:#30363d | bg:#f6f8fa, text:#24292f, border:#d0d7de |
+| `.btn-go` | Действие (success) | bg:#238636, text:#fff | bg:#1f883d, text:#fff |
+| `.btn-stop` | Стоп (danger) | bg:#da3633, text:#fff | bg:#cf222e, text:#fff |
+| `.btn-sec` | Вторичная | bg:#21262d, text:#c9d1d9 | bg:#f6f8fa, text:#24292f |
+| `.btn-warn` | Предупреждение | bg:#9e6a03, text:#fff | bg:#9a6700, text:#fff |
+| `.btn-danger` | Опасная (outline) | bg:#21262d, border:#f85149, text:#f85149 | bg:#f6f8fa, border:#cf222e, text:#cf222e |
+
+Размеры: `padding: 6px 16px`, `border-radius: 4px`, `font-size: 12px`, `font-family: monospace`
+Hover: затемнение bg на +1 шаг, `cursor: pointer`
+Disabled: `bg:#21262d, text:#484f58, cursor: default`
+
+### Карточки
+
+| Класс | Назначение | Стиль dark | Стиль light |
+|---|---|---|---|
+| `.card` | Карточка | bg:#161b22, border:#21262d, radius:6px | bg:#ffffff, border:#d0d7de |
+| `.card:hover` | Hover | border:#30363d, transform:translateY(-2px) | border:#afb8c1 |
+| `.card-body` | Внутренности | padding:12px 14px | — |
+| `.card-title` | Заголовок | font:13px/600, color:#c9d1d9 | color:#24292f |
+| `.card-meta` | Метаданные | font:11px, color:#8b949e | color:#57606a |
+
+### Инпуты
+
+| Класс | Назначение | Стиль dark | Стиль light |
+|---|---|---|---|
+| `.input` / `input[type=text]` | Текст | bg:#0d1117, text:#c9d1d9, border:#30363d, radius:4px | bg:#f6f8fa, text:#24292f, border:#d0d7de |
+| `input:focus` | Фокус | border:#58a6ff | border:#0969da |
+| `select` | Выбор | bg:#0d1117, text:#c9d1d9, border:#30363d | bg:#f6f8fa, text:#24292f, border:#d0d7de |
+
+Размеры: `padding: 6px 10px`, `font-size: 13px`, `font-family: monospace`
+
+### Сетки
+
+| Класс | Назначение | Параметры |
+|---|---|---|
+| `.grid` | Фото/карточки | `display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:6px; padding:10px 20px` |
+| `.grid-albums` | Альбомы | `minmax(280px,1fr); gap:16px; padding:20px` |
+| `.summary` | Dashboard boxes | `display:flex; gap:8px` |
+
+### Списки / Sidebar
+
+| Класс | Назначение | Стиль dark | Стиль light |
+|---|---|---|---|
+| `.sidebar a` | Пункт меню | color:#8b949e, padding:7px 16px, border-left:3px transparent | color:#57606a |
+| `.sidebar a:hover` | Hover | color:#c9d1d9, bg:rgba(255,255,255,.04) | color:#24292f, bg:#f6f8fa |
+| `.sidebar a.active` | Активный | color:#58a6ff, border-left:#58a6ff, bg:rgba(88,166,255,.08) | color:#0969da, border-left:#0969da |
+| `.mm-a` | Mobile пункт | color:#8b949e, padding:13px 16px, border-left:3px transparent | color:#57606a |
+| `.mm-a.active` | Mobile активный | color:#58a6ff, bg:rgba(88,166,255,.06) | color:#0969da |
+
+### Бейджи / Теги
+
+| Класс | Назначение | Стиль dark | Стиль light |
+|---|---|---|---|
+| `.badge` / `.card-source` | Метка | bg:#21262d, color:#8b949e, radius:3px, font:10px | bg:#eaeef2, color:#57606a |
+| `.tb-run` | Запущено | bg:rgba(35,134,54,.2), color:#3fb950, border:#238636 | bg:rgba(31,136,61,.15), color:#1f883d |
+| `.tb-idle` | Ожидание | bg:#21262d, color:#6e7681 | bg:#eaeef2, color:#57606a |
+
+---
+
+## Эффекты
+
+| Свойство | Значение | Назначение |
+|---|---|---|
+| `transition` | `.15s` (colors), `.2s` (transform), `.3s` (panel) | Плавность |
+| `border-radius` | `6px` (cards), `4px` (buttons/inputs), `3px` (badges) | Скругление |
+| `box-shadow` | `0 8px 24px rgba(0,0,0,.4)` (dropdowns) | Тени только для overlay |
+| `transform` | `translateY(-2px)` (card hover) | Подъём карточки |
+| `cursor` | `pointer` (clickable), `default` (disabled) | Указатели |
+| `opacity` | `.6` (pulse), `.7` (shimmer) | Анимации |
+
+### Запрещённые эффекты
+- `box-shadow` на карточках в обычном состоянии (только hover/overlay)
+- `transition` > `.3s` (медленно)
+- `border-radius` > `10px` (слишком круглое)
+- `transform: scale(>1.1)` (слишком резко)
+
+---
+
+## Отступы и размеры
+
+| Токен | Значение | Назначение |
+|---|---|---|
+| `padding-page` | `20px` | Внешний отступ контента от краёв |
+| `padding-card` | `12px 14px` / `16px` | Внутри карточек |
+| `padding-toolbar` | `10px 20px` | Toolbar |
+| `gap-grid` | `6px` (gallery) / `8px` (admin) / `16px` (albums) | Между элементами сетки |
+| `gap-flex` | `8px` / `12px` | Между flex элементами |
+| `radius` | `6px` | Карточки |
+| `radius-sm` | `4px` | Кнопки, инпуты |
+| `radius-xs` | `3px` | Бейджи |
+| `border-width` | `1px` (normal), `2px` (active/hover) | Толщина границ |
+
+---
+
+## Правила для теста
+
+1. **Hex цвета** — только из таблиц палитры. Любой другой = fail.
+2. **Инлайн `style=""`** с цветом (`:#`, `:rgb`) = запрещён.
+3. **`.light-theme`** — каждый цветной селектор должен иметь light вариант.
+4. **`font-family`** — `monospace` для body на всех страницах.
+5. **`font-size`** — только из таблицы типографики (10/11/12/13/14/16/18px).
+6. **`border-radius`** — только `3px/4px/6px` (до `10px` для особых случаев).
+7. **`transition`** — не более `.3s`.
+8. **`renderHeader()`** — все страницы используют единую шапку.
+9. **`shared.css` + `shared.js`** — подключаются на всех страницах.
+10. **Компонентные классы** — `.btn`, `.card`, `.grid` используются, не переопределяются с другими цветами.

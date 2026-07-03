@@ -537,7 +537,7 @@ def _process_chunk_photos(chunk, photo_faces, persona_map, engine, db, mq, chunk
                 photo_path=path,
                 content_hash=content_hash,
                 photo_id=p.get("photo_id"),
-                input_extra={"search_text": search_text, "meta_hash": meta_hash},
+                request_json={"search_text": search_text[:200], "meta_hash": meta_hash},
                 success=1,
             )
         except (sqlite3.Error, KeyError):

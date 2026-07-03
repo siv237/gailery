@@ -351,10 +351,10 @@ function _applyBatch(data) {
     currentPhotos = currentPhotos.concat(data.photos);
     if (data.photos.length > 0) {
         var lastIdx = data.photos.length - 1;
-        _lastDate = data.photos[lastIdx].date || null;
+        _lastDate = data.photos[lastIdx].date_utc || data.photos[lastIdx].date || null;
         _lastPath = data.photos[lastIdx].path || null;
         if (!_firstDate) {
-            _firstDate = data.photos[0].date || null;
+            _firstDate = data.photos[0].date_utc || data.photos[0].date || null;
             _firstPath = data.photos[0].path || null;
         }
     }
@@ -523,13 +523,13 @@ function loadBefore(beforeDate, beforePath, onComplete) {
         _hideTopLoadBar();
         if (data.photos.length > 0) {
             if (!isDesc) data.photos.reverse();
-            _firstDate = data.photos[0].date || null;
+            _firstDate = data.photos[0].date_utc || data.photos[0].date || null;
             _firstPath = data.photos[0].path || null;
             var startIdx = 0;
             var wasEmpty = currentPhotos.length === 0;
             currentPhotos = data.photos.concat(currentPhotos);
             if (wasEmpty) {
-                _lastDate = data.photos[data.photos.length - 1].date || null;
+                _lastDate = data.photos[data.photos.length - 1].date_utc || data.photos[data.photos.length - 1].date || null;
                 _lastPath = data.photos[data.photos.length - 1].path || null;
             }
             prependGrid(data.photos, startIdx);
@@ -740,7 +740,7 @@ function buildCardHtml(p, idx) {
          badge = '<div class="' + fcls + '"' + ftop + '>' + p.personas.length + ' лиц</div>';
      }
      var _videoHover = p.media_type === 'video' ? ' onmouseenter="startVideoPreview(this,' + idx + ')" onmouseleave="stopVideoPreview(this)"' : '';
-     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
+    var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date_utc || p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="openDetail(' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
     html += '<button class="expand-btn" onclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ')">' + (p.media_type === 'video' ? '&#9654;' : '&#x2922;') + '</button>';
     var q = document.getElementById('searchInput').value.trim();
     if (q) html += '<button class="goto-btn" onclick="event.stopPropagation();goToTimelineFromCard(' + idx + ')" title="Найти в хронологии">&#x21E1;</button>';
@@ -778,7 +778,7 @@ function playVideoCard(idx) {
     if (!p) return;
     var url = videoSrc(p);
     var bar = document.getElementById('vidModalBar');
-    var txt = formatDate(p.date);
+    var txt = formatDate(p.date, p.date_tz);
     if (p.camera_make || p.camera_model) txt += ' <span style="color:#6e7681">&bull;</span> ' + esc((p.camera_make || '') + ' ' + (p.camera_model || ''));
     bar.innerHTML = txt;
     var old = document.getElementById('vidModalPlayer');
@@ -1397,9 +1397,9 @@ function _tlNavigateAt(clickX) {
             totalResults = data.total;
             currentPhotos = data.photos;
             if (data.photos.length > 0) {
-                _firstDate = data.photos[0].date || null;
+            _firstDate = data.photos[0].date_utc || data.photos[0].date || null;
                 _firstPath = data.photos[0].path || null;
-                _lastDate = data.photos[data.photos.length - 1].date || null;
+                _lastDate = data.photos[data.photos.length - 1].date_utc || data.photos[data.photos.length - 1].date || null;
                 _lastPath = data.photos[data.photos.length - 1].path || null;
             }
             _canLoadPrev = data.photos.length >= pageSize;

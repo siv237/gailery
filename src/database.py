@@ -197,6 +197,9 @@ class DatabaseManager:
         self._add_column_if_missing(cur, 'photos', 'media_type', "TEXT DEFAULT 'photo'")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_media_type ON photos(media_type)")
         self._add_column_if_missing(cur, 'photos', 'duration_seconds', 'REAL DEFAULT 0')
+        self._add_column_if_missing(cur, 'photos', 'date_tz', "TEXT")
+        self._add_column_if_missing(cur, 'photos', 'date_utc', "TEXT")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_date_utc ON photos(date_utc)")
         self.sqlite.commit()
         self._add_column_if_missing(cur, 'photos', 'root_id', 'TEXT')
         cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_root_id ON photos(root_id)")
@@ -284,6 +287,32 @@ class DatabaseManager:
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts ON system_metrics(timestamp)")
+        self.sqlite.commit()
+
+        self._create_table_if_missing(cur, 'albums', """
+            CREATE TABLE albums (
+                album_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                cover_photo_id TEXT,
+                date_start TEXT,
+                date_end TEXT,
+                photo_count INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'manual',
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        self._create_table_if_missing(cur, 'album_photos', """
+            CREATE TABLE album_photos (
+                album_id TEXT NOT NULL,
+                photo_id TEXT NOT NULL,
+                added_at TEXT,
+                added_by TEXT DEFAULT 'auto',
+                PRIMARY KEY (album_id, photo_id)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_album_photos_pid ON album_photos(photo_id)")
         self.sqlite.commit()
 
     def _apply_migrations(self, cur):
@@ -384,7 +413,7 @@ class DatabaseManager:
     def update_photo(self, photo_id, **kwargs):
         if not kwargs:
             return
-        skip_log = {"exif_checked", "embedded", "photo_type", "has_issues", "issue_type", "media_type", "img_width", "img_height"}
+        skip_log = {"exif_checked", "embedded", "photo_type", "has_issues", "issue_type", "media_type", "img_width", "img_height", "exif_raw", "date_tz", "duration_seconds"}
         now = datetime.now(timezone.utc).isoformat()
         cur = self.sqlite.cursor()
         for k, v in kwargs.items():
@@ -588,7 +617,7 @@ class DatabaseManager:
                       content_hash=None, file_type=None,
                       media_type=None,
                       sort="date_desc", limit=60, offset=0):
-        ed = "COALESCE(manual_date, date)"
+        ed = "COALESCE(date_utc, manual_date, date)"
         base_sql = ("SELECT photos.*, " + ed + " as effective_date, cf.content_hash "  # nosec B608 — SQL column names, values parameterized through ?
                     "FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
                     "WHERE cf.is_canonical = 1 AND cf.deleted = 0")
@@ -610,7 +639,7 @@ class DatabaseManager:
 
     def get_date_histogram(self):
         root_filter, root_params = self._enabled_root_filter()
-        ed = "COALESCE(manual_date, date)"
+        ed = "COALESCE(date_utc, manual_date, date)"
         rows = self.sqlite.execute(
             f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, substr({ed},1,10) as day, COUNT(*) as cnt "  # nosec B608 — SQL column names via f-string, values parameterized through ?
             f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
@@ -1440,3 +1469,181 @@ class DatabaseManager:
         for r in reversed(rows):
             metrics.append({cols[i]: r[i] for i in range(len(cols))})
         return metrics
+
+    # ─── Albums ─────────────────────────────────────────
+
+    def get_albums(self):
+        """Все альбомы, отсортированные по дате начала (новые первыми)."""
+        rows = self.sqlite.execute(
+            "SELECT album_id, title, description, cover_photo_id, "
+            "date_start, date_end, photo_count, source, created_at, updated_at "
+            "FROM albums ORDER BY date_start DESC"
+        ).fetchall()
+        return [dict(zip(
+            ["album_id", "title", "description", "cover_photo_id",
+             "date_start", "date_end", "photo_count", "source",
+             "created_at", "updated_at"], r
+        )) for r in rows]
+
+    def get_album(self, album_id):
+        """Один альбом по ID."""
+        r = self.sqlite.execute(
+            "SELECT album_id, title, description, cover_photo_id, "
+            "date_start, date_end, photo_count, source, created_at, updated_at "
+            "FROM albums WHERE album_id = ?", (album_id,)
+        ).fetchone()
+        if not r:
+            return None
+        return dict(zip(
+            ["album_id", "title", "description", "cover_photo_id",
+             "date_start", "date_end", "photo_count", "source",
+             "created_at", "updated_at"], r
+        ))
+
+    def get_album_photos(self, album_id):
+        """Список photo_id в альбоме, отсортированные ранние → поздние."""
+        rows = self.sqlite.execute(
+            "SELECT ap.photo_id FROM album_photos ap "
+            "JOIN photos p ON p.photo_id = ap.photo_id "
+            "WHERE ap.album_id = ? ORDER BY p.date ASC",
+            (album_id,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def create_album(self, title, description="", source="manual",
+                     date_start=None, date_end=None, photo_ids=None):
+        """Создать альбом с фото. Возвращает album_id."""
+        import uuid as _uuid
+        album_id = str(_uuid.uuid4())
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO albums (album_id, title, description, cover_photo_id, "
+            "date_start, date_end, photo_count, source, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (album_id, title, description, None,
+             date_start, date_end, len(photo_ids or []), source, now, now)
+        )
+        if photo_ids:
+            for pid in photo_ids:
+                self.sqlite.execute(
+                    "INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at, added_by) "
+                    "VALUES (?,?,?,?)",
+                    (album_id, pid, now, source)
+                )
+            self._update_album_cover(album_id)
+        self.sqlite.commit()
+        return album_id
+
+    def add_photos_to_album(self, album_id, photo_ids):
+        """Добавить фото в альбом."""
+        now = datetime.now().isoformat()
+        for pid in photo_ids:
+            self.sqlite.execute(
+                "INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at, added_by) "
+                "VALUES (?,?,?,?)",
+                (album_id, pid, now, "manual")
+            )
+        self._update_album_meta(album_id)
+        self.sqlite.commit()
+
+    def remove_photos_from_album(self, album_id, photo_ids):
+        """Удалить фото из альбома."""
+        for pid in photo_ids:
+            self.sqlite.execute(
+                "DELETE FROM album_photos WHERE album_id = ? AND photo_id = ?",
+                (album_id, pid)
+            )
+        self._update_album_meta(album_id)
+        self.sqlite.commit()
+
+    def update_album(self, album_id, title=None, description=None, cover_photo_id=None):
+        """Обновить название/описание/обложку альбома."""
+        now = datetime.now().isoformat()
+        sets = []
+        vals = []
+        if title is not None:
+            sets.append("title = ?")
+            vals.append(title)
+        if description is not None:
+            sets.append("description = ?")
+            vals.append(description)
+        if cover_photo_id is not None:
+            sets.append("cover_photo_id = ?")
+            vals.append(cover_photo_id)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        vals.append(now)
+        vals.append(album_id)
+        self.sqlite.execute(
+            f"UPDATE albums SET {', '.join(sets)} WHERE album_id = ?",
+            vals
+        )
+        self.sqlite.commit()
+
+    def merge_albums(self, target_id, source_id, new_title=None):
+        """Перенести все фото из source_id в target_id, удалить source_id."""
+        now = datetime.now().isoformat()
+        rows = self.sqlite.execute(
+            "SELECT photo_id FROM album_photos WHERE album_id = ?", (source_id,)
+        ).fetchall()
+        for r in rows:
+            self.sqlite.execute(
+                "INSERT OR IGNORE INTO album_photos (album_id, photo_id, added_at, added_by) "
+                "VALUES (?,?,?,?)",
+                (target_id, r[0], now, "merge")
+            )
+        self.sqlite.execute("DELETE FROM album_photos WHERE album_id = ?", (source_id,))
+        self.sqlite.execute("DELETE FROM albums WHERE album_id = ?", (source_id,))
+        if new_title:
+            self.update_album(target_id, title=new_title)
+        self._update_album_meta(target_id)
+        self.sqlite.commit()
+
+    def delete_album(self, album_id):
+        """Удалить альбом и связи (фото не трогаются)."""
+        self.sqlite.execute("DELETE FROM album_photos WHERE album_id = ?", (album_id,))
+        self.sqlite.execute("DELETE FROM albums WHERE album_id = ?", (album_id,))
+        self.sqlite.commit()
+
+    def clear_all_albums(self):
+        """Удалить все альбомы и связи. Для экспериментов/регенерации."""
+        self.sqlite.execute("DELETE FROM album_photos")
+        self.sqlite.execute("DELETE FROM albums")
+        self.sqlite.commit()
+
+    def _update_album_cover(self, album_id):
+        """Выбрать обложку — первое фото с лицами, иначе первое фото."""
+        r = self.sqlite.execute(
+            "SELECT ap.photo_id FROM album_photos ap "
+            "JOIN photos p ON p.photo_id = ap.photo_id "
+            "WHERE ap.album_id = ? AND p.deleted = 0 "
+            "ORDER BY p.faces_present DESC, p.date ASC LIMIT 1",
+            (album_id,)
+        ).fetchone()
+        if r:
+            self.sqlite.execute(
+                "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
+                (r[0], album_id)
+            )
+
+    def _update_album_meta(self, album_id):
+        """Пересчитать photo_count, date_start, date_end, cover."""
+        r = self.sqlite.execute(
+            "SELECT COUNT(*), MIN(p.date), MAX(p.date) "
+            "FROM album_photos ap JOIN photos p ON p.photo_id = ap.photo_id "
+            "WHERE ap.album_id = ? AND p.deleted = 0",
+            (album_id,)
+        ).fetchone()
+        count, d1, d2 = r if r else (0, None, None)
+        self.sqlite.execute(
+            "UPDATE albums SET photo_count = ?, date_start = ?, date_end = ?, updated_at = ? "
+            "WHERE album_id = ?",
+            (count, d1, d2, datetime.now().isoformat(), album_id)
+        )
+        if count == 0:
+            self.sqlite.execute(
+                "UPDATE albums SET cover_photo_id = NULL WHERE album_id = ?", (album_id,)
+            )
+        else:
+            self._update_album_cover(album_id)

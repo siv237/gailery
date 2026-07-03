@@ -83,7 +83,7 @@ function selectYear(year) {
     html += '</div>';
     if (p.date) {
         var showDate = p.manual_date || p.date;
-        html += '<div class="dp-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">Дата: ' + formatDate(showDate);
+        html += '<div class="dp-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">Дата: ' + formatDate(showDate, p.date_tz);
         if (p.manual_date) {
             html += ' <span class="manual-date-badge" onclick="showDateEdit()">ручная</span>';
             html += ' <span class="dp-date-btn dp-date-clear" onclick="clearPhotoDate(\'' + esc(p.photo_id) + '\')">✕</span>';
@@ -91,7 +91,7 @@ function selectYear(year) {
             html += ' <span class="dp-date-btn" onclick="showDateEdit()">Изменить</span>';
         }
         html += '</div>';
-        if (p.original_date && p.manual_date) html += '<div class="dp-meta" style="color:#6e7681">EXIF дата: ' + formatDate(p.original_date) + '</div>';
+        if (p.original_date && p.manual_date) html += '<div class="dp-meta" style="color:#6e7681">EXIF дата: ' + formatDate(p.original_date, p.date_tz) + '</div>';
         html += '<div id="dateEditArea" style="display:none;margin:2px 0 6px">';
         html += '<div style="display:flex;align-items:center;gap:4px">';
         html += '<input type="datetime-local" id="manualDateInput" class="dp-date-input" value="">';
@@ -120,7 +120,20 @@ function selectYear(year) {
                     var secs = Math.floor(m.duration % 60);
                     h += '<div class="dp-meta">Длительность: <b>' + mins + ':' + (secs < 10 ? '0' : '') + secs + '</b></div>';
                 }
-                if (m.creation_time) h += '<div class="dp-meta">Дата записи: <b>' + esc(m.creation_time) + '</b></div>';
+                if (m.creation_time) {
+                    var ctDate = m.creation_time;
+                    if (p.date_tz === 'utc' && ctDate.indexOf('Z') >= 0) {
+                        var d = new Date(ctDate);
+                        var yy = d.getFullYear();
+                        var mm = String(d.getMonth()+1).padStart(2,'0');
+                        var dd = String(d.getDate()).padStart(2,'0');
+                        var hh = String(d.getHours()).padStart(2,'0');
+                        var mi = String(d.getMinutes()).padStart(2,'0');
+                        var ss = String(d.getSeconds()).padStart(2,'0');
+                        ctDate = dd + '.' + mm + '.' + yy + ' ' + hh + ':' + mi + ':' + ss;
+                    }
+                    h += '<div class="dp-meta">Дата записи: <b>' + esc(ctDate) + '</b></div>';
+                }
                 if (m.camera) h += '<div class="dp-meta">Камера: ' + esc(m.camera) + '</div>';
                 if (m.video_codec) h += '<div class="dp-meta">Видео: ' + esc(m.video_codec) + (m.pix_fmt ? ' ' + esc(m.pix_fmt) : '') + '</div>';
                 if (m.audio_codec) {
