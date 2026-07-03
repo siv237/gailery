@@ -177,7 +177,8 @@ function buildCardHtml(p, idx) {
     }
     var _videoHover = p.media_type === 'video' ? ' onmouseenter="startVideoPreview(this,' + idx + ')" onmouseleave="stopVideoPreview(this)"' : '';
     var html = '<div class="card' + (p.deleted ? ' deleted-card' : '') + '" data-date="' + esc(p.date_utc || p.date || '') + '" data-photo-id="' + esc(p.photo_id || '') + '"' + _videoHover + ' onclick="Viewer.open(currentPhotos,' + idx + ')" ondblclick="event.stopPropagation();Viewer.open(currentPhotos,' + idx + ');toggleFullscreen()">';
-    html += '<button class="expand-btn" onclick="event.stopPropagation();openDetail(' + idx + ')" title="Подробности">&#8505;</button>';
+    html += '<div class="card-ripple"></div>';
+    html += '<button class="expand-btn" onclick="event.stopPropagation();openDetail(' + idx + ')" title="Подробности">&#128214;</button>';
     var q = '';
     var si = document.getElementById('searchInput');
     if (si) q = si.value.trim();
