@@ -143,8 +143,19 @@ def _generate_clusters(db):
     return clusters
 
 
-def _enrich_album_photos(db, photo_ids):
-    """Получить полные фото-объекты (с лицами, персонами, дублями) по списку UUID."""
+def _enrich_album_photos(db, photo_ids, cameras=None):
+    """Получить полные фото-объекты (с лицами, персонами, дублями) по списку UUID.
+
+    Если передан cameras (результат _collect_album_cameras), каждому фото
+    присваивается cam_idx — индекс его камеры в этом списке (-1 если нет).
+    """
+    import json as _json
+    _fake = re.compile(r'^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$', re.I)
+    cam_lookup = {}
+    if cameras:
+        for ci, c in enumerate(cameras):
+            key = (c["make"], c["model"], c["serial"])
+            cam_lookup[key] = ci
     photos = db.get_photos_by_ids(photo_ids)
     if not photos:
         return []
@@ -200,6 +211,26 @@ def _enrich_album_photos(db, photo_ids):
         except Exception:
             ep["duplicate_paths"] = []
             ep["edits"] = []
+        if cam_lookup:
+            mk = (ep.get("camera_make") or "").strip()
+            mdl = (ep.get("camera_model") or "").strip()
+            if _fake.match(mk):
+                mk = ""
+            if _fake.match(mdl):
+                mdl = ""
+            serial = ""
+            raw = ep.get("exif_raw")
+            if raw:
+                try:
+                    rd = _json.loads(raw)
+                    serial = str(rd.get("EXIF BodySerialNumber", "") or "").strip()
+                    if not serial:
+                        serial = str(rd.get("EXIF LensSerialNumber", "") or "").strip()
+                except (ValueError, TypeError):
+                    pass
+            ep["cam_idx"] = cam_lookup.get((mk, mdl, serial), -1)
+        else:
+            ep["cam_idx"] = -1
         result.append(ep)
     return result
 
@@ -232,6 +263,50 @@ def _camera_key(make, model):
     return (m + ' ' + ml).strip()
 
 
+def _collect_album_cameras(db, photo_ids):
+    """Собрать уникальные камеры альбома.
+
+    Группировка по make+model+serial (серийник разделяет одинаковые модели).
+    Возвращает список: [{"make":..., "model":..., "serial":..., "count":N}, ...]
+    Сортировка: по убыванию количества фото.
+    """
+    if not photo_ids:
+        return []
+    import json as _json
+    ph = ",".join("?" * len(photo_ids))
+    rows = db.sqlite.execute(
+        "SELECT camera_make, camera_model, exif_raw FROM photos "
+        "WHERE photo_id IN (" + ph + ")",
+        photo_ids
+    ).fetchall()
+    _fake = re.compile(r'^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$', re.I)
+    cams = {}
+    for make, model, exif_raw in rows:
+        m = (make or "").strip()
+        mdl = (model or "").strip()
+        if _fake.match(m):
+            m = ""
+        if _fake.match(mdl):
+            mdl = ""
+        if not m and not mdl:
+            continue
+        serial = ""
+        if exif_raw:
+            try:
+                raw = _json.loads(exif_raw)
+                serial = str(raw.get("EXIF BodySerialNumber", "") or "").strip()
+                if not serial:
+                    serial = str(raw.get("EXIF LensSerialNumber", "") or "").strip()
+            except (ValueError, TypeError):
+                pass
+        key = (m, mdl, serial)
+        if key not in cams:
+            cams[key] = {"make": m, "model": mdl, "serial": serial, "count": 0}
+        cams[key]["count"] += 1
+    result = sorted(cams.values(), key=lambda c: -c["count"])
+    return result
+
+
 def _resolve_photo_uuid(db, photo_id):
     """Резолв photo_id (UUID или rel_path) в UUID photos.photo_id."""
     if not photo_id:
@@ -241,6 +316,38 @@ def _resolve_photo_uuid(db, photo_id):
         (photo_id, '%' + photo_id)
     ).fetchone()
     return row[0] if row else None
+
+
+def _resolve_photo_by_any(db, ident):
+    """Резолв идентификатора в UUID photos.photo_id.
+
+    Принимает: UUID, content_hash (xxh128), или путь.
+    Схема: content_hash → catalog_files(abs_path) → photos(path) → photos.photo_id
+    """
+    if not ident:
+        return None
+    # 1. Прямой UUID
+    row = db.sqlite.execute(
+        "SELECT photo_id FROM photos WHERE photo_id = ?", (ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    # 2. Через content_hash → catalog_files → photos
+    row = db.sqlite.execute(
+        "SELECT p.photo_id FROM photos p "
+        "JOIN catalog_files cf ON cf.abs_path = p.path "
+        "WHERE cf.content_hash = ? AND cf.is_canonical = 1",
+        (ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    # 3. По пути (rel_path или abs_path)
+    row = db.sqlite.execute(
+        "SELECT photo_id FROM photos WHERE path LIKE ?", ('%' + ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    return None
 
 
 def _parse_date(s):
@@ -312,9 +419,12 @@ async def list_albums():
 
 @router.get("/by_photo/{photo_id}")
 async def find_album_by_photo(photo_id: str):
-    """Найти альбом(ы), содержащие фото."""
+    """Найти альбом(ы), содержащие фото.
+
+    photo_id может быть UUID, content_hash или путём — резолвим через БД.
+    """
     db = get_db()
-    uuid = _resolve_photo_uuid(db, photo_id)
+    uuid = _resolve_photo_by_any(db, photo_id)
     if not uuid:
         raise HTTPException(status_code=404, detail="Photo not found")
     rows = db.sqlite.execute(
@@ -325,7 +435,7 @@ async def find_album_by_photo(photo_id: str):
         (uuid,)
     ).fetchall()
     if not rows:
-        raise HTTPException(status_code=404, detail="Photo is not in any album")
+        return {"albums": [], "photo_uuid": uuid}
     albums = [dict(zip(
         ["album_id", "title", "description", "date_start", "date_end",
          "photo_count", "source"], r
@@ -342,8 +452,10 @@ async def get_album(album_id: str, full: bool = False):
         raise HTTPException(status_code=404, detail="Album not found")
     photo_ids = db.get_album_photos(album_id)
     album["photo_ids"] = photo_ids
+    cameras = _collect_album_cameras(db, photo_ids)
+    album["cameras"] = cameras
     if full:
-        album["photos"] = _enrich_album_photos(db, photo_ids)
+        album["photos"] = _enrich_album_photos(db, photo_ids, cameras)
     return album
 
 

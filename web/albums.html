@@ -80,6 +80,30 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
     .album-card:hover .ac-front { transform: translateY(-4px); }
     .ac-photo.ac-active { transform: translateY(-8px) scale(1.04); }
 }
+
+/* ─── Camera chips + highlight ─── */
+.cam-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
+.cam-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: monospace; cursor: pointer; border: 1.5px solid; background: transparent; transition: all .15s; white-space: nowrap; }
+.cam-chip:hover { opacity: .8; }
+.cam-chip.active { font-weight: 600; }
+.cam-chip .cam-count { font-size: 9px; opacity: .7; }
+.card.cam-hl-0 { box-shadow: 0 0 0 3px #58a6ff, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-1 { box-shadow: 0 0 0 3px #f0883e, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-2 { box-shadow: 0 0 0 3px #3fb950, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-3 { box-shadow: 0 0 0 3px #d29922, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-4 { box-shadow: 0 0 0 3px #f85149, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-5 { box-shadow: 0 0 0 3px #d2a8ff, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-6 { box-shadow: 0 0 0 3px #e3b341, 0 2px 8px rgba(0,0,0,.4); }
+.card.cam-hl-7 { box-shadow: 0 0 0 3px #8250df, 0 2px 8px rgba(0,0,0,.4); }
+.light-theme .cam-chip { background: rgba(0,0,0,.03); }
+.light-theme .card.cam-hl-0 { box-shadow: 0 0 0 3px #0969da, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-1 { box-shadow: 0 0 0 3px #f0883e, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-2 { box-shadow: 0 0 0 3px #1f883d, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-3 { box-shadow: 0 0 0 3px #d29922, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-4 { box-shadow: 0 0 0 3px #cf222e, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-5 { box-shadow: 0 0 0 3px #8250df, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-6 { box-shadow: 0 0 0 3px #e3b341, 0 2px 8px rgba(0,0,0,.15); }
+.light-theme .card.cam-hl-7 { box-shadow: 0 0 0 3px #8250df, 0 2px 8px rgba(0,0,0,.15); }
 </style>
 </head>
 <body>
@@ -125,10 +149,10 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
     </div>
 </div>
 
-<script src="/gallery-common.js"></script>
+<script src="/gallery-common.js?v=2"></script>
 <script src="/viewer.js?v=9"></script>
 <script src="/face-modal.js"></script>
-<script src="/gallery-detail.js?v=39"></script>
+<script src="/gallery-detail.js?v=41"></script>
 
 <script>
 var API = '/api';
@@ -230,6 +254,20 @@ async function openAlbum(id) {
   }
 
   var meta = album.photo_count + ' фото \u00b7 ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' \u2014 ' + album.date_end.slice(0,10) : '') + ' \u00b7 ' + esc(album.source);
+  var cameras = album.cameras || [];
+  var CAM_COLORS = ['#58a6ff','#f0883e','#3fb950','#d29922','#f85149','#d2a8ff','#e3b341','#8250df'];
+  var camerasHtml = '';
+  if (cameras.length) {
+    camerasHtml = '<div class="cam-chips">';
+    for (var ci = 0; ci < cameras.length; ci++) {
+      var cam = cameras[ci];
+      var label = ((cam.make || '') + ' ' + (cam.model || '')).trim();
+      if (!label) label = 'Без названия';
+      var color = CAM_COLORS[ci % CAM_COLORS.length];
+      camerasHtml += '<button class="cam-chip" data-cam="' + ci + '" style="border-color:' + color + ';color:' + color + '" onclick="toggleCamHighlight(' + ci + ')" title="' + esc(cam.serial || '') + '">' + esc(label) + ' <span class="cam-count">' + cam.count + '</span></button>';
+    }
+    camerasHtml += '</div>';
+  }
   var hasDesc = album.description && album.description.trim();
   var descHtml = hasDesc ? '<div class="album-desc-text">' + esc(album.description) + '</div>' : '';
   document.getElementById('content').innerHTML =
@@ -237,8 +275,34 @@ async function openAlbum(id) {
     '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>' +
     '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
     '<span class="album-bar-meta">' + meta + '</span>' +
+    camerasHtml +
     '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>' +
     '</div>' + descHtml + photosHtml;
+}
+
+var _camActiveIdx = -1;
+function toggleCamHighlight(idx) {
+  var chips = document.querySelectorAll('.cam-chip');
+  if (_camActiveIdx === idx) {
+    for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
+    var cards = document.querySelectorAll('.card[data-cam-idx]');
+    for (var j = 0; j < cards.length; j++) {
+      cards[j].classList.remove('cam-hl-0','cam-hl-1','cam-hl-2','cam-hl-3','cam-hl-4','cam-hl-5','cam-hl-6','cam-hl-7');
+    }
+    _camActiveIdx = -1;
+    return;
+  }
+  for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
+  var chip = document.querySelector('.cam-chip[data-cam="' + idx + '"]');
+  if (chip) chip.classList.add('active');
+  var cards = document.querySelectorAll('.card[data-cam-idx]');
+  for (var j = 0; j < cards.length; j++) {
+    for (var c = 0; c < 8; c++) cards[j].classList.remove('cam-hl-' + c);
+    if (cards[j].dataset.camIdx === String(idx)) {
+      cards[j].classList.add('cam-hl-' + idx);
+    }
+  }
+  _camActiveIdx = idx;
 }
 
 function editAlbumTitle() {
@@ -325,8 +389,13 @@ async function clearAll() {
     loadAlbums();
   }
 }
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var albumId = params.get('album');
+  if (albumId) openAlbum(albumId);
+  else loadAlbums();
+})();
 
-loadAlbums();
 </script>
 </body>
 </html>

@@ -35,6 +35,7 @@ function openDetail(idx) {
          }).catch(function(){});
      }
     html += '<h2>Подробности</h2>';
+    html += '<div id="dpAlbums" style="margin-bottom:10px"></div>';
     if (p.description) html += '<div class="dp-desc">' + esc(p.description) + '</div>';
     html += '<div id="richDescDisplay">';
     if (p.rich_description) {
@@ -300,7 +301,33 @@ function openDetail(idx) {
      document.getElementById('detailPanel').classList.add('show');
      if (_isMobile()) document.documentElement.classList.add('scroll-lock');
      _checkCamAlbum(p);
- }
+     _loadPhotoAlbums(p);
+}
+
+function _loadPhotoAlbums(p) {
+    var ident = p.content_hash || p.photo_id;
+    if (!ident) return;
+    fetch(API + '/albums/by_photo/' + encodeURIComponent(ident)).then(function(r) {
+        if (!r.ok) return null;
+        return r.json();
+    }).then(function(d) {
+        var el = document.getElementById('dpAlbums');
+        if (!el) return;
+        if (!d || !d.albums || !d.albums.length) { el.innerHTML = ''; return; }
+        var h = '<div style="color:#8b949e;font-size:10px;margin-bottom:4px">Альбомы (' + d.albums.length + '):</div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+        for (var i = 0; i < d.albums.length; i++) {
+            var a = d.albums[i];
+            var date = a.date_start ? a.date_start.slice(0,10) : '';
+            h += '<a href="/albums?album=' + encodeURIComponent(a.album_id) + '" style="display:inline-flex;align-items:center;gap:4px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;color:#58a6ff;text-decoration:none" title="' + esc(date + ' · ' + a.photo_count + ' фото') + '">' + esc(a.title) + '</a>';
+        }
+        h += '</div>';
+        el.innerHTML = h;
+    }).catch(function() {
+        var el = document.getElementById('dpAlbums');
+        if (el) el.innerHTML = '';
+    });
+}
 
  function closeDetail() {
      document.getElementById('detailPanel').classList.remove('show');
