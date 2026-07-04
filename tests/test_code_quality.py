@@ -35,6 +35,7 @@ SKIP_DIRS = {
     "venv", "venv_vllm", "__pycache__", ".git", "node_modules",
     "data", "thumbnails", "logs", "gguf", ".pytest_cache",
     "build", "dist", ".ruff_cache",
+    "tests",  # тесты не проверяются на качество — только production код
 }
 
 HTML_FILES = [
@@ -352,11 +353,13 @@ def _ruff_check(select_codes, target="."):
     Сканирует весь проект т.к. BLE001/C901 нарушения концентрируются
     в корневых воркерах (describe.py, embed.py, faces.py, pipeline.py),
     не только в src/.
+    Исключает tests/ — тесты не проверяются на качество (манифест §2.1).
     Использует ruff.toml в корне проекта (порог CC=15, per-file-ignores).
     """
     try:
         result = subprocess.run(
             [VENV_PYTHON, "-m", "ruff", "check", target,
+             "--exclude", "tests",
              "--select", select_codes, "--output-format", "json"],
             capture_output=True, text=True, cwd=str(ROOT), timeout=60
         )
