@@ -38,6 +38,12 @@
 .modal-nav.visible:hover { opacity: 1; background: rgba(255,255,255,.85); color: #000; -webkit-text-stroke: 0; text-shadow: none; transform: translateY(-50%) scale(1.15); }
 .modal-prev { left: 0; }
 .modal-next { right: 0; }
+.modal-click-zone { position: absolute; top: 50%; height: 80px; width: 50%; z-index: 1000; pointer-events: none; transform: translateY(-50%); display: none; }
+.modal-click-prev { left: 0; }
+.modal-click-next { right: 0; }
+.modal-click-zone.active { display: block; pointer-events: auto; cursor: pointer; }
+.modal-click-phantom { position: fixed; font-size: 44px; color: #fff; -webkit-text-stroke: 1.5px #000; text-shadow: 0 0 4px #000, 0 0 8px #000; pointer-events: none; z-index: 1015; transform: translate(-50%,-50%); opacity: 0; animation: clickPhantom .3s ease-out forwards; }
+@keyframes clickPhantom { 0% { opacity: .7; } 100% { opacity: 0; } }
 .modal-nav .nav-phantoms { position: absolute; top: 50%; left: 50%; pointer-events: none; }
 .modal-nav .nav-phantoms i { position: absolute; top: 0; left: 0; transform: translate(-50%,-50%); opacity: 0; font-size: 30px; color: #fff; -webkit-text-stroke: 0; text-shadow: none; font-weight: 100; font-style: normal; }
 .modal-prev.visible:hover .nav-phantoms i { animation: phantomLeft 1s ease-out infinite; }

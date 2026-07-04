@@ -32,6 +32,40 @@ var ViewerHooks = window.ViewerHooks || {};
 
 // ─── State ───
 var _mZoom = 1, _mPx = 0, _mPy = 0, _mDrag = false, _mDX = 0, _mDY = 0;
+var _navClickActive = false;
+var _navZoneState = false;
+
+function _updateClickZones() {
+    var show = _navClickActive && _mZoom <= 1 && !_mDrag && _mPx === 0 && _mPy === 0;
+    if (show === _navZoneState) return;
+    _navZoneState = show;
+    var prev = document.getElementById('modalClickPrev');
+    var next = document.getElementById('modalClickNext');
+    if (prev) prev.classList.toggle('active', show);
+    if (next) next.classList.toggle('active', show);
+}
+
+(function() {
+    function attach(el, dir) {
+        if (!el || el._navZoneInit) return;
+        el._navZoneInit = true;
+        el.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var ph = document.createElement('div');
+            ph.className = 'modal-click-phantom';
+            ph.textContent = dir < 0 ? '\u2039' : '\u203A';
+            ph.style.left = e.clientX + 'px';
+            ph.style.top = e.clientY + 'px';
+            document.body.appendChild(ph);
+            setTimeout(function() { if (ph.parentNode) ph.parentNode.removeChild(ph); }, 350);
+            modalNav(dir);
+        });
+    }
+    setTimeout(function() {
+        attach(document.getElementById('modalClickPrev'), -1);
+        attach(document.getElementById('modalClickNext'), 1);
+    }, 100);
+})();
 var _mDate = '', _mPhotoId = '', _mRot = 0, _mIdx = -1, _mCoverMode = false;
 var _ssDir = 0, _ssTimer = null;
 var _imgCache = {};
@@ -48,6 +82,8 @@ var _viewerHTML = `
 <div class="modal-bg" id="photoModal">
     <div class="modal-nav modal-prev" onclick="modalNav(-1)"><span class="nav-arrow">&#8249;<span class="nav-phantoms"><i>&#8249;</i><i>&#8249;</i><i>&#8249;</i></span></span></div>
     <div class="modal-nav modal-next" onclick="modalNav(1)"><span class="nav-arrow">&#8250;<span class="nav-phantoms"><i>&#8250;</i><i>&#8250;</i><i>&#8250;</i></span></span></div>
+    <div class="modal-click-zone modal-click-prev" id="modalClickPrev"></div>
+    <div class="modal-click-zone modal-click-next" id="modalClickNext"></div>
     <div class="modal-content" id="modalContent">
         <div class="modal-img-wrap" id="modalImgWrap" style="cursor:grab">
             <img id="photoModalImg" src="" onclick="event.stopPropagation()">
@@ -348,16 +384,23 @@ function closePhotoModal() {
     var cvs = document.getElementById('photoModalCanvas');
     if (cvs) { cvs.style.display = 'none'; cvs.onmousedown = null; }
     _flirVisImg.src = ''; _flirThImg.src = '';
+    _navClickActive = false;
+    _navZoneState = false;
+    var prev = document.getElementById('modalClickPrev');
+    var next = document.getElementById('modalClickNext');
+    if (prev) prev.classList.remove('active');
+    if (next) next.classList.remove('active');
     if (ViewerHooks.onClose) ViewerHooks.onClose();
 }
 
 // ─── Navigation ───
 function modalNav(dir) {
+    _navClickActive = true;
     var newIdx = _mIdx + dir;
     if (newIdx < 0) {
         if (ViewerHooks.onNavBoundary && dir < 0) {
             ViewerHooks.onNavBoundary(-1, function(extra) {
-                if (extra > 0) { _mIdx += extra; newIdx = _mIdx + dir; if (newIdx >= 0) { _mIdx = newIdx; openViewer(newIdx); } }
+                if (extra > 0) { _mIdx += extra; newIdx = _mIdx + dir; if (newIdx >= 0) { _mIdx = newIdx; openViewer(newIdx); _updateClickZones(); } }
             });
         } else if (Viewer.standalone) { _vNavStandalone(dir); }
         return;
@@ -365,13 +408,14 @@ function modalNav(dir) {
     if (newIdx >= Viewer.photos.length) {
         if (ViewerHooks.onNavBoundary && dir > 0) {
             ViewerHooks.onNavBoundary(1, function(extra) {
-                if (extra > 0 && newIdx < Viewer.photos.length) { _mIdx = newIdx; openViewer(newIdx); }
+                if (extra > 0 && newIdx < Viewer.photos.length) { _mIdx = newIdx; openViewer(newIdx); _updateClickZones(); }
             });
         } else if (Viewer.standalone) { _vNavStandalone(dir); }
         return;
     }
     _mIdx = newIdx;
     openViewer(newIdx);
+    _updateClickZones();
 }
 
 function _vNavStandalone(dir) {
@@ -399,6 +443,7 @@ function applyModalTransform() {
         if (lbl) lbl.style.fontSize = (13 / _mZoom) + 'px';
     }
     _positionModalControls();
+    _updateClickZones();
 }
 
 function _cacheImg(idx) {
@@ -981,7 +1026,7 @@ function openFullPhoto(url) {
         if (_mZoom > 1) { e.preventDefault(); _mDrag = true; _mDX = e.clientX - _mPx; _mDY = e.clientY - _mPy; e.currentTarget.style.cursor = 'grabbing'; }
     });
     document.addEventListener('mousemove', function(e) { if (_mDrag) { _mPx = e.clientX - _mDX; _mPy = e.clientY - _mDY; applyModalTransform(); } });
-    document.addEventListener('mouseup', function() { if (_mDrag) { _mDrag = false; var w = document.getElementById('modalImgWrap'); if (w) w.style.cursor = 'grab'; } });
+    document.addEventListener('mouseup', function() { if (_mDrag) { _mDrag = false; var w = document.getElementById('modalImgWrap'); if (w) w.style.cursor = 'grab'; _updateClickZones(); } });
     document.addEventListener('fullscreenchange', function() {
         if (!document.fullscreenElement) document.getElementById('photoModal').classList.remove('fs');
         setTimeout(_positionModalControls, 100);
