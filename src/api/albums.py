@@ -58,17 +58,16 @@ def _date_title(dt):
 def _generate_clusters(db):
     """Кластеризация фото по времени (gap ≤ 2ч, ≥ 5 фото).
 
-    Сортировка по date_utc — единое временное пространство для фото и видео.
-    У фото date_utc = локальное - EXIF offset, у видео date_utc = UTC.
-    Это объединяет видео и фото одной съёмки даже если видео без utc_offset
-    (p.date остался UTC, но date_utc корректен).
+    Сортировка по локальному времени (manual_date/date) — отражает реальное
+    время съёмки с точки зрения фотографа, корректно разделяет события
+    одного дня (утро/вечер) даже при разных timezone offset.
 
     Фото с повреждённым временем (00:00:00 — нет реального EXIF) не
     участвуют в кластеризации самостоятельно, а привязываются к ближайшему
     кластеру того же дня.
     """
     rows = db.sqlite.execute(
-        "SELECT p.photo_id, COALESCE(p.date_utc, p.manual_date, p.date) as sort_date, "
+        "SELECT p.photo_id, COALESCE(p.manual_date, p.date) as sort_date, "
         "substr(COALESCE(p.manual_date, p.date), 1, 10) as day_str, cf.parent_dir "
         "FROM photos p "
         "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "

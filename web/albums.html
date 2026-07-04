@@ -46,6 +46,8 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 
 /* ─── Album card stack effect (real photos) ─── */
 .grid-albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 28px; padding: 24px 20px; }
+.grid-albums .month-divider { grid-column: 1 / -1; padding: 10px 0 4px 2px; margin-bottom: 6px; font-size: 13px; }
+.grid-albums .month-divider:first-child { padding-top: 0; }
 .album-card { position: relative; cursor: pointer; }
 .ac-photo { position: absolute; inset: 0; border-radius: 4px; overflow: hidden; background: #161b22; border: 1px solid #30363d; transition: transform .35s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease; }
 .ac-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #21262d; }
@@ -172,20 +174,57 @@ function showReprocessModal(photoId) {
 var currentAlbum = null;
 var albumViewMode = false;
 
-async function loadAlbums() {
-  albumViewMode = false;
-  currentPhotos = [];
-  var resp = await fetch('/api/albums/');
-  var albums = await resp.json();
-  var el = document.getElementById('albumCount');
-  if (el) el.textContent = albums.length + ' альбомов';
+var MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
-  if (!albums.length) {
-    document.getElementById('content').innerHTML = '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>';
-    return;
-  }
+function _albumMonthKey(dateStr) {
+    if (!dateStr) return '';
+    return dateStr.substring(0, 7);
+}
 
-  var html = '<div class="grid-albums">' + albums.map(function(a) {
+function _albumMonthAgoLabel(year, month) {
+    var now = new Date();
+    var target = new Date(year, month - 1, 1);
+    var daysAgo = Math.floor((now - target) / 86400000);
+    if (daysAgo <= 0) return '';
+    if (daysAgo < 30) {
+        function dayWord(n) {
+            if (n === 1) return '1 день';
+            if (n >= 2 && n <= 4) return n + ' дня';
+            return n + ' дней';
+        }
+        return dayWord(daysAgo) + ' назад';
+    }
+    var monthsAgo = (now.getFullYear() - year) * 12 + (now.getMonth() + 1 - month);
+    if (monthsAgo < 12) {
+        function monthWord(n) {
+            if (n === 1) return '1 месяц';
+            if (n >= 2 && n <= 4) return n + ' месяца';
+            return n + ' месяцев';
+        }
+        return monthWord(monthsAgo) + ' назад';
+    }
+    var years = Math.floor(monthsAgo / 12);
+    var remM = monthsAgo % 12;
+    if (remM >= 6) years++;
+    function yearWord(n) {
+        if (n === 1) return '1 год';
+        if (n >= 2 && n <= 4) return n + ' года';
+        return n + ' лет';
+    }
+    return yearWord(years) + ' назад';
+}
+
+function _albumMonthDividerHtml(dateStr) {
+    var key = _albumMonthKey(dateStr);
+    if (!key) return '';
+    var y = key.substring(0, 4);
+    var m = parseInt(key.substring(5, 7), 10);
+    var ago = _albumMonthAgoLabel(parseInt(y, 10), m);
+    var agoHtml = ago ? '<span class="md-ago">' + esc(ago) + '</span>' : '';
+    return '<div class="month-divider" data-month="' + key + '"><span class="md-year">' + esc(y) + '</span><span class="md-month">' + MONTH_NAMES[m - 1] + '</span>' + agoHtml + '</div>';
+}
+
+function _albumCardHtml(a) {
     var previews = a.preview_photos || [];
     var date = a.date_start ? a.date_start.slice(0,10) : '';
     var desc = esc(a.title);
@@ -205,7 +244,33 @@ async function loadAlbums() {
       photosHtml = '<div class="ac-photo ac-front"><div class="ac-no-cover">&#128247;</div><div class="ac-count">' + a.photo_count + '</div></div>';
     }
     return '<div class="album-card" onclick="openAlbum(\'' + a.album_id + '\')"><div class="ac-spread">' + photosHtml + '</div></div>';
-  }).join('') + '</div>';
+}
+
+async function loadAlbums() {
+  albumViewMode = false;
+  currentPhotos = [];
+  var resp = await fetch('/api/albums/');
+  var albums = await resp.json();
+  var el = document.getElementById('albumCount');
+  if (el) el.textContent = albums.length + ' альбомов';
+
+  if (!albums.length) {
+    document.getElementById('content').innerHTML = '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>';
+    return;
+  }
+
+  var html = '<div class="grid-albums">';
+  var lastMonth = null;
+  for (var i = 0; i < albums.length; i++) {
+    var a = albums[i];
+    var mk = _albumMonthKey(a.date_start || '');
+    if (mk && mk !== lastMonth) {
+      html += _albumMonthDividerHtml(a.date_start);
+      lastMonth = mk;
+    }
+    html += _albumCardHtml(a);
+  }
+  html += '</div>';
 
   document.getElementById('content').innerHTML = html;
   _initAlbumStackThrottle();
