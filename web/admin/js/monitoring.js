@@ -509,31 +509,31 @@ Mon.renderReport = function(cid, r) {
     var pipeHtml = '<div class="mon-panel" style="grid-column:span 2">'+
         '<h4>🔄 Pipeline Status</h4>'+
         '<table>'+
-        '<tr><td colspan="2" style="color:#58a6ff;font-weight:700;font-size:12px;padding-top:4px">catalog_files</td></tr>'+
+        '<tr><td colspan="2" class="mon-section-hdr">catalog_files</td></tr>'+
         '<tr><td>Всего (alive)</td><td><b>'+Admin.esc(pl.cf_total||0)+'</b></td></tr>'+
         '<tr><td>Canonical</td><td><b>'+Admin.esc(pl.cf_canonical||0)+'</b></td></tr>'+
         '<tr><td>Дубли</td><td><b>'+Admin.esc(pl.cf_duplicates||0)+'</b></td></tr>'+
-        '<tr><td>Без хеша</td><td><b>'+(pl.cf_unhashed||0)+'</b>'+(pl.cf_unhashed>0?' <span style="color:#d29922">(!)</span>':'')+'</td></tr>'+
-        '<tr><td>Пустые (size=0)</td><td><b>'+(pl.cf_empty||0)+'</b>'+(pl.cf_empty>0?' <span style="color:#d29922">(!)</span>':'')+'</td></tr>'+
-        '<tr><td>Удалённые</td><td><b>'+(pl.cf_deleted||0)+'</b> <span style="color:#6e7681;font-size:10px">(missing:'+(pl.cf_auto_missing||0)+' empty:'+(pl.cf_auto_empty||0)+')</span></td></tr>'+
+        '<tr><td>Без хеша</td><td><b>'+(pl.cf_unhashed||0)+'</b>'+(pl.cf_unhashed>0?' <span class="mon-warn">(!)</span>':'')+'</td></tr>'+
+        '<tr><td>Пустые (size=0)</td><td><b>'+(pl.cf_empty||0)+'</b>'+(pl.cf_empty>0?' <span class="mon-warn">(!)</span>':'')+'</td></tr>'+
+        '<tr><td>Удалённые</td><td><b>'+(pl.cf_deleted||0)+'</b> <span class="mon-muted-sm">(missing:'+(pl.cf_auto_missing||0)+' empty:'+(pl.cf_auto_empty||0)+')</span></td></tr>'+
         '<tr><td>ingested</td><td><b>'+(pl.cf_ingested||0)+'</b> / '+(pl.cf_canonical||0)+'</td></tr>'+
         '<tr><td>described (cf)</td><td><b>'+(pl.cf_described||0)+'</b> / '+(pl.cf_canonical||0)+'</td></tr>'+
         '<tr><td>faces_done (cf)</td><td><b>'+(pl.cf_faces_done||0)+'</b> / '+(pl.cf_canonical||0)+'</td></tr>'+
         '<tr><td>embedded (cf)</td><td><b>'+(pl.cf_embedded||0)+'</b> / '+(pl.cf_canonical||0)+'</td></tr>'+
         '<tr><td>exif_done (cf)</td><td><b>'+(pl.cf_exif_done||0)+'</b> / '+(pl.cf_canonical||0)+'</td></tr>'+
-        '<tr><td colspan="2" style="color:#58a6ff;font-weight:700;font-size:12px;padding-top:8px">photos (by cf join, non-video)</td></tr>'+
+        '<tr><td colspan="2" class="mon-section-hdr2">photos (by cf join, non-video)</td></tr>'+
         '<tr><td>Фото (не видео)</td><td><b>'+(pl.p_photo||0)+'</b></td></tr>'+
         '<tr><td>Видео</td><td><b>'+(pl.p_video||0)+'</b></td></tr>'+
-        '<tr><td>described</td><td><b>'+(pl.p_described||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span style="color:'+(pl.pct_described>=99?'#3fb950':pl.pct_described>=80?'#d29922':'#f85149')+'">'+(pl.pct_described||0).toFixed(1)+'%</span></td></tr>'+
-        '<tr><td>faces_done</td><td><b>'+(pl.p_faces_done||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span style="color:'+(pl.pct_faces>=99?'#3fb950':pl.pct_faces>=80?'#d29922':'#f85149')+'">'+(pl.pct_faces||0).toFixed(1)+'%</span></td></tr>'+
-        '<tr><td>embedded (p)</td><td><b>'+(pl.p_embedded||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span style="color:'+(pl.pct_embedded>=99?'#3fb950':pl.pct_embedded>=80?'#d29922':'#f85149')+'">'+(pl.pct_embedded||0).toFixed(1)+'%</span></td></tr>'+
+        '<tr><td>described</td><td><b>'+(pl.p_described||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span class="'+(pl.pct_described>=99?'mon-pct-ok':pl.pct_described>=80?'mon-pct-warn':'mon-pct-fail')+'">'+(pl.pct_described||0).toFixed(1)+'%</span></td></tr>'+
+        '<tr><td>faces_done</td><td><b>'+(pl.p_faces_done||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span class="'+(pl.pct_faces>=99?'mon-pct-ok':pl.pct_faces>=80?'mon-pct-warn':'mon-pct-fail')+'">'+(pl.pct_faces||0).toFixed(1)+'%</span></td></tr>'+
+        '<tr><td>embedded (p)</td><td><b>'+(pl.p_embedded||0)+'</b> / '+(pl.p_photo||0)+' &nbsp;<span class="'+(pl.pct_embedded>=99?'mon-pct-ok':pl.pct_embedded>=80?'mon-pct-warn':'mon-pct-fail')+'">'+(pl.pct_embedded||0).toFixed(1)+'%</span></td></tr>'+
         '<tr><td>exif (p)</td><td><b>'+(pl.p_exif||0)+'</b> / '+(pl.p_alive||0)+'</td></tr>'+
         '<tr><td>faces_present (p)</td><td><b>'+(pl.p_faces_present||0)+'</b></td></tr>'+
-        '<tr><td colspan="2" style="color:#58a6ff;font-weight:700;font-size:12px;padding-top:8px">faces / personas</td></tr>'+
+        '<tr><td colspan="2" class="mon-section-hdr2">faces / personas</td></tr>'+
         '<tr><td>Лиц всего</td><td><b>'+(pl.f_total||0)+'</b></td></tr>'+
         '<tr><td>С персоной</td><td><b>'+(pl.f_with_persona||0)+'</b> ('+Math.round((pl.f_with_persona||0)/Math.max(pl.f_total||1,1)*100)+'%)</td></tr>'+
         '<tr><td>С content_hash</td><td><b>'+(pl.f_with_hash||0)+'</b></td></tr>'+
-        '<tr><td>Персоны</td><td><b>'+(pl.personas_total||0)+'</b> <span style="color:#6e7681;font-size:10px">(именованных: '+(pl.personas_named||0)+')</span></td></tr>'+
+        '<tr><td>Персоны</td><td><b>'+(pl.personas_total||0)+'</b> <span class="mon-muted-sm">(именованных: '+(pl.personas_named||0)+')</span></td></tr>'+
         '</table></div>';
 
     el.innerHTML = hostHtml + memHtml + gpuHtml + disksHtml + netHtml + ioHtml + procsHtml + dbHtml + pipeHtml;

@@ -501,6 +501,57 @@ process.exit(0);
                 + "\n".join(sorted(all_missing))
             )
 
+    def test_no_inline_dark_colors_in_js(self):
+        """Инлайн-стили в JavaScript не должны использовать прямые тёмные цвета.
+
+        JS-код который генерирует HTML с style="color:#8b949e;background:#0d1117"
+        не ловится CSS-тестом — эти цвета всегда тёмные, .light-theme не применяется.
+
+        Порог: 0. Инлайн-стили с тёмными hex цветами в JS = баг.
+        Исправь — вынеси в CSS-класс с .light-theme вариантом.
+        """
+        import re
+        from pathlib import Path
+
+        web = Path(__file__).parent.parent / "web"
+
+        DARK_HEX = {
+            '#0d1117', '#161b22', '#21262d', '#30363d', '#1c2128', '#010409',
+            '#c9d1d9', '#8b949e', '#6e7681', '#484f58', '#f0f6fc', '#58a6ff',
+            '#3fb950', '#f85149', '#d29922', '#f78166', '#a371f7', '#7d8590',
+        }
+        BRAND_HEX = {
+            '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#FC3F1D',
+        }
+
+        def extract_inline_colors(js_text, source_name):
+            violations = []
+            for m in re.finditer(r'style="([^"]*)"', js_text):
+                style = m.group(1)
+                hex_colors = re.findall(r'#[0-9a-fA-F]{3,8}', style)
+                for h in hex_colors:
+                    if h in BRAND_HEX:
+                        continue
+                    if h.lower() in DARK_HEX:
+                        violations.append(f"{source_name}: style=\"{style[:100]}\"  [{h}]")
+            return violations
+
+        all_violations = []
+        for js_file in web.glob("*.js"):
+            all_violations += extract_inline_colors(js_file.read_text(), js_file.name)
+        admin_js_dir = web / "admin" / "js"
+        if admin_js_dir.exists():
+            for js_file in admin_js_dir.glob("*.js"):
+                all_violations += extract_inline_colors(js_file.read_text(), f"admin/{js_file.name}")
+
+        if all_violations:
+            pytest.fail(
+                f"Инлайн-стилей с тёмными цветами в JS: {len(all_violations)} (порог 0).\n"
+                f"Эти цвета не меняются в .light-theme — всегда тёмные.\n"
+                f"Исправь — вынеси в CSS-класс с .light-theme вариантом:\n"
+                + "\n".join(sorted(all_violations))
+            )
+
     def test_no_light_theme_body_selector(self):
         """Запрет .light-theme body — body не может быть потомком .light-theme.
 

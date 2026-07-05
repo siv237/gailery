@@ -40,7 +40,7 @@ MonP.renderFeedInto = function(containerId, limit) {
         h += MonP.renderCard(photos[i], i, containerId, limit <= 10);
     }
     if (limit <= 10) {
-        h += '<div style="text-align:center;padding:6px 0"><a href="#" onclick="Admin.navigate(\'monitor\');return false" style="color:#58a6ff;font-size:12px">Все фото →</a></div>';
+        h += '<div style="text-align:center;padding:6px 0"><a href="#" class="mon-link" onclick="Admin.navigate(\'monitor\');return false">Все фото →</a></div>';
     }
     el.innerHTML = h;
 };
@@ -205,7 +205,7 @@ MonP.renderCard = function(p, idx, containerId, compact) {
         if (p.date) h += '<div class="mcard-meta">Дата: '+Admin.esc(p.date.substring(0,19).replace('T',' '))+'</div>';
         if (p.camera_make || p.camera_model) h += '<div class="mcard-meta">Камера: '+Admin.esc((p.camera_make||'')+' '+(p.camera_model||''))+'</div>';
         if (p.gps_lat) h += '<div class="mcard-meta">GPS: '+p.gps_lat.toFixed(4)+', '+p.gps_lon.toFixed(4)+'</div>';
-        if (p.content_hash) h += '<div class="mcard-meta c-dim">hash: <a href="#" onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')" style="color:#58a6ff;font-family:monospace;text-decoration:none">'+Admin.esc(p.content_hash)+'</a> <button onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')" style="margin-left:8px;padding:2px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;font-size:12px">🔍 AI-лог</button></div>';
+        if (p.content_hash) h += '<div class="mcard-meta c-dim">hash: <a href="#" class="mon-link-bold" onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')">'+Admin.esc(p.content_hash)+'</a> <button onclick="event.stopPropagation();MonP.openAiLog(\''+Admin.esc(p.content_hash)+'\')" style="margin-left:8px;padding:2px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;font-size:12px">🔍 AI-лог</button></div>';
 
         if (p.personas && p.personas.length) {
             h += '<div class="mpers-list">';

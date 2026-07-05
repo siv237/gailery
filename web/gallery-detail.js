@@ -12,7 +12,7 @@ function openDetail(idx) {
 
       var html;
       if (p.media_type === 'video') {
-          html = '<video class="dp-img" id="detailVideo" src="' + vidUrl + '" controls preload="metadata" style="width:100%;max-height:400px;background:#000;border-radius:4px"></video>';
+          html = '<video class="dp-img dp-video-bg" id="detailVideo" src="' + vidUrl + '" controls preload="metadata"></video>';
      } else {
          html = '<img class="dp-img" id="dpImg" src="' + thumbUrl + '" loading="lazy" onerror="this.style.display=\'none\'">';
           html += '<div class="dp-img-bar"><button onclick="rotateDetail(-90)">&#8634;</button><button onclick="rotateDetail(90)">&#8635;</button></div>';
@@ -46,12 +46,12 @@ function openDetail(idx) {
     html += '<div id="customDescArea" style="display:none;margin-top:6px"></div>';
     if (p.faces_present) {
         html += '<div id="enrichArea" style="margin-top:6px">';
-        html += '<button id="enrichBtn" onclick="enrichPhoto(\'' + esc(p.db_id || '') + '\')" style="padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;margin-right:4px">' + (p.rich_description ? 'Обновить описание' : 'Обогатить описание') + '</button>';
-        html += '<button onclick="showCustomDesc(\'' + esc(p.db_id || '') + '\')" style="padding:4px 12px;background:#1f6feb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace">Своё описание</button>';
+        html += '<button id="enrichBtn" class="dp-btn-enrich" onclick="enrichPhoto(\'' + esc(p.db_id || '') + '\')">' + (p.rich_description ? 'Обновить описание' : 'Обогатить описание') + '</button>';
+        html += '<button class="dp-btn-custom" onclick="showCustomDesc(\'' + esc(p.db_id || '') + '\')">Своё описание</button>';
         html += '</div>';
     }
     html += '<div style="margin-top:6px">';
-    html += '<button onclick="showReprocessModal(\'' + esc(p.db_id || '') + '\')" style="padding:4px 12px;background:#6e40c9;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace">Переобработать</button>';
+    html += '<button class="dp-btn-reprocess" onclick="showReprocessModal(\'' + esc(p.db_id || '') + '\')">Переобработать</button>';
     html += '</div>';
     if (p.date) {
         var showDate = p.manual_date || p.date;
@@ -63,7 +63,7 @@ function openDetail(idx) {
             html += ' <span class="dp-date-btn" onclick="showDateEdit()">Изменить</span>';
         }
         html += '</div>';
-        if (p.original_date && p.manual_date) html += '<div class="dp-meta" style="color:#6e7681">EXIF дата: ' + formatDate(p.original_date, p.date_tz) + '</div>';
+        if (p.original_date && p.manual_date) html += '<div class="dp-meta dp-muted">EXIF дата: ' + formatDate(p.original_date, p.date_tz) + '</div>';
         html += '<div id="dateEditArea" style="display:none;margin:2px 0 6px">';
         html += '<div style="display:flex;align-items:center;gap:4px">';
         html += '<input type="datetime-local" id="manualDateInput" class="dp-date-input" value="">';
@@ -71,7 +71,7 @@ function openDetail(idx) {
         html += '<button onclick="hideDateEdit()" class="dp-date-cancel">Отмена</button>';
         html += '</div></div>';
     }
-    if (p.is_raw) html += '<div class="dp-meta" style="color:#f0883e;font-weight:600">RAW</div>';
+    if (p.is_raw) html += '<div class="dp-meta dp-warning-bold">RAW</div>';
     var _fakeCam = /^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$/i;
     var _camMake = p.camera_make || '';
     var _camModel = p.camera_model || '';
@@ -80,7 +80,7 @@ function openDetail(idx) {
     if (p.media_type !== 'video' && (_camMake || _camModel)) html += '<div class="dp-meta">Камера: ' + esc(_camMake + ' ' + _camModel) + '</div>';
     if (p.media_type !== 'video' && (_camMake || _camModel)) html += '<div id="camTimeArea"></div>';
     if (p.media_type === 'video') {
-        html += '<div id="videoMetaArea"><div class="dp-meta" style="color:#6e7681">Загрузка метаданных…</div></div>';
+        html += '<div id="videoMetaArea"><div class="dp-meta dp-muted">Загрузка метаданных…</div></div>';
         (function(){
             var pid = p.photo_id;
             fetch(API + '/photos/video_meta?path=' + encodeURIComponent(pid)).then(function(r){return r.json()}).then(function(m){
@@ -115,7 +115,7 @@ function openDetail(idx) {
                     if (m.audio_channels) ai += ' ' + m.audio_channels + 'ch';
                     h += '<div class="dp-meta">Аудио: ' + ai + '</div>';
                 } else {
-                    h += '<div class="dp-meta" style="color:#f0883e">Аудио: нет</div>';
+                    h += '<div class="dp-meta dp-warning">Аудио: нет</div>';
                 }
                 if (m.fps) h += '<div class="dp-meta">Кадры: ' + m.fps + ' fps</div>';
                 if (m.bit_rate) {
@@ -139,14 +139,14 @@ function openDetail(idx) {
                 }
                 if (brandItems.length > 0) {
                     h += '<div style="margin-top:6px">';
-                    h += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'vtagBrand\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Контейнер теги (' + brandItems.length + ') ▾</div>';
+                    h += '<div class="dp-collapse" onclick="var el=document.getElementById(\'vtagBrand\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Контейнер теги (' + brandItems.length + ') ▾</div>';
                     h += '<div id="vtagBrand" style="display:none;padding-left:8px">';
                     for (var bi = 0; bi < brandItems.length; bi++) h += '<div class="dp-meta">' + brandItems[bi] + '</div>';
                     h += '</div></div>';
                 }
                 if (tagItems.length > 0) {
                     h += '<div style="margin-top:6px">';
-                    h += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'vtagOther\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Метаданные (' + tagItems.length + ') ▾</div>';
+                    h += '<div class="dp-collapse" onclick="var el=document.getElementById(\'vtagOther\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Метаданные (' + tagItems.length + ') ▾</div>';
                     h += '<div id="vtagOther" style="display:none;padding-left:8px">';
                     for (var oi = 0; oi < tagItems.length; oi++) h += '<div class="dp-meta">' + tagItems[oi] + '</div>';
                     h += '</div></div>';
@@ -155,35 +155,35 @@ function openDetail(idx) {
                 el.innerHTML = h;
             }).catch(function(){
                 var el = document.getElementById('videoMetaArea');
-                if (el) el.innerHTML = '<div class="dp-meta" style="color:#f0883e">Метаданные недоступны</div>';
+                if (el) el.innerHTML = '<div class="dp-meta dp-warning">Метаданные недоступны</div>';
             });
         })();
     }
     html += '<div class="dp-meta">Лица: ' + p.total_faces + '</div>';
     if (p.photo_type && p.photo_type !== 'photo') html += '<div class="dp-meta">Тип: ' + esc(p.photo_type) + '</div>';
-    if (p.has_issues) html += '<div class="dp-meta" style="color:#f85149">Проблемы: ' + esc(p.issue_type || 'да') + '</div>';
+    if (p.has_issues) html += '<div class="dp-meta dp-error">Проблемы: ' + esc(p.issue_type || 'да') + '</div>';
     if (p.deleted) {
-        html += '<div class="dp-meta" style="color:#f85149;font-weight:600">Удалена</div>';
-        html += '<button onclick="undeletePhoto(\'' + esc(p.photo_id) + '\')" style="padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;margin:4px 0">Восстановить</button>';
+        html += '<div class="dp-meta dp-error-bold">Удалена</div>';
+        html += '<button class="dp-btn-restore" onclick="undeletePhoto(\'' + esc(p.photo_id) + '\')">Восстановить</button>';
     }
     html += '<div class="dp-meta">Семантическая индексация: ' + (p.embedded ? 'да' : 'нет') + '</div>';
-    if (p.content_hash) html += '<div class="dp-meta dp-hash" style="word-break:break-all;display:flex;align-items:center;gap:6px"><span style="color:#6e7681">Хеш:</span> <span>' + esc(p.content_hash) + '</span> <button class="copy-hash-btn" data-hash="' + esc(p.content_hash) + '" onclick="var t=document.createElement(\'textarea\');t.value=this.dataset.hash;document.body.appendChild(t);t.select();document.execCommand(\'copy\');document.body.removeChild(t);this.textContent=\'✓\';var b=this;setTimeout(function(){b.textContent=\'📋\'},1000)">📋</button></div>';
+    if (p.content_hash) html += '<div class="dp-meta dp-hash" style="word-break:break-all;display:flex;align-items:center;gap:6px"><span class="dp-hash-label">Хеш:</span> <span>' + esc(p.content_hash) + '</span> <button class="copy-hash-btn" data-hash="' + esc(p.content_hash) + '" onclick="var t=document.createElement(\'textarea\');t.value=this.dataset.hash;document.body.appendChild(t);t.select();document.execCommand(\'copy\');document.body.removeChild(t);this.textContent=\'✓\';var b=this;setTimeout(function(){b.textContent=\'📋\'},1000)">📋</button></div>';
     html += '<div class="dp-meta" style="word-break:break-all">Путь: ' + esc(p.photo_id || p.path) + '</div>';
     var allPaths = [p.path];
     if (p.duplicate_paths && p.duplicate_paths.length > 0) {
-        html += '<div class="dp-meta" style="margin-top:6px;color:#f0883e">Дубликаты (' + p.duplicate_paths.length + '):</div>';
+        html += '<div class="dp-meta dp-warning" style="margin-top:6px">Дубликаты (' + p.duplicate_paths.length + '):</div>';
         for (var di = 0; di < p.duplicate_paths.length; di++) {
             var dp = p.duplicate_paths[di].replace(/\\/g,'/');
             allPaths.push(dp);
             var short = dp.split('/').slice(-3).join('/');
-            html += '<div class="dp-meta" style="padding-left:10px;word-break:break-all;color:#8b949e" title="' + esc(dp) + '">' + esc(short) + '</div>';
+            html += '<div class="dp-meta dp-dup-path" title="' + esc(dp) + '">' + esc(short) + '</div>';
         }
     }
     html += '<div class="dp-meta" style="margin-top:6px">';
     for (var ai = 0; ai < allPaths.length; ai++) {
         var ap = allPaths[ai].replace(/\\/g,'/');
         var ashort = ap.split('/').slice(-2).join('/');
-        html += '<a href="#" onclick="goToCatalog(\'' + esc(ap) + '\');return false" style="color:#58a6ff;margin-right:10px" title="' + esc(ap) + '">📂 ' + esc(ashort) + '</a>';
+        html += '<a href="#" class="dp-alt-path" onclick="goToCatalog(\'' + esc(ap) + '\');return false" title="' + esc(ap) + '">📂 ' + esc(ashort) + '</a>';
     }
     html += '</div>';
 
@@ -256,9 +256,9 @@ function openDetail(idx) {
                 var yUrl = 'https://yandex.ru/maps/?ll=' + p.gps_lon + ',' + p.gps_lat + '&z=15&mode=whatshere&whatshere[point]=' + p.gps_lon + ',' + p.gps_lat;
                 grouped['GPS'].unshift(
                     '<div style="display:flex;gap:10px;margin-bottom:4px">' +
-                    '<a href="' + gUrl + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:5px;color:#58a6ff;text-decoration:none;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px">' +
+                    '<a href="' + gUrl + '" target="_blank" rel="noopener" class="dp-map-link">' +
                     '<span style="font-weight:bold;font-size:14px"><span style="color:#4285F4">G</span><span style="color:#EA4335">o</span><span style="color:#FBBC05">o</span><span style="color:#4285F4">g</span><span style="color:#34A853">l</span><span style="color:#EA4335">e</span></span> Maps</a>' +
-                    '<a href="' + yUrl + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:5px;color:#58a6ff;text-decoration:none;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px">' +
+                    '<a href="' + yUrl + '" target="_blank" rel="noopener" class="dp-map-link">' +
                     '<span style="font-weight:bold;font-size:15px;color:#FC3F1D">Я</span>ndex Карты</a>' +
                     '</div>'
                 );
@@ -268,7 +268,7 @@ function openDetail(idx) {
             for (let gName in grouped) {
                 var gId = 'exifGrp_' + gid;
                 html += '<div style="margin-top:6px">';
-                html += '<div style="color:#58a6ff;font-size:11px;cursor:pointer;padding:2px 0;border-bottom:1px solid #21262d" onclick="var el=document.getElementById(\'' + gId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">' + esc(gName) + ' (' + grouped[gName].length + ') ▾</div>';
+                html += '<div class="dp-collapse" onclick="var el=document.getElementById(\'' + gId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">' + esc(gName) + ' (' + grouped[gName].length + ') ▾</div>';
                 html += '<div id="' + gId + '" style="padding-left:8px">';
                 for (var ii = 0; ii < grouped[gName].length; ii++) {
                     html += '<div class="dp-meta">' + grouped[gName][ii] + '</div>';
@@ -280,7 +280,7 @@ function openDetail(idx) {
     }
 
     if (p.personas && p.personas.length > 0) {
-        html += '<div class="dp-personas"><div style="color:#8b949e;font-size:10px;margin-bottom:4px">Персоны (нажмите для редактирования):</div>';
+        html += '<div class="dp-personas"><div class="dp-section-label">Персоны (нажмите для редактирования):</div>';
         for (var j = 0; j < p.personas.length; j++) {
             var per = p.personas[j];
             var fid = (per.face_ids && per.face_ids.length > 0) ? per.face_ids[0] : '';
@@ -289,13 +289,13 @@ function openDetail(idx) {
             html += '<div class="' + cls + '" onclick="openFaceModal(\'' + esc(per.persona_id) + '\',\'' + esc(fid) + '\')">';
             if (fid) html += '<img src="' + API + '/photos/face/' + fid + '?margin=0.5" loading="lazy">';
             html += '<span class="nm">' + esc(per.display_name || per.name) + '</span>';
-            if (per.comment) html += '<span class="cm" style="font-size:9px;color:#8b949e;margin-left:2px">' + esc(per.comment) + '</span>';
+            if (per.comment) html += '<span class="cm dp-persona-comment">' + esc(per.comment) + '</span>';
             html += '</div>';
         }
         html += '</div>';
     }
 
-    html += '<div style="margin-top:12px"><button style="background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px" onclick="openFullPhoto(\'' + esc(p.media_type === 'video' ? vidUrl : photoUrl) + '\')">Открыть полное фото</button></div>';
+    html += '<div style="margin-top:12px"><button class="dp-btn-full" onclick="openFullPhoto(\'' + esc(p.media_type === 'video' ? vidUrl : photoUrl) + '\')">Открыть полное фото</button></div>';
 
      document.getElementById('dpContent').innerHTML = html;
      document.getElementById('detailPanel').classList.add('show');
@@ -314,12 +314,12 @@ function _loadPhotoAlbums(p) {
         var el = document.getElementById('dpAlbums');
         if (!el) return;
         if (!d || !d.albums || !d.albums.length) { el.innerHTML = ''; return; }
-        var h = '<div style="color:#8b949e;font-size:10px;margin-bottom:4px">Альбомы (' + d.albums.length + '):</div>';
+        var h = '<div class="dp-section-label">Альбомы (' + d.albums.length + '):</div>';
         h += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
         for (var i = 0; i < d.albums.length; i++) {
             var a = d.albums[i];
             var date = a.date_start ? a.date_start.slice(0,10) : '';
-            h += '<a href="/albums?album=' + encodeURIComponent(a.album_id) + '" style="display:inline-flex;align-items:center;gap:4px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;color:#58a6ff;text-decoration:none" title="' + esc(date + ' · ' + a.photo_count + ' фото') + '">' + esc(a.title) + '</a>';
+            h += '<a href="/albums?album=' + encodeURIComponent(a.album_id) + '" class="dp-album-chip" title="' + esc(date + ' · ' + a.photo_count + ' фото') + '">' + esc(a.title) + '</a>';
         }
         h += '</div>';
         el.innerHTML = h;
@@ -667,10 +667,7 @@ function _checkCamAlbum(p) {
 }
 
 function _camBtn(area, aid, pid) {
-    area.innerHTML = '<button onclick="openCam(\'' + esc(aid) + '\',\'' + esc(pid) + '\')" ' +
-        'style="padding:4px 12px;background:#1f6feb;color:#fff;border:none;border-radius:4px;' +
-        'cursor:pointer;font-size:11px;font-family:monospace;margin-top:4px">' +
-        'Коррекция времени камеры</button>';
+    area.innerHTML = '<button class="dp-btn-custom" style="margin-top:4px" onclick="openCam(\'' + esc(aid) + '\',\'' + esc(pid) + '\')">Коррекция времени камеры</button>';
 }
 
 function _camStyles() {
@@ -819,8 +816,8 @@ function _camRender() {
         '<div class="cm-bot">' +
         '<div class="cm-ir"><label>\u041f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u043e\u0435 \u0432\u0440\u0435\u043c\u044f:</label>' +
         '<input type="datetime-local" id="cmInput" value="' + (aOrig ? _j2i(aOrig) : '') + '">' +
-        '<span style="color:#8b949e;font-size:11px">\u0418\u0441\u0445\u043e\u0434\u043d\u043e\u0435: ' + (aOrig ? _fd(aOrig) : '') + '</span></div>' +
-        '<div class="cm-row"><span style="color:#8b949e;font-size:12px;white-space:nowrap">\u0421\u0434\u0432\u0438\u0433:</span>' +
+        '<span class="dp-meta-sm">\u0418\u0441\u0445\u043e\u0434\u043d\u043e\u0435: ' + (aOrig ? _fd(aOrig) : '') + '</span></div>' +
+        '<div class="cm-row"><span class="dp-meta-nowrap">\u0421\u0434\u0432\u0438\u0433:</span>' +
         '<input type="range" id="cmSlider" min="-86400" max="86400" step="60" value="0">' +
         '<span class="cm-sv" id="cmSv">+0\u043c</span></div>' +
         '<div class="cm-act"><button class="cm-no" onclick="closeCam()">\u041e\u0442\u043c\u0435\u043d\u0430</button>' +

@@ -540,3 +540,14 @@ a { color: inherit; text-decoration: none; }
 .svc-restart-st { font-size: 11px; margin-left: 6px; }
 .light-theme .svc-table th { border-bottom-color: var(--c-border-default); }
 .light-theme .svc-table td { border-bottom-color: #f0f0f0; }
+
+/* monitoring.js inline-style replacements */
+.mon-section-hdr { color: var(--c-accent); font-weight: 700; font-size: 12px; padding-top: 4px; }
+.mon-section-hdr2 { color: var(--c-accent); font-weight: 700; font-size: 12px; padding-top: 8px; }
+.mon-warn { color: var(--c-warning); }
+.mon-muted-sm { color: var(--c-text-secondary); font-size: 10px; }
+.mon-pct-ok { color: var(--c-success); }
+.mon-pct-warn { color: var(--c-warning); }
+.mon-pct-fail { color: var(--c-danger); }
+.mon-link { color: var(--c-accent); font-size: 12px; }
+.mon-link-bold { color: var(--c-accent); font-family: monospace; text-decoration: none; }

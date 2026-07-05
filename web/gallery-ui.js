@@ -66,7 +66,7 @@ function renderPersonList(list) {
 
     var html = '';
     if (activePerson) {
-        html += '<div class="pf-item" onclick="clearPersonFilter()"><span class="nm" style="color:#d29922">Сбросить фильтр</span></div>';
+        html += '<div class="pf-item" onclick="clearPersonFilter()"><span class="nm dp-badge-warn">Сбросить фильтр</span></div>';
     }
     for (let i = 0; i < named.length; i++) {
         let p = named[i];
@@ -76,12 +76,12 @@ function renderPersonList(list) {
         html += '<span class="cnt">' + p.face_count + 'л</span></div>';
     }
     if (unnamed.length > 0) {
-        html += '<div style="color:#6e7681;font-size:10px;padding:6px 4px;margin-top:8px">Без имени:</div>';
+        html += '<div class="dp-muted-sm">Без имени:</div>';
         for (let i = 0; i < Math.min(unnamed.length, 20); i++) {
             let p = unnamed[i];
             html += '<div class="pf-item" onclick="selectPersonFilter(\'' + esc(p.name || p.persona_id) + '\')">';
         if (p.face_id) html += '<img src="' + API + '/photos/face/' + p.face_id + '?margin=0.5" loading="lazy">';
-            html += '<span class="nm" style="color:#6e7681">' + esc(p.name || p.persona_id) + '</span>';
+            html += '<span class="nm dp-muted">' + esc(p.name || p.persona_id) + '</span>';
             html += '<span class="cnt">' + (p.face_count || 0) + 'л</span></div>';
         }
     }

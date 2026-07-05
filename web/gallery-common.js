@@ -106,7 +106,7 @@ function playVideoCard(idx) {
     var url = (typeof videoSrc === 'function') ? videoSrc(p) : (API + '/photos/?path=' + encodeURIComponent(p.photo_id));
     var bar = document.getElementById('vidModalBar');
     var txt = (typeof formatDate === 'function') ? formatDate(p.date) : (p.date || '');
-    if (p.camera_make || p.camera_model) txt += ' <span style="color:#6e7681">&bull;</span> ' + esc((p.camera_make || '') + ' ' + (p.camera_model || ''));
+    if (p.camera_make || p.camera_model) txt += ' <span class="card-muted">&bull;</span> ' + esc((p.camera_make || '') + ' ' + (p.camera_model || ''));
     if (bar) bar.innerHTML = txt;
     var old = document.getElementById('vidModalPlayer');
     if (old) old.outerHTML = '<video id="vidModalPlayer" src="' + url + '" controls preload="metadata" onclick="event.stopPropagation()"></video>';
