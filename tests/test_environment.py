@@ -408,3 +408,52 @@ def test_all_gallery_endpoints_return_json():
             "\n".join(errors) +
             "\n\nПроверь: БД не повреждена, сервис перезапущен после изменений."
         )
+
+
+def test_concurrent_search_no_race_condition():
+    """50 параллельных запросов к /api/photos/search — сервер не виснет.
+
+    Regression test: race condition в shared sqlite3.Row connection
+    (коммит 9fabac7, singleton + check_same_thread=False).
+    До fix: 1/50 → 200, сервер зависает.
+    После fix: 50/50 → 200, сервер жив.
+
+    Условия:
+    - Сервер должен быть запущен (localhost:8000)
+    - Pipeline может быть активен (БД под нагрузкой)
+    - Все 50 запросов должны вернуть 200
+    - Сервер должен отвечать после теста
+    """
+    import urllib.request
+    import concurrent.futures
+
+    base = "http://localhost:8000"
+    url = f"{base}/api/photos/search?limit=5"
+
+    def fetch(_):
+        try:
+            resp = urllib.request.urlopen(url, timeout=30)
+            body = resp.read()
+            json.loads(body)
+            return resp.status
+        except Exception as e:
+            return str(e)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
+        results = list(pool.map(fetch, range(50)))
+
+    ok = sum(1 for r in results if r == 200)
+    failed = [r for r in results if r != 200]
+
+    assert ok == 50, (
+        f"Параллельные запросы: {ok}/50 успешных.\n"
+        f"Ошибки: {failed[:5]}\n"
+        f"Race condition в SQLite connection — проверь _thread_conn."
+    )
+
+    # Сервер должен отвечать после нагрузки
+    try:
+        resp = urllib.request.urlopen(f"{base}/api/status", timeout=10)
+        assert resp.status == 200, f"Сервер не отвечает после нагрузки: {resp.status}"
+    except Exception as e:
+        pytest.fail(f"Сервер завис после 50 параллельных запросов: {e}")

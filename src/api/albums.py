@@ -300,7 +300,7 @@ def _collect_album_cameras(db, photo_ids):
     ph = ",".join("?" * len(photo_ids))
     rows = db.sqlite.execute(
         "SELECT camera_make, camera_model, exif_raw FROM photos "
-        "WHERE photo_id IN (" + ph + ")",
+        "WHERE photo_id IN (" + ph + ")",  # nosec B608 — ph is ? placeholders only, values parameterized
         photo_ids
     ).fetchall()
     _fake = re.compile(r'^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$', re.I)
@@ -424,7 +424,7 @@ async def list_albums():
     rows = db.sqlite.execute(
         "SELECT ap.album_id, ap.photo_id FROM album_photos ap "
         "JOIN photos p ON p.photo_id = ap.photo_id "
-        "WHERE ap.album_id IN (" + ph + ")",
+        "WHERE ap.album_id IN (" + ph + ")",  # nosec B608 — ph is ? placeholders only, values parameterized
         album_ids
     ).fetchall()
     all_pids = {}

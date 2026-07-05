@@ -1600,7 +1600,7 @@ class DatabaseManager:
         vals.append(now)
         vals.append(album_id)
         self.sqlite.execute(
-            f"UPDATE albums SET {', '.join(sets)} WHERE album_id = ?",
+            f"UPDATE albums SET {', '.join(sets)} WHERE album_id = ?",  # nosec B608 — sets are column=? literals, vals parameterized
             vals
         )
         self.sqlite.commit()

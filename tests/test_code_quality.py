@@ -1008,3 +1008,89 @@ def test_all_py_files_have_module_docstring():
             f"Добавь \"\"\"краткое описание ответственности файла.\"\"\" в первую строку.\n"
             f"Это НЕ function docstrings (AI-slop) — это одна строка для MODULES.md."
         )
+
+
+def test_no_sync_sql_in_async_endpoints():
+    """Async-эндпоинты не должны вызывать db.sqlite.execute напрямую.
+
+    Race condition: sqlite3.Row с check_same_thread=False не потокобезопасен
+    при concurrent access через shared connection. Sync SQL в async-функции
+    блокирует event loop → сервер виснет при параллельных запросах.
+
+    Правильно: run_in_executor с собственным соединением (_thread_conn).
+    Неправильно: db.sqlite.execute() в async def без run_in_executor.
+
+    Regression test для коммита 9fabac7 (singleton + check_same_thread=False).
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    api_dir = root / "src" / "api"
+    main_file = root / "src" / "main.py"
+
+    violations = []
+
+    def check_file(filepath):
+        source = filepath.read_text()
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+
+            func_name = node.name
+            has_executor = False
+
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    func_attr = ""
+                    if isinstance(child.func, ast.Attribute):
+                        func_attr = child.func.attr
+                    if func_attr == "run_in_executor":
+                        has_executor = True
+
+            if has_executor:
+                continue
+
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    func_attr = ""
+                    if isinstance(child.func, ast.Attribute):
+                        func_attr = child.func.attr
+                    if func_attr == "execute" and child.args:
+                        obj = ""
+                        if isinstance(child.func.value, ast.Attribute):
+                            obj = child.func.value.attr
+                        elif isinstance(child.func.value, ast.Name):
+                            obj = child.func.value.id
+                        if obj == "sqlite":
+                            violations.append(
+                                f"{filepath.relative_to(root)}:{node.lineno} "
+                                f"async def {func_name}()"
+                            )
+
+    for py in sorted(api_dir.glob("*.py")):
+        check_file(py)
+    check_file(main_file)
+
+    # Отчётный режим: показываем нарушения, baseline = 25
+    # Каждый эндпоинт нужно обернуть в run_in_executor с _thread_conn
+    print(f"\n{'='*70}")
+    print(f"SYNC SQL IN ASYNC ENDPOINTS (race condition risk)")
+    print(f"{'='*70}")
+    for v in sorted(set(violations)):
+        print(f"  ❌ {v} — db.sqlite.execute() без run_in_executor")
+    print(f"\n  TOTAL: {len(set(violations))} эндпоинтов")
+    print(f"  Исправлено: search_photos (photos.py) — пример для остальных")
+
+    BASELINE = 25  # Отчётный режим — не блокирует коммит
+    unique = len(set(violations))
+    assert unique <= BASELINE, (
+        f"Sync SQL в async-эндпоинтах вырос: {unique} > baseline {BASELINE}.\n"
+        f"Новые нарушения — используй run_in_executor с _thread_conn.\n"
+        f"См. search_photos в photos.py как пример."
+    )
