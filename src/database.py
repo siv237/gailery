@@ -1475,9 +1475,10 @@ class DatabaseManager:
 
     # ─── Albums ─────────────────────────────────────────
 
-    def get_albums(self):
+    def get_albums(self, _thread_conn=None):
         """Все альбомы, отсортированные по дате начала (новые первыми)."""
-        rows = self.sqlite.execute(
+        c = _thread_conn or self.sqlite
+        rows = c.execute(
             "SELECT album_id, title, description, cover_photo_id, "
             "date_start, date_end, photo_count, source, created_at, updated_at "
             "FROM albums ORDER BY date_start DESC"

@@ -375,38 +375,51 @@ async def toggle_root(root_id: str):
 
 @router.get("/locate")
 async def locate_photo(path: str = ""):
-    try:
+    import asyncio
+    from database import get_db
+
+    def _locate_sync():
         db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            row = conn.execute(
+                "SELECT cf.root_id, cf.parent_dir FROM catalog_files cf WHERE cf.abs_path = ?",
+                (path,)
+            ).fetchone()
 
-        row = db.sqlite.execute(
-            "SELECT cf.root_id, cf.parent_dir FROM catalog_files cf WHERE cf.abs_path = ?",
-            (path,)
-        ).fetchone()
-
-        if row:
-            root = db.get_catalog_root(row[0])
-            return {
-                "found": True,
-                "root_id": row[0],
-                "parent_dir": row[1],
-                "root_alias": root.get("alias", "") if root else "",
-            }
-
-        roots = db.get_catalog_roots()
-        for root in roots:
-            rp = root.get("root_path", "")
-            if rp and path.startswith(rp + "/"):
-                rel = path[len(rp):].lstrip("/")
-                parts = rel.split("/")
-                parent_dir = "/".join(parts[:-1]) if len(parts) > 1 else ""
+            if row:
+                root = db.get_catalog_root(row[0])
                 return {
                     "found": True,
-                    "root_id": root["root_id"],
-                    "parent_dir": parent_dir,
-                    "root_alias": root.get("alias", ""),
+                    "root_id": row[0],
+                    "parent_dir": row[1],
+                    "root_alias": root.get("alias", "") if root else "",
                 }
 
-        return {"found": False}
+            roots = db.get_catalog_roots()
+            for root in roots:
+                rp = root.get("root_path", "")
+                if rp and path.startswith(rp + "/"):
+                    rel = path[len(rp):].lstrip("/")
+                    parts = rel.split("/")
+                    parent_dir = "/".join(parts[:-1]) if len(parts) > 1 else ""
+                    return {
+                        "found": True,
+                        "root_id": root["root_id"],
+                        "parent_dir": parent_dir,
+                        "root_alias": root.get("alias", ""),
+                    }
+
+            return {"found": False}
+        finally:
+            conn.close()
+
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _locate_sync)
     except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to locate photo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -439,35 +452,49 @@ async def browse_dirs(path: str = ""):
 
 @router.get("/hash_status")
 async def hash_status():
-    try:
+    import asyncio
+    from database import get_db
+
+    def _hash_status_sync():
         db = get_db()
-        total = db.count_catalog_files()
-        with_hash = db.sqlite.execute(
-            "SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NOT NULL"
-        ).fetchone()[0]
-        without_hash = total - with_hash
-        zero_byte = db.sqlite.execute(
-            "SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NULL AND size = 0"
-        ).fetchone()[0]
-        pending_hash = without_hash - zero_byte
-        duplicates = db.sqlite.execute(
-            "SELECT COUNT(*) FROM (SELECT content_hash FROM catalog_files "
-            "WHERE content_hash IS NOT NULL GROUP BY content_hash HAVING COUNT(*) > 1)"
-        ).fetchone()[0]
-        dup_files = db.sqlite.execute(
-            "SELECT COUNT(*) FROM catalog_files WHERE content_hash IN "
-            "(SELECT content_hash FROM catalog_files WHERE content_hash IS NOT NULL "
-            "GROUP BY content_hash HAVING COUNT(*) > 1)"
-        ).fetchone()[0]
-        return {
-            "total_files": total,
-            "with_hash": with_hash,
-            "without_hash": without_hash,
-            "zero_byte": zero_byte,
-            "pending_hash": pending_hash,
-            "duplicate_groups": duplicates,
-            "duplicate_files": dup_files,
-        }
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            total = db.count_catalog_files()
+            with_hash = conn.execute(
+                "SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NOT NULL"
+            ).fetchone()[0]
+            without_hash = total - with_hash
+            zero_byte = conn.execute(
+                "SELECT COUNT(*) FROM catalog_files WHERE content_hash IS NULL AND size = 0"
+            ).fetchone()[0]
+            pending_hash = without_hash - zero_byte
+            duplicates = conn.execute(
+                "SELECT COUNT(*) FROM (SELECT content_hash FROM catalog_files "
+                "WHERE content_hash IS NOT NULL GROUP BY content_hash HAVING COUNT(*) > 1)"
+            ).fetchone()[0]
+            dup_files = conn.execute(
+                "SELECT COUNT(*) FROM catalog_files WHERE content_hash IN "
+                "(SELECT content_hash FROM catalog_files WHERE content_hash IS NOT NULL "
+                "GROUP BY content_hash HAVING COUNT(*) > 1)"
+            ).fetchone()[0]
+            return {
+                "total_files": total,
+                "with_hash": with_hash,
+                "without_hash": without_hash,
+                "zero_byte": zero_byte,
+                "pending_hash": pending_hash,
+                "duplicate_groups": duplicates,
+                "duplicate_files": dup_files,
+            }
+        finally:
+            conn.close()
+
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _hash_status_sync)
     except (sqlite3.Error, KeyError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -489,25 +516,39 @@ async def hash_backfill():
 
 @router.get("/duplicates")
 async def find_duplicates(limit: int = 50):
-    try:
+    import asyncio
+    from database import get_db
+
+    def _find_dup_sync():
         db = get_db()
-        rows = db.sqlite.execute(
-            "SELECT content_hash, COUNT(*) as cnt, "
-            "GROUP_CONCAT(abs_path, '|') as paths "
-            "FROM catalog_files WHERE content_hash IS NOT NULL "
-            "GROUP BY content_hash HAVING COUNT(*) > 1 "
-            "ORDER BY cnt DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-        result = []
-        for r in rows:
-            paths = r[2].split("|") if r[2] else []
-            result.append({
-                "hash": r[0],
-                "count": r[1],
-                "paths": paths,
-            })
-        return {"duplicates": result, "total_groups": len(result)}
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            rows = conn.execute(
+                "SELECT content_hash, COUNT(*) as cnt, "
+                "GROUP_CONCAT(abs_path, '|') as paths "
+                "FROM catalog_files WHERE content_hash IS NOT NULL "
+                "GROUP BY content_hash HAVING COUNT(*) > 1 "
+                "ORDER BY cnt DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            result = []
+            for r in rows:
+                paths = r[2].split("|") if r[2] else []
+                result.append({
+                    "hash": r[0],
+                    "count": r[1],
+                    "paths": paths,
+                })
+            return {"duplicates": result, "total_groups": len(result)}
+        finally:
+            conn.close()
+
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _find_dup_sync)
     except (sqlite3.Error, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 

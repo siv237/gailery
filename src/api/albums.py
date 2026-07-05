@@ -342,6 +342,17 @@ def _resolve_photo_uuid(db, photo_id):
     return row[0] if row else None
 
 
+def _resolve_photo_uuid_conn(conn, photo_id):
+    """Резолв через собственное соединение (для run_in_executor)."""
+    if not photo_id:
+        return None
+    row = conn.execute(
+        "SELECT photo_id FROM photos WHERE photo_id = ? OR path LIKE ?",
+        (photo_id, '%' + photo_id)
+    ).fetchone()
+    return row[0] if row else None
+
+
 def _resolve_photo_by_any(db, ident):
     """Резолв идентификатора в UUID photos.photo_id.
 
@@ -367,6 +378,31 @@ def _resolve_photo_by_any(db, ident):
         return row[0]
     # 3. По пути (rel_path или abs_path)
     row = db.sqlite.execute(
+        "SELECT photo_id FROM photos WHERE path LIKE ?", ('%' + ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    return None
+
+
+def _resolve_photo_by_any_conn(conn, ident):
+    """Резолв через собственное соединение (для run_in_executor)."""
+    if not ident:
+        return None
+    row = conn.execute(
+        "SELECT photo_id FROM photos WHERE photo_id = ?", (ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    row = conn.execute(
+        "SELECT p.photo_id FROM photos p "
+        "JOIN catalog_files cf ON cf.abs_path = p.path "
+        "WHERE cf.content_hash = ? AND cf.is_canonical = 1",
+        (ident,)
+    ).fetchone()
+    if row:
+        return row[0]
+    row = conn.execute(
         "SELECT photo_id FROM photos WHERE path LIKE ?", ('%' + ident,)
     ).fetchone()
     if row:
@@ -414,31 +450,43 @@ async def list_albums():
 
     cover_photo_id — на вершине стопки, остальные 2 — случайные каждый запрос.
     """
-    import random as _random
-    db = get_db()
-    albums = db.get_albums()
-    if not albums:
-        return []
-    album_ids = [a["album_id"] for a in albums]
-    ph = ",".join("?" * len(album_ids))
-    rows = db.sqlite.execute(
-        "SELECT ap.album_id, ap.photo_id FROM album_photos ap "
-        "JOIN photos p ON p.photo_id = ap.photo_id "
-        "WHERE ap.album_id IN (" + ph + ")",  # nosec B608 — ph is ? placeholders only, values parameterized
-        album_ids
-    ).fetchall()
-    all_pids = {}
-    for aid, pid in rows:
-        all_pids.setdefault(aid, []).append(pid)
-    for a in albums:
-        ids = all_pids.get(a["album_id"], [])
-        cover = a.get("cover_photo_id")
-        rest = [i for i in ids if i != cover]
-        if len(rest) > 2:
-            rest = _random.sample(rest, 2)
-        preview = ([cover] if cover else []) + rest
-        a["preview_photos"] = preview[:3]
-    return albums
+    import asyncio, random as _random, sqlite3 as _sq3
+    from database import get_db
+
+    def _list_sync():
+        db = get_db()
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            albums = db.get_albums(_thread_conn=conn)
+            if not albums:
+                return []
+            album_ids = [a["album_id"] for a in albums]
+            ph = ",".join("?" * len(album_ids))
+            rows = conn.execute(
+                "SELECT ap.album_id, ap.photo_id FROM album_photos ap "
+                "JOIN photos p ON p.photo_id = ap.photo_id "
+                "WHERE ap.album_id IN (" + ph + ")",  # nosec B608 — ph is ? placeholders only, values parameterized
+                album_ids
+            ).fetchall()
+            all_pids = {}
+            for aid, pid in rows:
+                all_pids.setdefault(aid, []).append(pid)
+            for a in albums:
+                ids = all_pids.get(a["album_id"], [])
+                cover = a.get("cover_photo_id")
+                rest = [i for i in ids if i != cover]
+                if len(rest) > 2:
+                    rest = _random.sample(rest, 2)
+                preview = ([cover] if cover else []) + rest
+                a["preview_photos"] = preview[:3]
+            return albums
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _list_sync)
 
 
 @router.get("/by_photo/{photo_id}")
@@ -447,24 +495,40 @@ async def find_album_by_photo(photo_id: str):
 
     photo_id может быть UUID, content_hash или путём — резолвим через БД.
     """
-    db = get_db()
-    uuid = _resolve_photo_by_any(db, photo_id)
-    if not uuid:
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
+
+    def _find_sync():
+        db = get_db()
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            uuid = _resolve_photo_by_any_conn(conn, photo_id)
+            if not uuid:
+                return None, 404
+            rows = conn.execute(
+                "SELECT a.album_id, a.title, a.description, a.date_start, a.date_end, "
+                "a.photo_count, a.source "
+                "FROM albums a JOIN album_photos ap ON ap.album_id = a.album_id "
+                "WHERE ap.photo_id = ? ORDER BY a.date_start DESC",
+                (uuid,)
+            ).fetchall()
+            if not rows:
+                return {"albums": [], "photo_uuid": uuid}, 200
+            albums = [dict(zip(
+                ["album_id", "title", "description", "date_start", "date_end",
+                 "photo_count", "source"], r
+            )) for r in rows]
+            return {"albums": albums, "photo_uuid": uuid}, 200
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    result, status = await loop.run_in_executor(None, _find_sync)
+    if status == 404:
         raise HTTPException(status_code=404, detail="Photo not found")
-    rows = db.sqlite.execute(
-        "SELECT a.album_id, a.title, a.description, a.date_start, a.date_end, "
-        "a.photo_count, a.source "
-        "FROM albums a JOIN album_photos ap ON ap.album_id = a.album_id "
-        "WHERE ap.photo_id = ? ORDER BY a.date_start DESC",
-        (uuid,)
-    ).fetchall()
-    if not rows:
-        return {"albums": [], "photo_uuid": uuid}
-    albums = [dict(zip(
-        ["album_id", "title", "description", "date_start", "date_end",
-         "photo_count", "source"], r
-    )) for r in rows]
-    return {"albums": albums, "photo_uuid": uuid}
+    return result
 
 
 @router.get("/{album_id}")
@@ -490,72 +554,82 @@ async def generate_albums():
     Очищает существующие auto-альбомы, кластеризует фото по времени
     (gap ≤ 2ч, ≥ 5 фото), создаёт альбомы с авто-названием.
     """
-    db = get_db()
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
 
-    # Сохранить пользовательские правки auto-альбомов
-    preserved = []
-    for r in db.sqlite.execute(
-        "SELECT album_id, title, description FROM albums "
-        "WHERE source = 'auto' AND user_modified = 1"
-    ).fetchall():
-        aid, atitle, adesc = r
-        pids = set(db.get_album_photos(aid))
-        preserved.append({"title": atitle, "description": adesc, "photo_ids": pids})
+    def _generate_sync():
+        db = get_db()
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            preserved = []
+            for r in conn.execute(
+                "SELECT album_id, title, description FROM albums "
+                "WHERE source = 'auto' AND user_modified = 1"
+            ).fetchall():
+                aid, atitle, adesc = r
+                pids = set(db.get_album_photos(aid))
+                preserved.append({"title": atitle, "description": adesc, "photo_ids": pids})
 
-    # Очищаем только auto-альбомы
-    auto_ids = [r[0] for r in db.sqlite.execute(
-        "SELECT album_id FROM albums WHERE source = 'auto'"
-    ).fetchall()]
-    for aid in auto_ids:
-        db.delete_album(aid)
+            auto_ids = [r[0] for r in conn.execute(
+                "SELECT album_id FROM albums WHERE source = 'auto'"
+            ).fetchall()]
+            for aid in auto_ids:
+                db.delete_album(aid)
 
-    clusters = _generate_clusters(db)
-    junk_dirs = _detect_junk_dirs(clusters)
+            clusters = _generate_clusters(db)
+            junk_dirs = _detect_junk_dirs(clusters)
 
-    created = 0
-    for c in clusters:
-        new_pids = set(c["photo_ids"])
+            created = 0
+            for c in clusters:
+                new_pids = set(c["photo_ids"])
 
-        best_title = None
-        best_desc = None
-        best_overlap = 0
-        for p in preserved:
-            overlap = len(new_pids & p["photo_ids"])
-            if overlap > best_overlap and overlap >= len(new_pids) // 2:
-                best_overlap = overlap
-                best_title = p["title"]
-                best_desc = p["description"]
+                best_title = None
+                best_desc = None
+                best_overlap = 0
+                for p in preserved:
+                    overlap = len(new_pids & p["photo_ids"])
+                    if overlap > best_overlap and overlap >= len(new_pids) // 2:
+                        best_overlap = overlap
+                        best_title = p["title"]
+                        best_desc = p["description"]
 
-        if best_title:
-            title = best_title
-        else:
-            date_part = _date_title(c["start"])
-            named = [n for d in c["dirs"] if (n := _clean_dir_name(d, junk_dirs))]
-            if named:
-                title = f"{date_part} — {sorted(named, key=len)[0]}"
-            else:
-                title = date_part
+                if best_title:
+                    title = best_title
+                else:
+                    date_part = _date_title(c["start"])
+                    named = [n for d in c["dirs"] if (n := _clean_dir_name(d, junk_dirs))]
+                    if named:
+                        title = f"{date_part} — {sorted(named, key=len)[0]}"
+                    else:
+                        title = date_part
 
-        album_id = db.create_album(
-            title=title,
-            description=best_desc or "",
-            source="auto",
-            date_start=c["start"].isoformat(),
-            date_end=c["end"].isoformat(),
-            photo_ids=c["photo_ids"],
-        )
-        if best_title:
-            db.sqlite.execute(
-                "UPDATE albums SET user_modified = 1 WHERE album_id = ?",
-                (album_id,)
-            )
-            db.sqlite.commit()
-        created += 1
+                album_id = db.create_album(
+                    title=title,
+                    description=best_desc or "",
+                    source="auto",
+                    date_start=c["start"].isoformat(),
+                    date_end=c["end"].isoformat(),
+                    photo_ids=c["photo_ids"],
+                )
+                if best_title:
+                    conn.execute(
+                        "UPDATE albums SET user_modified = 1 WHERE album_id = ?",
+                        (album_id,)
+                    )
+                    conn.commit()
+                created += 1
 
-    return {
-        "ok": True, "created": created,
-        "junk_dirs": len(junk_dirs), "preserved": len(preserved),
-    }
+            return {
+                "ok": True, "created": created,
+                "junk_dirs": len(junk_dirs), "preserved": len(preserved),
+            }
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _generate_sync)
 
 
 @router.delete("/clear")
@@ -649,99 +723,116 @@ async def get_camera_group(album_id: str, photo_id: str):
     Остальные кадры камеры получают позицию = anchor + (exif_time_кадра - exif_time_anchor).
     Timeline: обычные фото на своей дате, кадры камеры на сдвинутой позиции.
     """
-    db = get_db()
-    if not db.get_album(album_id):
-        raise HTTPException(status_code=404, detail="Album not found")
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
 
-    anchor_uuid = _resolve_photo_uuid(db, photo_id)
-    if not anchor_uuid:
-        raise HTTPException(status_code=404, detail="Anchor photo not found")
+    def _camera_group_sync():
+        db = get_db()
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            if not db.get_album(album_id):
+                return None, 404
 
-    album_photo_ids = db.get_album_photos(album_id)
-    if not album_photo_ids:
-        raise HTTPException(status_code=404, detail="Album has no photos")
+            anchor_uuid = _resolve_photo_uuid_conn(conn, photo_id)
+            if not anchor_uuid:
+                return None, 404
 
-    ph = ",".join("?" * len(album_photo_ids))
-    rows = db.sqlite.execute(
-        f"SELECT p.photo_id, p.path, p.date, p.manual_date, p.date_utc, "  # nosec B608
-        f"p.camera_make, p.camera_model, p.exif_raw, p.date_tz "
-        f"FROM photos p WHERE p.photo_id IN ({ph}) AND p.deleted = 0 "
-        f"ORDER BY COALESCE(p.date_utc, p.manual_date, p.date) ASC",
-        album_photo_ids
-    ).fetchall()
+            album_photo_ids = db.get_album_photos(album_id)
+            if not album_photo_ids:
+                return None, 404
 
-    anchor_row = None
-    anchor_cam_key = None
-    for r in rows:
-        if r[0] == anchor_uuid:
-            anchor_row = r
-            anchor_cam_key = _camera_key(r[5], r[6])
-            break
+            ph = ",".join("?" * len(album_photo_ids))
+            rows = conn.execute(
+                f"SELECT p.photo_id, p.path, p.date, p.manual_date, p.date_utc, "  # nosec B608
+                f"p.camera_make, p.camera_model, p.exif_raw, p.date_tz "
+                f"FROM photos p WHERE p.photo_id IN ({ph}) AND p.deleted = 0 "
+                f"ORDER BY COALESCE(p.date_utc, p.manual_date, p.date) ASC",
+                album_photo_ids
+            ).fetchall()
 
-    if not anchor_row:
-        raise HTTPException(status_code=404, detail="Anchor photo not in album")
-    if not anchor_cam_key:
+            anchor_row = None
+            anchor_cam_key = None
+            for r in rows:
+                if r[0] == anchor_uuid:
+                    anchor_row = r
+                    anchor_cam_key = _camera_key(r[5], r[6])
+                    break
+
+            if not anchor_row:
+                return None, 404
+            if not anchor_cam_key:
+                return None, 400
+
+            anchor_exif_secs = _exif_time(anchor_row[7]) or 0
+            anchor_date_str = anchor_row[2]
+            anchor_base = _parse_date(anchor_date_str)
+
+            camera_photos = []
+            other_count = 0
+            timeline = []
+
+            for r in rows:
+                pid, path, date, mdate, dutc, cmake, cmodel, exif_raw, date_tz = r
+                cam_key = _camera_key(cmake, cmodel)
+                is_camera = (cam_key == anchor_cam_key)
+                is_anchor = (pid == anchor_uuid)
+
+                if is_camera:
+                    cam_exif_secs = _exif_time(exif_raw) or 0
+                    rel_shift = cam_exif_secs - anchor_exif_secs
+                    if anchor_base:
+                        positioned = anchor_base + timedelta(seconds=rel_shift)
+                        display_date = positioned.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        display_date = date
+                    timeline.append({
+                        "db_id": pid,
+                        "date": mdate or display_date,
+                        "original_date": display_date,
+                        "is_camera": True,
+                        "is_anchor": is_anchor,
+                    })
+                    camera_photos.append({
+                        "db_id": pid,
+                        "photo_id": path,
+                        "date": date,
+                        "manual_date": mdate,
+                        "exif_secs": cam_exif_secs,
+                    })
+                else:
+                    eff_date = mdate or date
+                    timeline.append({
+                        "db_id": pid,
+                        "date": eff_date,
+                        "original_date": date,
+                        "is_camera": False,
+                        "is_anchor": False,
+                        "date_tz": date_tz or "",
+                    })
+                    other_count += 1
+
+            return {
+                "camera_name": anchor_cam_key,
+                "camera_count": len(camera_photos),
+                "other_count": other_count,
+                "anchor_uuid": anchor_uuid,
+                "anchor_date": anchor_date_str,
+                "anchor_exif_secs": anchor_exif_secs,
+                "camera_photos": camera_photos,
+                "timeline": timeline,
+            }, 200
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    result, status = await loop.run_in_executor(None, _camera_group_sync)
+    if status == 404:
+        raise HTTPException(status_code=404, detail="Album/anchor/photo not found")
+    if status == 400:
         raise HTTPException(status_code=400, detail="Photo has no camera info")
-
-    # EXIF время anchor в секундах от полуночи
-    anchor_exif_secs = _exif_time(anchor_row[7]) or 0
-    anchor_date_str = anchor_row[2]  # p.date
-    anchor_base = _parse_date(anchor_date_str)
-
-    camera_photos = []
-    other_count = 0
-    timeline = []
-
-    for r in rows:
-        pid, path, date, mdate, dutc, cmake, cmodel, exif_raw, date_tz = r
-        cam_key = _camera_key(cmake, cmodel)
-        is_camera = (cam_key == anchor_cam_key)
-        is_anchor = (pid == anchor_uuid)
-
-        if is_camera:
-            cam_exif_secs = _exif_time(exif_raw) or 0
-            rel_shift = cam_exif_secs - anchor_exif_secs
-            if anchor_base:
-                positioned = anchor_base + timedelta(seconds=rel_shift)
-                display_date = positioned.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                display_date = date
-            timeline.append({
-                "db_id": pid,
-                "date": mdate or display_date,
-                "original_date": display_date,
-                "is_camera": True,
-                "is_anchor": is_anchor,
-            })
-            camera_photos.append({
-                "db_id": pid,
-                "photo_id": path,
-                "date": date,
-                "manual_date": mdate,
-                "exif_secs": cam_exif_secs,
-            })
-        else:
-            eff_date = mdate or date
-            timeline.append({
-                "db_id": pid,
-                "date": eff_date,
-                "original_date": date,
-                "is_camera": False,
-                "is_anchor": False,
-                "date_tz": date_tz or "",
-            })
-            other_count += 1
-
-    return {
-        "camera_name": anchor_cam_key,
-        "camera_count": len(camera_photos),
-        "other_count": other_count,
-        "anchor_uuid": anchor_uuid,
-        "anchor_date": anchor_date_str,
-        "anchor_exif_secs": anchor_exif_secs,
-        "camera_photos": camera_photos,
-        "timeline": timeline,
-    }
+    return result
 
 
 @router.post("/{album_id}/apply_time_shift")
@@ -751,6 +842,9 @@ async def apply_time_shift(album_id: str, request: Request):
     shift = new_anchor_time - anchor.date (00:00:00).
     Для каждого кадра: manual_date = anchor.date + (exif_secs_кадра - anchor_exif_secs) + shift.
     """
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
+
     db = get_db()
     if not db.get_album(album_id):
         raise HTTPException(status_code=404, detail="Album not found")
@@ -761,59 +855,73 @@ async def apply_time_shift(album_id: str, request: Request):
     if not anchor_photo_id or not new_anchor_time:
         raise HTTPException(400, "anchor_photo_id and new_anchor_time required")
 
-    anchor_uuid = _resolve_photo_uuid(db, anchor_photo_id)
-    if not anchor_uuid:
+    def _apply_sync():
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            anchor_uuid = _resolve_photo_uuid_conn(conn, anchor_photo_id)
+            if not anchor_uuid:
+                return None, 404
+
+            anchor_row = conn.execute(
+                "SELECT date, camera_make, camera_model, exif_raw FROM photos WHERE photo_id = ?",
+                (anchor_uuid,)
+            ).fetchone()
+            if not anchor_row:
+                return None, 404
+
+            a_date_str, cmake, cmodel, a_exif = anchor_row
+            cam_key = _camera_key(cmake, cmodel)
+            if not cam_key:
+                return None, 400
+
+            anchor_base = _parse_date(a_date_str)
+            anchor_exif_secs = _exif_time(a_exif) or 0
+            target = _parse_date(new_anchor_time)
+            if not anchor_base or not target:
+                return None, 400
+
+            user_shift = target - anchor_base
+
+            album_photo_ids = db.get_album_photos(album_id)
+            ph = ",".join("?" * len(album_photo_ids))
+            rows = conn.execute(
+                f"SELECT photo_id, date, date_utc, camera_make, camera_model, exif_raw "  # nosec B608
+                f"FROM photos WHERE photo_id IN ({ph}) AND deleted = 0",
+                album_photo_ids
+            ).fetchall()
+
+            count = 0
+            for r in rows:
+                pid, date_str, dutc_str, rmake, rmodel, exif_raw = r
+                if _camera_key(rmake, rmodel) != cam_key:
+                    continue
+                cam_exif_secs = _exif_time(exif_raw) or 0
+                rel_shift = cam_exif_secs - anchor_exif_secs
+                new_md = (anchor_base + timedelta(seconds=rel_shift) + user_shift)
+                new_md_str = new_md.strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute(
+                    "UPDATE photos SET manual_date = ?, date_utc = NULL WHERE photo_id = ?",
+                    (new_md_str, pid)
+                )
+                count += 1
+
+            if not count:
+                return None, 400
+
+            conn.commit()
+            return {"ok": True, "updated": count, "shift_seconds": user_shift.total_seconds()}, 200
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    result, status = await loop.run_in_executor(None, _apply_sync)
+    if status == 404:
         raise HTTPException(status_code=404, detail="Anchor photo not found")
-
-    anchor_row = db.sqlite.execute(
-        "SELECT date, camera_make, camera_model, exif_raw FROM photos WHERE photo_id = ?",
-        (anchor_uuid,)
-    ).fetchone()
-    if not anchor_row:
-        raise HTTPException(status_code=404, detail="Anchor photo not in DB")
-
-    a_date_str, cmake, cmodel, a_exif = anchor_row
-    cam_key = _camera_key(cmake, cmodel)
-    if not cam_key:
-        raise HTTPException(400, "Anchor photo has no camera info")
-
-    anchor_base = _parse_date(a_date_str)
-    anchor_exif_secs = _exif_time(a_exif) or 0
-    target = _parse_date(new_anchor_time)
-    if not anchor_base or not target:
-        raise HTTPException(400, "Cannot parse dates")
-
-    # Сдвиг: пользователь задаёт правильное время anchor (на позиции 00:00:00)
-    user_shift = target - anchor_base
-
-    album_photo_ids = db.get_album_photos(album_id)
-    ph = ",".join("?" * len(album_photo_ids))
-    rows = db.sqlite.execute(
-        f"SELECT photo_id, date, date_utc, camera_make, camera_model, exif_raw "  # nosec B608
-        f"FROM photos WHERE photo_id IN ({ph}) AND deleted = 0",
-        album_photo_ids
-    ).fetchall()
-
-    count = 0
-    for r in rows:
-        pid, date_str, dutc_str, rmake, rmodel, exif_raw = r
-        if _camera_key(rmake, rmodel) != cam_key:
-            continue
-        cam_exif_secs = _exif_time(exif_raw) or 0
-        rel_shift = cam_exif_secs - anchor_exif_secs
-        new_md = (anchor_base + timedelta(seconds=rel_shift) + user_shift)
-        new_md_str = new_md.strftime("%Y-%m-%d %H:%M:%S")
-        db.sqlite.execute(
-            "UPDATE photos SET manual_date = ?, date_utc = NULL WHERE photo_id = ?",
-            (new_md_str, pid)
-        )
-        count += 1
-
-    if not count:
-        raise HTTPException(400, "No camera photos found in album")
-
-    db.sqlite.commit()
-    return {"ok": True, "updated": count, "shift_seconds": user_shift.total_seconds()}
+    if status == 400:
+        raise HTTPException(status_code=400, detail="No camera photos or cannot parse dates")
+    return result
 
 
 @router.post("/{album_id}/save_manual_dates")
@@ -823,6 +931,9 @@ async def save_manual_dates(album_id: str, request: Request):
     Body: {updates: [{photo_id, manual_date}, ...], tz_offset: minutes}
     Записывает manual_date, вычисляет date_utc из tz_offset, ставит date_tz='local'.
     """
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
+
     db = get_db()
     if not db.get_album(album_id):
         raise HTTPException(status_code=404, detail="Album not found")
@@ -838,24 +949,34 @@ async def save_manual_dates(album_id: str, request: Request):
     except (ValueError, TypeError):
         tz_offset = 0
 
-    count = 0
-    for u in updates:
-        pid = u.get("photo_id")
-        md = u.get("manual_date")
-        if not pid or not md:
-            continue
-        date_utc = None
+    def _save_sync():
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
-            dt_local = datetime.strptime(md[:19], "%Y-%m-%d %H:%M:%S")
-            dt_utc = dt_local - timedelta(minutes=tz_offset)
-            date_utc = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            pass
-        db.sqlite.execute(
-            "UPDATE photos SET manual_date = ?, date_utc = ?, date_tz = 'local' WHERE photo_id = ?",
-            (md, date_utc, pid)
-        )
-        count += 1
+            count = 0
+            for u in updates:
+                pid = u.get("photo_id")
+                md = u.get("manual_date")
+                if not pid or not md:
+                    continue
+                date_utc = None
+                try:
+                    dt_local = datetime.strptime(md[:19], "%Y-%m-%d %H:%M:%S")
+                    dt_utc = dt_local - timedelta(minutes=tz_offset)
+                    date_utc = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    pass
+                conn.execute(
+                    "UPDATE photos SET manual_date = ?, date_utc = ?, date_tz = 'local' WHERE photo_id = ?",
+                    (md, date_utc, pid)
+                )
+                count += 1
 
-    db.sqlite.commit()
-    return {"ok": True, "updated": count}
+            conn.commit()
+            return {"ok": True, "updated": count}
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _save_sync)

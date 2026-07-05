@@ -328,16 +328,28 @@ def _enrich_photo(p, photo_faces, persona_map, include_created=False, include_th
 
 @router.get("/")
 async def get_photo(path: str):
-    photo_path = None
+    import asyncio
     from database import get_db
-    db = get_db()
-    row = db.sqlite.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
-    if row:
-        photo_path = Path(row[0])
-    else:
-        row2 = db.sqlite.execute("SELECT cf.abs_path FROM catalog_files cf WHERE cf.content_hash = ?", (path,)).fetchone()
-        if row2:
-            photo_path = Path(row2[0])
+
+    def _resolve_path():
+        db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            row = conn.execute("SELECT path FROM photos WHERE photo_id = ?", (path,)).fetchone()
+            if row:
+                return Path(row[0])
+            row2 = conn.execute("SELECT cf.abs_path FROM catalog_files cf WHERE cf.content_hash = ?", (path,)).fetchone()
+            if row2:
+                return Path(row2[0])
+            return None
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    photo_path = await loop.run_in_executor(None, _resolve_path)
     if not photo_path:
         photo_path = PHOTO_SHARE_PATH / path
     if not photo_path.exists():
@@ -798,117 +810,128 @@ async def list_photos(limit: int = 100, offset: int = 0, sort: str = "changed_de
 
 @router.get("/monitor_feed")
 async def monitor_feed(limit: int = 100):
+    import asyncio
     from database import get_db
     from datetime import datetime
-
-    db = get_db()
 
     limit = max(1, min(limit, 500))
 
     NOISE_FIELDS = ("photo_type", "has_issues", "issue_type", "media_type", "img_width", "img_height")
 
-    placeholders = ",".join("?" * len(NOISE_FIELDS))
-    rows = db.sqlite.execute(
-        f"SELECT c.id, c.photo_id, c.field, c.value, c.changed_at, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
-        f"p.path, p.description, p.rich_description, p.faces_present, p.date, "
-        f"p.img_width, p.img_height, p.deleted, "
-        f"cf.content_hash, cf.is_canonical "
-        f"FROM changes c "
-        f"JOIN photos p ON c.photo_id = p.photo_id "
-        f"LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
-        f"WHERE p.deleted = 0 AND c.field NOT IN ({placeholders}) "
-        f"ORDER BY c.changed_at DESC LIMIT ?",
-        NOISE_FIELDS + (limit,),
-    ).fetchall()
+    def _monitor_sync():
+        db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            placeholders = ",".join("?" * len(NOISE_FIELDS))
+            rows = conn.execute(
+                f"SELECT c.id, c.photo_id, c.field, c.value, c.changed_at, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                f"p.path, p.description, p.rich_description, p.faces_present, p.date, "
+                f"p.img_width, p.img_height, p.deleted, "
+                f"cf.content_hash, cf.is_canonical "
+                f"FROM changes c "
+                f"JOIN photos p ON c.photo_id = p.photo_id "
+                f"LEFT JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+                f"WHERE p.deleted = 0 AND c.field NOT IN ({placeholders}) "
+                f"ORDER BY c.changed_at DESC LIMIT ?",
+                NOISE_FIELDS + (limit,),
+            ).fetchall()
 
-    persona_ids_needed = set()
-    photo_faces = {}
-    hashes = []
-    for r in rows:
-        ch = r[13]
-        if ch:
-            hashes.append(ch)
+            persona_ids_needed = set()
+            photo_faces = {}
+            hashes = []
+            for r in rows:
+                ch = r[13]
+                if ch:
+                    hashes.append(ch)
 
-    if hashes:
-        ph = ",".join("?" * len(hashes))
-        face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "  # nosec B608 — SQL column names via f-string, values parameterized through ?
-            f"FROM faces WHERE content_hash IN ({ph})",
-            hashes,
-        ).fetchall()
-        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
-        for fr in face_rows:
-            fd = dict(zip(face_cols, fr))
-            ch = fd.get("content_hash") or ""
-            if ch:
-                photo_faces.setdefault(ch, []).append(fd)
-            pid = fd.get("photo_id", "")
-            if pid:
-                photo_faces.setdefault(pid, []).append(fd)
-            if fd.get("persona_id"):
-                persona_ids_needed.add(fd["persona_id"])
+            if hashes:
+                ph = ",".join("?" * len(hashes))
+                face_rows = conn.execute(
+                    f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    f"FROM faces WHERE content_hash IN ({ph})",
+                    hashes,
+                ).fetchall()
+                face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+                for fr in face_rows:
+                    fd = dict(zip(face_cols, fr))
+                    ch = fd.get("content_hash") or ""
+                    if ch:
+                        photo_faces.setdefault(ch, []).append(fd)
+                    pid = fd.get("photo_id", "")
+                    if pid:
+                        photo_faces.setdefault(pid, []).append(fd)
+                    if fd.get("persona_id"):
+                        persona_ids_needed.add(fd["persona_id"])
 
-    persona_map = {}
-    if persona_ids_needed:
-        pids = list(persona_ids_needed)
-        pid_ph = ",".join("?" * len(pids))
-        for pr in db.sqlite.execute(
-            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids  # nosec B608 — SQL column names via f-string, values parameterized through ?
-        ).fetchall():
-            persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
+            persona_map = {}
+            if persona_ids_needed:
+                pids = list(persona_ids_needed)
+                pid_ph = ",".join("?" * len(pids))
+                for pr in conn.execute(
+                    f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})", pids  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                ).fetchall():
+                    persona_map[pr[0]] = {"persona_id": pr[0], "name": pr[1], "display_name": pr[2], "comment": pr[3]}
 
-    changes = []
-    for r in rows:
-        cid, pid, field, value, changed_at, path, desc, rich, faces, date, w, h, deleted, content_hash, is_canonical = r
-        ep = {
-            "id": cid,
-            "photo_id": pid,
-            "path": path,
-            "content_hash": content_hash,
-            "changed_at": changed_at,
-            "field": field,
-            "value": value,
-            "description": desc,
-            "rich_description": rich,
-            "faces_present": bool(faces),
-            "date": date,
-            "img_width": w,
-            "img_height": h,
-            "deleted": bool(deleted),
-            "is_canonical": bool(is_canonical),
-        }
-        if path:
-            ep["thumbnail"] = f"/api/photos/thumbnail?path={path}"
+            changes = []
+            for r in rows:
+                cid, pid, field, value, changed_at, path, desc, rich, faces, date, w, h, deleted, content_hash, is_canonical = r
+                ep = {
+                    "id": cid,
+                    "photo_id": pid,
+                    "path": path,
+                    "content_hash": content_hash,
+                    "changed_at": changed_at,
+                    "field": field,
+                    "value": value,
+                    "description": desc,
+                    "rich_description": rich,
+                    "faces_present": bool(faces),
+                    "date": date,
+                    "img_width": w,
+                    "img_height": h,
+                    "deleted": bool(deleted),
+                    "is_canonical": bool(is_canonical),
+                }
+                if path:
+                    ep["thumbnail"] = f"/api/photos/thumbnail?path={path}"
 
-        face_list = photo_faces.get(content_hash or "") or photo_faces.get(pid or "") or []
-        ep["faces"] = []
-        ep["personas"] = []
-        seen_pids = set()
-        for fd in face_list:
-            pers_id = fd.get("persona_id")
-            ep["faces"].append({
-                "face_id": fd.get("face_id"),
-                "persona_id": pers_id,
-                "display_name": (persona_map.get(pers_id, {}).get("display_name")) if pers_id else None,
-                "name": (persona_map.get(pers_id, {}).get("name") or pers_id) if pers_id else None,
-                "bbox": [fd.get("bbox_x1"), fd.get("bbox_y1"), fd.get("bbox_x2"), fd.get("bbox_y2")],
-                "confidence": fd.get("confidence"),
-            })
-            if pers_id and pers_id not in seen_pids:
-                seen_pids.add(pers_id)
-                persona = persona_map.get(pers_id, {})
-                ep["personas"].append({
-                    "persona_id": pers_id,
-                    "name": persona.get("name") or pers_id,
-                    "display_name": persona.get("display_name"),
-                    "comment": persona.get("comment"),
-                    "face_count": sum(1 for ff in face_list if ff.get("persona_id") == pers_id),
-                    "face_ids": [ff["face_id"] for ff in face_list if ff.get("persona_id") == pers_id],
-                })
-        changes.append(ep)
+                face_list = photo_faces.get(content_hash or "") or photo_faces.get(pid or "") or []
+                ep["faces"] = []
+                ep["personas"] = []
+                seen_pids = set()
+                for fd in face_list:
+                    pers_id = fd.get("persona_id")
+                    ep["faces"].append({
+                        "face_id": fd.get("face_id"),
+                        "persona_id": pers_id,
+                        "display_name": (persona_map.get(pers_id, {}).get("display_name")) if pers_id else None,
+                        "name": (persona_map.get(pers_id, {}).get("name") or pers_id) if pers_id else None,
+                        "bbox": [fd.get("bbox_x1"), fd.get("bbox_y1"), fd.get("bbox_x2"), fd.get("bbox_y2")],
+                        "confidence": fd.get("confidence"),
+                    })
+                    if pers_id and pers_id not in seen_pids:
+                        seen_pids.add(pers_id)
+                        persona = persona_map.get(pers_id, {})
+                        ep["personas"].append({
+                            "persona_id": pers_id,
+                            "name": persona.get("name") or pers_id,
+                            "display_name": persona.get("display_name"),
+                            "comment": persona.get("comment"),
+                            "face_count": sum(1 for ff in face_list if ff.get("persona_id") == pers_id),
+                            "face_ids": [ff["face_id"] for ff in face_list if ff.get("persona_id") == pers_id],
+                        })
+                changes.append(ep)
 
-    server_time = datetime.now().isoformat()
-    return {"changes": changes, "count": len(changes), "limit": limit, "server_time": server_time}
+            server_time = datetime.now().isoformat()
+            return {"changes": changes, "count": len(changes), "limit": limit, "server_time": server_time}
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _monitor_sync)
 
 
 @router.get("/description")

@@ -177,93 +177,107 @@ async def get_person(persona_id: str):
 
 @router.get("/{persona_id}/faces")
 async def get_person_faces(persona_id: str, limit: int = 100, dedupe_by_photo: bool = True):
-    try:
+    import asyncio
+    from database import get_db
+
+    def _faces_sync():
         db = get_db()
-        faces = db.get_faces_for_persona(persona_id, limit)
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            faces = db.get_faces_for_persona(persona_id, limit)
 
-        if dedupe_by_photo:
-            best_by_photo = {}
+            if dedupe_by_photo:
+                best_by_photo = {}
+                for face in faces:
+                    photo_id = face["photo_id"]
+                    prev = best_by_photo.get(photo_id)
+                    if prev is None or float(face.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
+                        best_by_photo[photo_id] = face
+                faces = list(best_by_photo.values())
+
+            faces = sorted(faces, key=lambda f: float(f.get("confidence", 0.0)), reverse=True)
+
+            photo_paths = list(set(f["photo_id"] for f in faces))
+            photo_map = {}
+            if photo_paths:
+                ph = ",".join("?" * len(photo_paths))
+                rows = conn.execute(
+                    "SELECT cf.rel_path, cf.abs_path, p.photo_id, p.date, p.media_type "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    "FROM catalog_files cf "
+                    "LEFT JOIN photos p ON p.path = cf.abs_path "
+                    "WHERE cf.rel_path IN (" + ph + ") OR cf.abs_path IN (" + ph + ") "
+                    "ORDER BY cf.is_canonical DESC",
+                    photo_paths + photo_paths
+                ).fetchall()
+                for r in rows:
+                    key = r[0] or r[1]
+                    if key and key not in photo_map:
+                        photo_map[key] = {"uuid": r[2], "date": r[3], "media_type": r[4]}
+
+            uuids = list(set(info["uuid"] for info in photo_map.values() if info.get("uuid")))
+            all_faces_map = {}
+            if uuids:
+                uh = ",".join("?" * len(uuids))
+                face_rows = conn.execute(
+                    "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    "f.bbox_x2, f.bbox_y2, p.display_name, p.name "
+                    "FROM faces f "
+                    "JOIN catalog_files cf ON cf.content_hash = f.content_hash "
+                    "JOIN photos ph ON ph.path = cf.abs_path "
+                    "LEFT JOIN personas p ON p.persona_id = f.persona_id "
+                    "WHERE ph.photo_id IN (" + uh + ") AND cf.is_canonical = 1",
+                    uuids
+                ).fetchall()
+                for fr in face_rows:
+                    pid = fr[1]
+                    if pid not in all_faces_map:
+                        all_faces_map[pid] = []
+                    all_faces_map[pid].append({
+                        "face_id": fr[0],
+                        "persona_id": fr[2],
+                        "bbox_x1": fr[3],
+                        "bbox_y1": fr[4],
+                        "bbox_x2": fr[5],
+                        "bbox_y2": fr[6],
+                        "display_name": fr[7],
+                        "name": fr[8],
+                    })
+
+            result = []
             for face in faces:
-                photo_id = face["photo_id"]
-                prev = best_by_photo.get(photo_id)
-                if prev is None or float(face.get("confidence", 0.0)) > float(prev.get("confidence", 0.0)):
-                    best_by_photo[photo_id] = face
-            faces = list(best_by_photo.values())
-
-        faces = sorted(faces, key=lambda f: float(f.get("confidence", 0.0)), reverse=True)
-
-        photo_paths = list(set(f["photo_id"] for f in faces))
-        photo_map = {}
-        if photo_paths:
-            ph = ",".join("?" * len(photo_paths))
-            rows = db.sqlite.execute(
-                "SELECT cf.rel_path, cf.abs_path, p.photo_id, p.date, p.media_type "  # nosec B608 — SQL column names via f-string, values parameterized through ?
-                "FROM catalog_files cf "
-                "LEFT JOIN photos p ON p.path = cf.abs_path "
-                "WHERE cf.rel_path IN (" + ph + ") OR cf.abs_path IN (" + ph + ") "
-                "ORDER BY cf.is_canonical DESC",
-                photo_paths + photo_paths
-            ).fetchall()
-            for r in rows:
-                key = r[0] or r[1]
-                if key and key not in photo_map:
-                    photo_map[key] = {"uuid": r[2], "date": r[3], "media_type": r[4]}
-
-        uuids = list(set(info["uuid"] for info in photo_map.values() if info.get("uuid")))
-        all_faces_map = {}
-        if uuids:
-            uh = ",".join("?" * len(uuids))
-            face_rows = db.sqlite.execute(
-                "SELECT f.face_id, f.photo_id, f.persona_id, f.bbox_x1, f.bbox_y1, "  # nosec B608 — SQL column names via f-string, values parameterized through ?
-                "f.bbox_x2, f.bbox_y2, p.display_name, p.name "
-                "FROM faces f "
-                "JOIN catalog_files cf ON cf.content_hash = f.content_hash "
-                "JOIN photos ph ON ph.path = cf.abs_path "
-                "LEFT JOIN personas p ON p.persona_id = f.persona_id "
-                "WHERE ph.photo_id IN (" + uh + ") AND cf.is_canonical = 1",
-                uuids
-            ).fetchall()
-            for fr in face_rows:
-                pid = fr[1]
-                if pid not in all_faces_map:
-                    all_faces_map[pid] = []
-                all_faces_map[pid].append({
-                    "face_id": fr[0],
-                    "persona_id": fr[2],
-                    "bbox_x1": fr[3],
-                    "bbox_y1": fr[4],
-                    "bbox_x2": fr[5],
-                    "bbox_y2": fr[6],
-                    "display_name": fr[7],
-                    "name": fr[8],
-                })
-
-        result = []
-        for face in faces:
-            info = photo_map.get(face["photo_id"], {})
-            all_faces = all_faces_map.get(face["photo_id"], [])
-            if not all_faces:
-                all_faces = [{
+                info = photo_map.get(face["photo_id"], {})
+                all_faces = all_faces_map.get(face["photo_id"], [])
+                if not all_faces:
+                    all_faces = [{
+                        "face_id": face["face_id"],
+                        "bbox_x1": face["bbox_x1"],
+                        "bbox_y1": face["bbox_y1"],
+                        "bbox_x2": face["bbox_x2"],
+                        "bbox_y2": face["bbox_y2"],
+                    }]
+                result.append({
                     "face_id": face["face_id"],
+                    "photo_id": info.get("uuid") or face["photo_id"],
+                    "photo_path": face["photo_id"],
+                    "date": info.get("date") or "",
+                    "media_type": info.get("media_type") or "photo",
+                    "all_faces": all_faces,
                     "bbox_x1": face["bbox_x1"],
                     "bbox_y1": face["bbox_y1"],
                     "bbox_x2": face["bbox_x2"],
                     "bbox_y2": face["bbox_y2"],
-                }]
-            result.append({
-                "face_id": face["face_id"],
-                "photo_id": info.get("uuid") or face["photo_id"],
-                "photo_path": face["photo_id"],
-                "date": info.get("date") or "",
-                "media_type": info.get("media_type") or "photo",
-                "all_faces": all_faces,
-                "bbox_x1": face["bbox_x1"],
-                "bbox_y1": face["bbox_y1"],
-                "bbox_x2": face["bbox_x2"],
-                "bbox_y2": face["bbox_y2"],
-                "confidence": face["confidence"]
-            })
-        return result
+                    "confidence": face["confidence"]
+                })
+            return result
+        finally:
+            conn.close()
+
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _faces_sync)
     except (sqlite3.Error, KeyError, ValueError) as e:
         logger.error(f"Failed to get faces for persona {persona_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get faces")

@@ -170,21 +170,30 @@ async def video_stream(path: str = "", t: float = 0, request: Request = None):
         strategy = "transcode"
 
     from database import get_db
-    db = get_db()
-    photo = db.get_photo_by_path(str(photo_path))
-    if not photo:
-        row = db.sqlite.execute(
-            "SELECT duration_seconds, img_width, img_height FROM photos WHERE path = ?",
-            (str(photo_path),)
-        ).fetchone()
-        if row:
-            duration, width, height = row[0] or 30, row[1] or 640, row[2] or 480
-        else:
-            duration, width, height = 30, 640, 480
-    else:
-        duration = photo.get("duration_seconds", 30) or 30
-        width = photo.get("img_width", 640) or 640
-        height = photo.get("img_height", 480) or 480
+    import asyncio
+
+    def _get_video_meta():
+        db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            photo = db.get_photo_by_path(str(photo_path))
+            if not photo:
+                row = conn.execute(
+                    "SELECT duration_seconds, img_width, img_height FROM photos WHERE path = ?",
+                    (str(photo_path),)
+                ).fetchone()
+                if row:
+                    return row[0] or 30, row[1] or 640, row[2] or 480
+                return 30, 640, 480
+            return photo.get("duration_seconds", 30) or 30, photo.get("img_width", 640) or 640, photo.get("img_height", 480) or 480
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    duration, width, height = await loop.run_in_executor(None, _get_video_meta)
 
     MAX_TRANSCODE_SIZE = 2048 * 1024 * 1024
     estimated_size = _estimate_transcode_size(duration, width, height)
