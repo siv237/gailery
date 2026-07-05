@@ -1,7 +1,7 @@
 """albums.py — API endpoints for photo albums (auto-generated + manual)."""
 
+import json
 import re
-import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta
 
@@ -186,12 +186,16 @@ def _load_persona_map(db, persona_ids_needed):
         f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608
         pids
     ).fetchall()
+    cnt_rows = db.sqlite.execute(
+        f"SELECT persona_id, COUNT(*) FROM faces WHERE persona_id IN ({pid_ph}) GROUP BY persona_id",  # nosec B608
+        pids
+    ).fetchall()
+    cnt_map = {r[0]: r[1] for r in cnt_rows}
     for pr in p_rows:
         pid = pr[0]
-        cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
         persona_map[pid] = {
             "persona_id": pid, "name": pr[1], "display_name": pr[2],
-            "comment": pr[3], "total_face_count": cnt_row[0] if cnt_row else 0,
+            "comment": pr[3], "total_face_count": cnt_map.get(pid, 0),
         }
     return persona_map
 
@@ -243,19 +247,40 @@ def _enrich_album_photos(db, photo_ids, cameras=None):
     result = []
     for p in photos:
         ep = _enrich_photo(p, photo_faces, persona_map, include_created=True)
-        hash_val = ep.get("content_hash")
-        try:
-            if hash_val:
-                ep["duplicate_paths"] = db.get_duplicate_paths(hash_val)
-                ep["edits"] = db.get_edits(hash_val)
-            else:
-                ep["duplicate_paths"] = []
-                ep["edits"] = []
-        except sqlite3.Error:
-            ep["duplicate_paths"] = []
-            ep["edits"] = []
         _assign_cam_idx(ep, cam_lookup)
         result.append(ep)
+
+    batch_hashes = [p.get("content_hash") for p in photos if p.get("content_hash")]
+    if batch_hashes:
+        bh_ph = ",".join("?" * len(batch_hashes))
+        dup_rows = db.sqlite.execute(
+            f"SELECT content_hash, abs_path FROM catalog_files "
+            f"WHERE content_hash IN ({bh_ph}) AND is_canonical = 0 "
+            f"ORDER BY content_hash, abs_path",
+            batch_hashes
+        ).fetchall()
+        dup_map = {}
+        for dr in dup_rows:
+            dup_map.setdefault(dr[0], []).append(dr[1])
+        edits_rows = db.sqlite.execute(
+            f"SELECT content_hash, edit_id, action, params, action_order, enabled FROM photo_edits "
+            f"WHERE content_hash IN ({bh_ph}) AND enabled = 1 ORDER BY content_hash, action_order",
+            batch_hashes
+        ).fetchall()
+        edits_map = {}
+        for er in edits_rows:
+            edits_map.setdefault(er[0], []).append({
+                "edit_id": er[1], "action": er[2],
+                "params": json.loads(er[3]), "action_order": er[4], "enabled": er[5],
+            })
+        for ep in result:
+            h = ep.get("content_hash")
+            ep["duplicate_paths"] = dup_map.get(h, []) if h else []
+            ep["edits"] = edits_map.get(h, []) if h else []
+    else:
+        for ep in result:
+            ep["duplicate_paths"] = []
+            ep["edits"] = []
     return result
 
 
@@ -534,16 +559,25 @@ async def find_album_by_photo(photo_id: str):
 @router.get("/{album_id}")
 async def get_album(album_id: str, full: bool = False):
     """Один альбом. При full=true — photos содержит полные объекты фото."""
-    db = get_db()
-    album = db.get_album(album_id)
+    import asyncio
+
+    def _get_album_sync():
+        db = get_db()
+        album = db.get_album(album_id)
+        if not album:
+            return None
+        photo_ids = db.get_album_photos(album_id)
+        album["photo_ids"] = photo_ids
+        cameras = _collect_album_cameras(db, photo_ids)
+        album["cameras"] = cameras
+        if full:
+            album["photos"] = _enrich_album_photos(db, photo_ids, cameras)
+        return album
+
+    loop = asyncio.get_event_loop()
+    album = await loop.run_in_executor(None, _get_album_sync)
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
-    photo_ids = db.get_album_photos(album_id)
-    album["photo_ids"] = photo_ids
-    cameras = _collect_album_cameras(db, photo_ids)
-    album["cameras"] = cameras
-    if full:
-        album["photos"] = _enrich_album_photos(db, photo_ids, cameras)
     return album
 
 
