@@ -1,6 +1,7 @@
 """albums.py — API endpoints for photo albums (auto-generated + manual)."""
 
 import re
+import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta
 
@@ -142,14 +143,90 @@ def _generate_clusters(db):
     return clusters
 
 
+_FAKE_CODEC = re.compile(r'^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$', re.I)
+
+
+def _load_faces_for_hashes(db, hashes):
+    """Загрузить лица для списка content_hash.
+
+    Возвращает (photo_faces, persona_ids_needed):
+      photo_faces — {content_hash: [face_dict, ...]}
+      persona_ids_needed — set persona_id упоминаемых в лицах.
+    """
+    photo_faces = {}
+    persona_ids_needed = set()
+    if not hashes:
+        return photo_faces, persona_ids_needed
+    ph = ",".join("?" * len(hashes))
+    face_rows = db.sqlite.execute(
+        f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
+        f"FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — values parameterized through ?
+        hashes
+    ).fetchall()
+    face_cols = ["face_id", "photo_id", "content_hash", "persona_id",
+                 "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+    for fr in face_rows:
+        fd = dict(zip(face_cols, fr))
+        ch = fd.get("content_hash") or ""
+        if ch:
+            photo_faces.setdefault(ch, []).append(fd)
+        if fd.get("persona_id"):
+            persona_ids_needed.add(fd["persona_id"])
+    return photo_faces, persona_ids_needed
+
+
+def _load_persona_map(db, persona_ids_needed):
+    """Загрузить карту personas {persona_id: {persona_id, name, display_name, comment, total_face_count}}."""
+    persona_map = {}
+    if not persona_ids_needed:
+        return persona_map
+    pids = list(persona_ids_needed)
+    pid_ph = ",".join("?" * len(pids))
+    p_rows = db.sqlite.execute(
+        f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608
+        pids
+    ).fetchall()
+    for pr in p_rows:
+        pid = pr[0]
+        cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
+        persona_map[pid] = {
+            "persona_id": pid, "name": pr[1], "display_name": pr[2],
+            "comment": pr[3], "total_face_count": cnt_row[0] if cnt_row else 0,
+        }
+    return persona_map
+
+
+def _assign_cam_idx(ep, cam_lookup):
+    """Присвоить ep['cam_idx'] — индекс камеры фото в cam_lookup (-1 если нет)."""
+    import json as _json
+    if not cam_lookup:
+        ep["cam_idx"] = -1
+        return
+    mk = (ep.get("camera_make") or "").strip()
+    mdl = (ep.get("camera_model") or "").strip()
+    if _FAKE_CODEC.match(mk):
+        mk = ""
+    if _FAKE_CODEC.match(mdl):
+        mdl = ""
+    serial = ""
+    raw = ep.get("exif_raw")
+    if raw:
+        try:
+            rd = _json.loads(raw)
+            serial = str(rd.get("EXIF BodySerialNumber", "") or "").strip()
+            if not serial:
+                serial = str(rd.get("EXIF LensSerialNumber", "") or "").strip()
+        except (ValueError, TypeError):
+            pass
+    ep["cam_idx"] = cam_lookup.get((mk, mdl, serial), -1)
+
+
 def _enrich_album_photos(db, photo_ids, cameras=None):
     """Получить полные фото-объекты (с лицами, персонами, дублями) по списку UUID.
 
     Если передан cameras (результат _collect_album_cameras), каждому фото
     присваивается cam_idx — индекс его камеры в этом списке (-1 если нет).
     """
-    import json as _json
-    _fake = re.compile(r'^(h264|h265|hevc|mjpeg|mpeg4|vp[89]|av1|aac|mp4a|pcm|opus|vp9|theora|flac)$', re.I)
     cam_lookup = {}
     if cameras:
         for ci, c in enumerate(cameras):
@@ -160,41 +237,8 @@ def _enrich_album_photos(db, photo_ids, cameras=None):
         return []
 
     hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
-
-    photo_faces = {}
-    persona_ids_needed = set()
-    if hashes:
-        ph = ",".join("?" * len(hashes))
-        face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
-            f"FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — values parameterized through ?
-            hashes
-        ).fetchall()
-        face_cols = ["face_id", "photo_id", "content_hash", "persona_id",
-                     "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
-        for fr in face_rows:
-            fd = dict(zip(face_cols, fr))
-            ch = fd.get("content_hash") or ""
-            if ch:
-                photo_faces.setdefault(ch, []).append(fd)
-            if fd.get("persona_id"):
-                persona_ids_needed.add(fd["persona_id"])
-
-    persona_map = {}
-    if persona_ids_needed:
-        pids = list(persona_ids_needed)
-        pid_ph = ",".join("?" * len(pids))
-        p_rows = db.sqlite.execute(
-            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608
-            pids
-        ).fetchall()
-        for pr in p_rows:
-            pid = pr[0]
-            cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
-            persona_map[pid] = {
-                "persona_id": pid, "name": pr[1], "display_name": pr[2],
-                "comment": pr[3], "total_face_count": cnt_row[0] if cnt_row else 0,
-            }
+    photo_faces, persona_ids_needed = _load_faces_for_hashes(db, hashes)
+    persona_map = _load_persona_map(db, persona_ids_needed)
 
     result = []
     for p in photos:
@@ -207,29 +251,10 @@ def _enrich_album_photos(db, photo_ids, cameras=None):
             else:
                 ep["duplicate_paths"] = []
                 ep["edits"] = []
-        except Exception:
+        except sqlite3.Error:
             ep["duplicate_paths"] = []
             ep["edits"] = []
-        if cam_lookup:
-            mk = (ep.get("camera_make") or "").strip()
-            mdl = (ep.get("camera_model") or "").strip()
-            if _fake.match(mk):
-                mk = ""
-            if _fake.match(mdl):
-                mdl = ""
-            serial = ""
-            raw = ep.get("exif_raw")
-            if raw:
-                try:
-                    rd = _json.loads(raw)
-                    serial = str(rd.get("EXIF BodySerialNumber", "") or "").strip()
-                    if not serial:
-                        serial = str(rd.get("EXIF LensSerialNumber", "") or "").strip()
-                except (ValueError, TypeError):
-                    pass
-            ep["cam_idx"] = cam_lookup.get((mk, mdl, serial), -1)
-        else:
-            ep["cam_idx"] = -1
+        _assign_cam_idx(ep, cam_lookup)
         result.append(ep)
     return result
 

@@ -1,8 +1,16 @@
 """conftest.py — pytest фикстуры: tmp_data, db, db_with_photos, app_client, minidb."""
+import os
 import sys
+import tempfile
 import pytest
 from pathlib import Path
 from unittest.mock import patch
+
+# КРИТИЧНО: установить GALLERY_DATA_DIR в tmp ДО любого импорта config.
+# Иначе config.py при импорте вызывает _apply_ollama_overrides() → DatabaseManager()
+# на РЕАЛЬНОЙ БД → миграции виснут / портят данные.
+_TEST_ENV_DATA = Path(tempfile.mkdtemp(prefix="gailery_test_data_"))
+os.environ.setdefault("GALLERY_DATA_DIR", str(_TEST_ENV_DATA))
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 

@@ -69,8 +69,6 @@ ViewerHooks.onClose = function() {
     }
 };
 
-var _videoPreviewTimer = null;
-var _videoPreviewEl = null;
 var pageSize = 60;
 var totalResults = 0;
 var activeDate = '';

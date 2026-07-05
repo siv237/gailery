@@ -1549,7 +1549,7 @@ class DatabaseManager:
                     "VALUES (?,?,?,?)",
                     (album_id, pid, now, source)
                 )
-            self._update_album_cover(album_id)
+            self._update_album_meta(album_id)
         self.sqlite.commit()
         return album_id
 
@@ -1636,23 +1636,11 @@ class DatabaseManager:
         self.sqlite.execute("DELETE FROM albums")
         self.sqlite.commit()
 
-    def _update_album_cover(self, album_id):
-        """Выбрать обложку — первое фото с лицами, иначе первое фото."""
-        r = self.sqlite.execute(
-            "SELECT ap.photo_id FROM album_photos ap "
-            "JOIN photos p ON p.photo_id = ap.photo_id "
-            "WHERE ap.album_id = ? AND p.deleted = 0 "
-            "ORDER BY p.faces_present DESC, p.date ASC LIMIT 1",
-            (album_id,)
-        ).fetchone()
-        if r:
-            self.sqlite.execute(
-                "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
-                (r[0], album_id)
-            )
-
     def _update_album_meta(self, album_id):
-        """Пересчитать photo_count, date_start, date_end, cover."""
+        """Пересчитать photo_count, date_start, date_end, cover.
+
+        Cover — первое фото с лицами, иначе первое фото.
+        """
         r = self.sqlite.execute(
             "SELECT COUNT(*), MIN(p.date), MAX(p.date) "
             "FROM album_photos ap JOIN photos p ON p.photo_id = ap.photo_id "
@@ -1670,4 +1658,15 @@ class DatabaseManager:
                 "UPDATE albums SET cover_photo_id = NULL WHERE album_id = ?", (album_id,)
             )
         else:
-            self._update_album_cover(album_id)
+            cr = self.sqlite.execute(
+                "SELECT ap.photo_id FROM album_photos ap "
+                "JOIN photos p ON p.photo_id = ap.photo_id "
+                "WHERE ap.album_id = ? AND p.deleted = 0 "
+                "ORDER BY p.faces_present DESC, p.date ASC LIMIT 1",
+                (album_id,)
+            ).fetchone()
+            if cr:
+                self.sqlite.execute(
+                    "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
+                    (cr[0], album_id)
+                )
