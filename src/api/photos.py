@@ -8,6 +8,7 @@ import logging
 import os
 import sqlite3
 import subprocess
+import json
 from config import PHOTO_SHARE_PATH, LLAMA_CPP_DIR, PROJECT_ROOT, VIDEO_EXTS
 import config
 
@@ -1057,18 +1058,35 @@ async def search_photos(
 
             result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
 
-            for p in result:
-                p.get("path", "")
-                hash_val = p.get("content_hash")
-                try:
-                    if hash_val:
-                        dup_paths = db.get_duplicate_paths(hash_val, _thread_conn=conn)
-                        p["duplicate_paths"] = dup_paths
-                        p["edits"] = db.get_edits(hash_val, _thread_conn=conn)
-                    else:
-                        p["duplicate_paths"] = []
-                        p["edits"] = []
-                except (sqlite3.Error, KeyError):
+            batch_hashes = [p.get("content_hash") for p in result if p.get("content_hash")]
+            if batch_hashes:
+                bh_ph = ",".join("?" * len(batch_hashes))
+                dup_rows = conn.execute(
+                    f"SELECT content_hash, abs_path FROM catalog_files "
+                    f"WHERE content_hash IN ({bh_ph}) AND is_canonical = 0 "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    f"ORDER BY content_hash, abs_path",
+                    batch_hashes
+                ).fetchall()
+                dup_map = {}
+                for dr in dup_rows:
+                    dup_map.setdefault(dr[0], []).append(dr[1])
+                edits_rows = conn.execute(
+                    f"SELECT content_hash, edit_id, action, params, action_order, enabled FROM photo_edits "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    f"WHERE content_hash IN ({bh_ph}) AND enabled = 1 ORDER BY content_hash, action_order",
+                    batch_hashes
+                ).fetchall()
+                edits_map = {}
+                for er in edits_rows:
+                    edits_map.setdefault(er[0], []).append({
+                        "edit_id": er[1], "action": er[2],
+                        "params": json.loads(er[3]), "action_order": er[4], "enabled": er[5],
+                    })
+                for p in result:
+                    h = p.get("content_hash")
+                    p["duplicate_paths"] = dup_map.get(h, []) if h else []
+                    p["edits"] = edits_map.get(h, []) if h else []
+            else:
+                for p in result:
                     p["duplicate_paths"] = []
                     p["edits"] = []
 
