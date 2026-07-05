@@ -113,11 +113,18 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 <body>
 
 <script src="/shared.js"></script>
-<script>renderHeader('Альбомы', '<div class="search-bar">\
+<script>
+if (window.SHARED_MODE === 'album') {
+  renderHeader('Альбом', '');
+} else {
+  renderHeader('Альбомы', '<div class="search-bar">\
   <button onclick="generate()">Сгенерировать</button>\
   <button class="btn-secondary" onclick="clearAll()">Очистить все</button>\
+  <button class="btn-secondary" onclick="copyAlbumShareFromBar()">Поделиться</button>\
   <span class="info-bar" style="padding:0;border:none;background:none;flex:1" id="albumCount"></span>\
-</div>');</script>
+</div>');
+}
+</script>
 
 <div id="content">
   <div class="empty">
@@ -337,13 +344,20 @@ async function openAlbum(id) {
   }
   var hasDesc = album.description && album.description.trim();
   var descHtml = hasDesc ? '<div class="album-desc-text">' + esc(album.description) + '</div>' : '';
+  var isShared = window.SHARED_MODE === 'album';
+  var titleAttr = isShared ? '' : ' onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f"';
+  var titleTag = isShared ? 'span' : 'span';
+  var backBtn = isShared ? '' : '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>';
+  var descBtn = isShared ? '' : '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>';
+  var shareBtn = isShared ? '' : '<button class="album-bar-desc-btn" onclick="copyAlbumShare(\'' + album.album_id + '\')">\u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f</button>';
   document.getElementById('content').innerHTML =
     '<div class="album-bar">' +
-    '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>' +
-    '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
+    backBtn +
+    '<' + titleTag + ' class="album-bar-title" id="albumBarTitle"' + titleAttr + '>' + esc(album.title) + '</' + titleTag + '>' +
     '<span class="album-bar-meta">' + meta + '</span>' +
     camerasHtml +
-    '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>' +
+    descBtn +
+    shareBtn +
     '</div>' + descHtml + photosHtml;
 }
 
@@ -456,7 +470,42 @@ async function clearAll() {
     loadAlbums();
   }
 }
+
+function copyAlbumShare(albumId) {
+  var url = location.origin + '/s/album/' + encodeURIComponent(albumId);
+  var btn = event.target;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = 'Ссылка скопирована!';
+      setTimeout(function() { btn.textContent = orig; }, 2000);
+    }).catch(function() { _fallbackAlbumCopy(url, btn); });
+  } else {
+    _fallbackAlbumCopy(url, btn);
+  }
+}
+
+function _fallbackAlbumCopy(url, btn) {
+  var t = document.createElement('textarea');
+  t.value = url; document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(t);
+  if (btn) {
+    var orig = btn.textContent;
+    btn.textContent = 'Ссылка скопирована!';
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  }
+}
+
+function copyAlbumShareFromBar() {
+  if (currentAlbum) copyAlbumShare(currentAlbum.album_id);
+}
+
 (function() {
+  if (window.SHARED_MODE === 'album' && window.SHARED_ID) {
+    openAlbum(window.SHARED_ID);
+    return;
+  }
   var params = new URLSearchParams(window.location.search);
   var albumId = params.get('album');
   if (albumId) openAlbum(albumId);

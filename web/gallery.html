@@ -16,6 +16,31 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme { background: #ffffff; color: #24292f; }
 .detail-panel { display: none; position: fixed; top: 0; right: 0; width: 380px; height: 100%; border-left: 1px solid #30363d; z-index: 1000; overflow-y: auto; overflow-x: hidden; padding: 20px; }
 .light-theme .detail-panel { border-left-color: #d0d7de; }
+
+/* SHARED MODE — скрыть всю админку */
+body.shared-mode .header-sticky { display: none !important; }
+body.shared-mode .timeline { display: none !important; }
+body.shared-mode .info-bar { display: none !important; }
+body.shared-mode .top-sentinel { display: none !important; }
+body.shared-mode .scroll-sentinel { display: none !important; }
+body.shared-mode .del-mark { display: none !important; }
+body.shared-mode .undo-mark { display: none !important; }
+body.shared-mode .dp-btn-reprocess,
+body.shared-mode .dp-btn-enrich,
+body.shared-mode .dp-btn-custom,
+body.shared-mode .dp-btn-share,
+body.shared-mode .dp-btn-restore { display: none !important; }
+body.shared-mode #enrichArea { display: none !important; }
+body.shared-mode #customDescArea { display: none !important; }
+body.shared-mode .manual-date-badge,
+body.shared-mode .dp-date-btn,
+body.shared-mode .dp-date-clear,
+body.shared-mode .dp-date-save,
+body.shared-mode .dp-date-cancel,
+body.shared-mode #dateEditArea { display: none !important; }
+body.shared-mode #rpOverlay { display: none !important; }
+body.shared-mode .dp-persona-comment { display: none !important; }
+body.shared-mode .grid { padding-top: 10px; }
 </style>
 </head>
 <body>

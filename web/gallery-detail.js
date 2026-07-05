@@ -52,6 +52,7 @@ function openDetail(idx) {
     }
     html += '<div style="margin-top:6px">';
     html += '<button class="dp-btn-reprocess" onclick="showReprocessModal(\'' + esc(p.db_id || '') + '\')">Переобработать</button>';
+    html += '<button class="dp-btn-share" onclick="copyShareLink(\'' + esc(p.db_id || '') + '\')">Поделиться</button>';
     html += '</div>';
     if (p.date) {
         var showDate = p.manual_date || p.date;
@@ -333,6 +334,32 @@ function _loadPhotoAlbums(p) {
      document.getElementById('detailPanel').classList.remove('show');
      if (_isMobile()) document.documentElement.classList.remove('scroll-lock');
  }
+
+function copyShareLink(photoId) {
+    var url = location.origin + '/s/photo/' + encodeURIComponent(photoId);
+    var btn = event.target;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function() {
+            var orig = btn.textContent;
+            btn.textContent = 'Ссылка скопирована!';
+            setTimeout(function() { btn.textContent = orig; }, 2000);
+        }).catch(function() { _fallbackCopy(url, btn); });
+    } else {
+        _fallbackCopy(url, btn);
+    }
+}
+
+function _fallbackCopy(url, btn) {
+    var t = document.createElement('textarea');
+    t.value = url; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(t);
+    if (btn) {
+        var orig = btn.textContent;
+        btn.textContent = 'Ссылка скопирована!';
+        setTimeout(function() { btn.textContent = orig; }, 2000);
+    }
+}
 
 var _dpRot = 0;
 var _dpIdx = -1;
