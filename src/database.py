@@ -327,15 +327,6 @@ class DatabaseManager:
             cur.execute("ALTER TABLE catalog_roots ADD COLUMN enabled INTEGER DEFAULT 1")
             self.sqlite.commit()
         self._migrate_faces_content_hash(cur)
-        cur.execute("""
-            UPDATE photos SET deleted = 1
-            WHERE deleted = 0
-            AND NOT EXISTS (
-                SELECT 1 FROM catalog_files cf
-                WHERE cf.abs_path = photos.path AND cf.is_canonical = 1 AND cf.deleted = 0
-            )
-        """)
-        self.sqlite.commit()
         self._ensure_tables_and_indexes(cur)
 
     def _open_vector_tables(self):
