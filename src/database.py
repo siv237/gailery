@@ -96,7 +96,7 @@ class DatabaseManager:
             );
             CREATE INDEX IF NOT EXISTS idx_photos_path ON photos(path);
             CREATE INDEX IF NOT EXISTS idx_photos_date ON photos(date);
-            CREATE INDEX IF NOT EXISTS idx_photos_faces ON photos(faces_present);
+            CREATE INDEX IF NOT EXISTS idx_photos_faces ON photos(faces_present, path);
             CREATE INDEX IF NOT EXISTS idx_photos_exif ON photos(exif_checked);
             CREATE INDEX IF NOT EXISTS idx_photos_desc ON photos(description);
 
@@ -254,6 +254,13 @@ class DatabaseManager:
         cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_photos_effective_date'")
         if not cur.fetchone():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_photos_effective_date ON photos(COALESCE(manual_date, date))")
+            self.sqlite.commit()
+
+        cur.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_photos_faces'")
+        existing = cur.fetchone()
+        if existing and 'path' not in existing[0]:
+            cur.execute("DROP INDEX idx_photos_faces")
+            cur.execute("CREATE INDEX idx_photos_faces ON photos(faces_present, path)")
             self.sqlite.commit()
 
         self._create_table_if_missing(cur, 'settings', """
@@ -589,7 +596,8 @@ class DatabaseManager:
         }
         sql += f" ORDER BY {order_map.get(sort, 'effective_date DESC')}"
 
-        count_sql = sql.replace("SELECT photos.*, " + ed + " as effective_date", "SELECT COUNT(*)", 1)
+        from_idx = sql.index(" FROM ")
+        count_sql = "SELECT COUNT(*)" + sql[from_idx:]
         count_sql = count_sql.split(" ORDER BY ")[0]
         total = c.execute(count_sql, params).fetchone()[0]
 

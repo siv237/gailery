@@ -39,14 +39,32 @@ def _determine_pipeline_step(flag_dir, mq, mqtt_states):
                     pass
                 break
 
-    if mq and current_step != "idle":
-        pipeline_state = mqtt_states.get("pipeline", {})
-        if pipeline_state.get("status") == "running" and pipeline_state.get("pid"):
+    if current_step != "idle":
+        pipeline_alive = False
+        if mq:
+            pipeline_state = mqtt_states.get("pipeline", {})
+            if pipeline_state.get("status") == "running" and pipeline_state.get("pid"):
+                try:
+                    os.path.getmtime(f"/proc/{pipeline_state['pid']}")
+                    pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
+                    pipeline_alive = True
+                except OSError:
+                    pass
+        if not pipeline_alive:
             try:
-                mtime = os.path.getmtime(f"/proc/{pipeline_state['pid']}")
-                pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
-            except OSError:
-                pass
+                r = subprocess.run(
+                    ["pgrep", "-f", "python3.*pipeline\\.py"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if r.stdout.strip():
+                    pipeline_alive = True
+            except (OSError, subprocess.SubprocessError):
+                pipeline_alive = True
+        if not pipeline_alive:
+            current_step = "idle"
+            step_details = ""
+            step_started_at = None
+            pipeline_started_at = None
 
     return current_step, step_details, step_started_at, pipeline_started_at
 
@@ -68,8 +86,13 @@ def _get_git_info():
 
 def _read_log_tail(log_path):
     try:
-        with open(log_path, "r") as f:
-            return f.readlines()[-200:]
+        size = os.path.getsize(log_path)
+        chunk = min(16384, size)
+        with open(log_path, "rb") as f:
+            f.seek(-chunk, os.SEEK_END)
+            data = f.read().decode("utf-8", errors="replace")
+        lines = data.splitlines()
+        return lines[-200:]
     except (OSError, UnicodeDecodeError):
         return None
 

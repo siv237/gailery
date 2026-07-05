@@ -231,18 +231,61 @@ def test_pipeline_process_exists():
     Если pipeline_idle флаг стоит — pipeline закончивший, это нормально.
     Если нет флага и нет процесса — проблема, watchdog должен перезапустить.
     """
+    from pathlib import Path as _P
+    _real_flag_dir = _P(__file__).resolve().parent.parent / "data" / "pipeline_flags"
     pids = _pgrep("pipeline.py")
-    try:
-        from config import FLAG_DIR
-        is_idle = (FLAG_DIR / "pipeline_idle").exists()
-    except Exception:
-        is_idle = False
+    is_idle = (_real_flag_dir / "pipeline_idle").exists()
     if is_idle:
         return
     assert len(pids) >= 1, (
         "pipeline.py не запущен и не idle!\n"
         "Проверь: ps aux | grep pipeline.py\n"
         "Watchdog должен перезапустить автоматически."
+    )
+
+
+def test_pipeline_status_not_lying():
+    """API /api/status не должен показывать pipeline active если процесс мёртв.
+
+    Regression: retained MQTT хранит 'PIPELINE' от упавшего процесса.
+    _determine_pipeline_step верит MQTT без проверки жив ли PID.
+    UI показывает 'Цепочка идёт' хотя служба inactive.
+
+    Условия:
+    - Если pipeline.py процесс НЕ запущен
+    - И pipeline_idle флага нет
+    - И no_restart флаг стоит (пёс спит)
+    То API /api/status MUST вернуть current_step == 'idle'.
+    """
+    import urllib.request
+    from pathlib import Path as _P
+    _real_flag_dir = _P(__file__).resolve().parent.parent / "data" / "pipeline_flags"
+
+    pids = _pgrep("pipeline.py")
+    is_idle = (_real_flag_dir / "pipeline_idle").exists()
+    no_restart = (_real_flag_dir / "no_restart").exists()
+
+    if pids or is_idle:
+        return
+
+    if not no_restart:
+        return
+
+    try:
+        resp = urllib.request.urlopen(
+            "http://localhost:8000/api/status", timeout=10)
+        status = json.loads(resp.read())
+    except Exception as e:
+        pytest.fail(f"Не получить /api/status: {e}")
+
+    current_step = status.get("current_step", "idle")
+    step_details = status.get("step_details", "")
+    assert current_step == "idle", (
+        f"API врёт: current_step={current_step!r}, step_details={step_details!r}\n"
+        f"Реальность: pipeline.py не запущен, no_restart стоит, пёс спит.\n"
+        f"Но UI показывает 'Цепочка идёт' — retained MQTT не очищен.\n"
+        f"Причина: _determine_pipeline_step верит MQTT без проверки PID.\n"
+        f"Файл: src/system_helpers.py:_determine_pipeline_step"
     )
 
 

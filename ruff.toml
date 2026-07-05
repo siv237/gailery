@@ -8,6 +8,7 @@ target-version = "py312"
 line-length = 120
 
 # Сторонние / генерируемые директории (top-level, ДО секций)
+# tests/ исключён полностью: тесты не проверяют сами себя (AGENTS.md, постулат тестирования)
 exclude = [
     "venv",
     "venv_vllm",
@@ -20,6 +21,7 @@ exclude = [
     "build",
     "dist",
     "node_modules",
+    "tests",
 ]
 
 [lint]
