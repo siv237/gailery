@@ -50,24 +50,35 @@ def _rows_to_dicts(rows):
 
 class DatabaseManager:
 
-    def __init__(self, db_path: Path = None):
+    def __init__(self, db_path: Path = None, read_only: bool = False):
         self.db_path = db_path or SQLITE_PATH
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
 
-        self.sqlite = sqlite3.connect(str(self.db_path), timeout=30, check_same_thread=False)
-        self.sqlite.row_factory = sqlite3.Row
-        self.sqlite.execute("PRAGMA journal_mode=WAL")
-        self.sqlite.execute("PRAGMA foreign_keys=ON")
-        self.sqlite.execute("PRAGMA busy_timeout=30000")
+        if read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.sqlite = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro", uri=True,
+                timeout=30, check_same_thread=False)
+            self.sqlite.row_factory = sqlite3.Row
+            self.sqlite.execute("PRAGMA query_only=1")
+            self.lancedb_path = LANCEDB_PATH
+            self.vectordb = lancedb.connect(str(self.lancedb_path)) if LANCEDB_PATH.exists() else None
+        else:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.sqlite = sqlite3.connect(str(self.db_path), timeout=30, check_same_thread=False)
+            self.sqlite.row_factory = sqlite3.Row
+            self.sqlite.execute("PRAGMA journal_mode=WAL")
+            self.sqlite.execute("PRAGMA foreign_keys=ON")
+            self.sqlite.execute("PRAGMA busy_timeout=30000")
 
-        self.lancedb_path = LANCEDB_PATH
-        self.lancedb_path.mkdir(parents=True, exist_ok=True)
-        self.vectordb = lancedb.connect(str(self.lancedb_path))
+            self.lancedb_path = LANCEDB_PATH
+            self.lancedb_path.mkdir(parents=True, exist_ok=True)
+            self.vectordb = lancedb.connect(str(self.lancedb_path))
 
-        self._create_tables()
-        self._open_vector_tables()
+            self._create_tables()
+            self._open_vector_tables()
 
-        logger.info(f"Database initialized: SQLite={self.db_path}, LanceDB={self.lancedb_path}")
+        logger.info(f"Database initialized: SQLite={self.db_path}, LanceDB={self.lancedb_path}, read_only={read_only}")
 
     def _create_tables(self):
         cur = self.sqlite.cursor()

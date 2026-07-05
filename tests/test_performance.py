@@ -37,10 +37,15 @@ BUDGETS = {
 }
 
 
+REAL_DB = Path(__file__).resolve().parent.parent / "data" / "gallery.db"
+
+
 @pytest.fixture(scope="module")
 def db():
     from database import DatabaseManager
-    manager = DatabaseManager()
+    if not REAL_DB.exists():
+        pytest.skip(f"Real DB not found: {REAL_DB}")
+    manager = DatabaseManager(db_path=REAL_DB, read_only=True)
     yield manager
     manager.sqlite.close()
 
