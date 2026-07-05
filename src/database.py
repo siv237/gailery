@@ -437,10 +437,13 @@ class DatabaseManager:
     def _get_photo_share_path(self):
         return PHOTO_SHARE_PATH
 
-    def _enabled_root_filter(self):
-        enabled_roots = [r for r in self.get_catalog_roots() if r.get("enabled", 1)]
+    def _enabled_root_filter(self, conn=None):
+        c = conn or self.sqlite
+        enabled_roots = [r for r in _rows_to_dicts(
+            c.execute("SELECT * FROM catalog_roots").fetchall()
+        ) if r.get("enabled", 1)]
         if not enabled_roots:
-            roots = self.get_catalog_roots()
+            roots = _rows_to_dicts(c.execute("SELECT * FROM catalog_roots").fetchall())
             if not roots:
                 return "1=1", []
             return "1=0", []
@@ -554,11 +557,12 @@ class DatabaseManager:
                               has_faces, no_description, has_issues,
                               issue_type, photo_type, has_gps, no_date,
                               has_description, deleted, deleted_only,
-                              content_hash, file_type, media_type):
+                              content_hash, file_type, media_type,
+                              conn=None):
         parts = []
         params = []
 
-        root_filter, root_params = self._enabled_root_filter()
+        root_filter, root_params = self._enabled_root_filter(conn)
         parts.append(f" AND {root_filter}")
         params.extend(root_params)
 
@@ -581,7 +585,8 @@ class DatabaseManager:
 
         return "".join(parts), params
 
-    def _run_search_query(self, base_sql, filter_sql, params, ed, sort, limit, offset):
+    def _run_search_query(self, base_sql, filter_sql, params, ed, sort, limit, offset, conn=None):
+        c = conn or self.sqlite
         sql = base_sql + filter_sql
         order_map = {
             "date_desc": "effective_date DESC, path DESC",
@@ -593,12 +598,12 @@ class DatabaseManager:
 
         count_sql = sql.replace("SELECT photos.*, " + ed + " as effective_date", "SELECT COUNT(*)", 1)
         count_sql = count_sql.split(" ORDER BY ")[0]
-        total = self.sqlite.execute(count_sql, params).fetchone()[0]
+        total = c.execute(count_sql, params).fetchone()[0]
 
         sql += " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        rows = self.sqlite.execute(sql, params).fetchall()
+        rows = c.execute(sql, params).fetchall()
         return total, _rows_to_dicts(rows)
 
     def search_photos(self, q=None, person=None, date_from=None, date_to=None,
@@ -610,7 +615,8 @@ class DatabaseManager:
                       deleted=None, deleted_only=None,
                       content_hash=None, file_type=None,
                       media_type=None,
-                      sort="date_desc", limit=60, offset=0):
+                      sort="date_desc", limit=60, offset=0,
+                      _thread_conn=None):
         ed = "COALESCE(date_utc, manual_date, date)"
         base_sql = ("SELECT photos.*, " + ed + " as effective_date, cf.content_hash "  # nosec B608 — SQL column names, values parameterized through ?
                     "FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
@@ -619,8 +625,9 @@ class DatabaseManager:
             ed, q, person, date_from, date_to, date_after, date_before,
             path_after, path_before, has_faces, no_description, has_issues,
             issue_type, photo_type, has_gps, no_date, has_description,
-            deleted, deleted_only, content_hash, file_type, media_type)
-        return self._run_search_query(base_sql, filter_sql, params, ed, sort, limit, offset)
+            deleted, deleted_only, content_hash, file_type, media_type,
+            conn=_thread_conn)
+        return self._run_search_query(base_sql, filter_sql, params, ed, sort, limit, offset, conn=_thread_conn)
 
     def get_all_photos(self):
         root_filter, root_params = self._enabled_root_filter()
@@ -1184,7 +1191,9 @@ class DatabaseManager:
 
     def get_status(self, _thread_conn=None):
         conn = _thread_conn or self.sqlite
-        enabled_roots = [r for r in self.get_catalog_roots() if r.get("enabled", 1)]
+        enabled_roots = [r for r in _rows_to_dicts(
+            conn.execute("SELECT * FROM catalog_roots").fetchall()
+        ) if r.get("enabled", 1)]
         enabled_ids = [r["root_id"] for r in enabled_roots]
 
         if enabled_ids:
@@ -1346,14 +1355,14 @@ class DatabaseManager:
         self.sqlite.commit()
         return (total_groups, total_copies)
 
-    def get_duplicate_paths(self, content_hash):
-        """Get all abs_paths for non-canonical files with the same content_hash, excluding canonical path."""
-        canonical = self.sqlite.execute(
+    def get_duplicate_paths(self, content_hash, _thread_conn=None):
+        c = _thread_conn or self.sqlite
+        canonical = c.execute(
             "SELECT abs_path FROM catalog_files WHERE content_hash = ? AND is_canonical = 1 LIMIT 1",
             (content_hash,)
         ).fetchone()
         canonical_path = canonical[0] if canonical else None
-        rows = self.sqlite.execute(
+        rows = c.execute(
             "SELECT abs_path FROM catalog_files "
             "WHERE content_hash = ? AND is_canonical = 0 AND abs_path != ? "
             "ORDER BY abs_path",
@@ -1395,9 +1404,9 @@ class DatabaseManager:
         ).fetchone()[0]
         return {"total_hashed": total, "canonical": canonical, "copies": copies, "duplicate_groups": groups}
 
-    def get_edits(self, content_hash):
-        cur = self.sqlite.cursor()
-        rows = cur.execute(
+    def get_edits(self, content_hash, _thread_conn=None):
+        c = _thread_conn or self.sqlite
+        rows = c.execute(
             "SELECT edit_id, action, params, action_order, enabled FROM photo_edits "
             "WHERE content_hash = ? AND enabled = 1 ORDER BY action_order",
             (content_hash,)

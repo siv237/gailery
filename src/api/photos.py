@@ -953,9 +953,8 @@ async def search_photos(
     limit: int = 60,
     offset: int = 0,
 ):
+    import asyncio
     from database import get_db
-
-    db = get_db()
 
     _hash_q = None
     _text_q = q or None
@@ -963,86 +962,99 @@ async def search_photos(
         _hash_q = q
         _text_q = None
 
-    total, photos = db.search_photos(
-        q=_text_q,
-        person=person or None,
-        date_from=date_from or None,
-        date_to=date_to or None,
-        date_after=date_after or None,
-        date_before=date_before or None,
-        path_after=path_after or None,
-        path_before=path_before or None,
-        has_faces=has_faces,
-        no_description=no_description,
-        has_issues=has_issues,
-        issue_type=issue_type,
-        photo_type=photo_type,
-        has_gps=has_gps,
-        no_date=no_date,
-        has_description=has_description,
-        deleted=deleted,
-        deleted_only=deleted_only,
-        file_type=file_type,
-        media_type=media_type,
-        content_hash=_hash_q,
-        sort=sort,
-        limit=limit,
-        offset=offset,
-    )
-
-    hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
-    persona_ids_needed = set()
-
-    photo_faces = {}
-    if hashes:
-        ph = ",".join("?" * len(hashes))
-        face_rows = db.sqlite.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
-            hashes
-        ).fetchall()
-        face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
-        for fr in face_rows:
-            fd = dict(zip(face_cols, fr))
-            ch = fd.get("content_hash") or ""
-            if ch:
-                photo_faces.setdefault(ch, []).append(fd)
-            pid = fd.get("photo_id", "")
-            if pid:
-                photo_faces.setdefault(pid, []).append(fd)
-            if fd.get("persona_id"):
-                persona_ids_needed.add(fd["persona_id"])
-
-    persona_map = {}
-    if persona_ids_needed:
-        pids = list(persona_ids_needed)
-        pid_ph = ",".join("?" * len(pids))
-        p_rows = db.sqlite.execute(
-            f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
-            pids
-        ).fetchall()
-        for pr in p_rows:
-            pid = pr[0]
-            cnt_row = db.sqlite.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
-            persona_map[pid] = {"persona_id": pid, "name": pr[1], "display_name": pr[2], "total_face_count": cnt_row[0] if cnt_row else 0}
-
-    result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
-
-    for p in result:
-        p.get("path", "")
-        hash_val = p.get("content_hash")
+    def _search_sync():
+        db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
-            if hash_val:
-                dup_paths = db.get_duplicate_paths(hash_val)
-                p["duplicate_paths"] = dup_paths
-                p["edits"] = db.get_edits(hash_val)
-            else:
-                p["duplicate_paths"] = []
-                p["edits"] = []
-        except (sqlite3.Error, KeyError):
-            p["duplicate_paths"] = []
-            p["edits"] = []
+            total, photos = db.search_photos(
+                q=_text_q,
+                person=person or None,
+                date_from=date_from or None,
+                date_to=date_to or None,
+                date_after=date_after or None,
+                date_before=date_before or None,
+                path_after=path_after or None,
+                path_before=path_before or None,
+                has_faces=has_faces,
+                no_description=no_description,
+                has_issues=has_issues,
+                issue_type=issue_type,
+                photo_type=photo_type,
+                has_gps=has_gps,
+                no_date=no_date,
+                has_description=has_description,
+                deleted=deleted,
+                deleted_only=deleted_only,
+                file_type=file_type,
+                media_type=media_type,
+                content_hash=_hash_q,
+                sort=sort,
+                limit=limit,
+                offset=offset,
+                _thread_conn=conn,
+            )
 
-    return {"total": total, "photos": result}
+            hashes = [p.get("content_hash", "") for p in photos if p.get("content_hash")]
+            persona_ids_needed = set()
+
+            photo_faces = {}
+            if hashes:
+                ph = ",".join("?" * len(hashes))
+                face_rows = conn.execute(
+                    f"SELECT face_id, photo_id, content_hash, persona_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence FROM faces WHERE content_hash IN ({ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    hashes
+                ).fetchall()
+                face_cols = ["face_id", "photo_id", "content_hash", "persona_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "confidence"]
+                for fr in face_rows:
+                    fd = dict(zip(face_cols, fr))
+                    ch = fd.get("content_hash") or ""
+                    if ch:
+                        photo_faces.setdefault(ch, []).append(fd)
+                    pid = fd.get("photo_id", "")
+                    if pid:
+                        photo_faces.setdefault(pid, []).append(fd)
+                    if fd.get("persona_id"):
+                        persona_ids_needed.add(fd["persona_id"])
+
+            persona_map = {}
+            if persona_ids_needed:
+                pids = list(persona_ids_needed)
+                pid_ph = ",".join("?" * len(pids))
+                p_rows = conn.execute(
+                    f"SELECT persona_id, name, display_name, comment FROM personas WHERE persona_id IN ({pid_ph})",  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                    pids
+                ).fetchall()
+                for pr in p_rows:
+                    pid = pr[0]
+                    cnt_row = conn.execute("SELECT COUNT(*) FROM faces WHERE persona_id = ?", (pid,)).fetchone()
+                    persona_map[pid] = {"persona_id": pid, "name": pr[1], "display_name": pr[2], "total_face_count": cnt_row[0] if cnt_row else 0}
+
+            result = [_enrich_photo(p, photo_faces, persona_map, include_created=True) for p in photos]
+
+            for p in result:
+                p.get("path", "")
+                hash_val = p.get("content_hash")
+                try:
+                    if hash_val:
+                        dup_paths = db.get_duplicate_paths(hash_val, _thread_conn=conn)
+                        p["duplicate_paths"] = dup_paths
+                        p["edits"] = db.get_edits(hash_val, _thread_conn=conn)
+                    else:
+                        p["duplicate_paths"] = []
+                        p["edits"] = []
+                except (sqlite3.Error, KeyError):
+                    p["duplicate_paths"] = []
+                    p["edits"] = []
+
+            return {"total": total, "photos": result}
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _search_sync)
 
 
 def _get_mqtt_api():

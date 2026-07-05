@@ -643,3 +643,164 @@ class TestCosineSimilarity:
         """Косинусная схожесть с нулевым вектором = 0.0."""
         sim = db._cosine_similarity([0, 0, 0], [1, 2, 3])
         assert sim == 0.0
+
+
+class TestMigrationSafety:
+    """Миграции не должны модифицировать данные и не должны блокировать БД.
+
+    Баг: _apply_migrations содержал UPDATE photos SET deleted=1 на 93000 строк,
+    выполнялся при каждом открытии БД → database is locked при одновременном
+    старте uvicorn + pipeline после ребута.
+    """
+
+    def test_apply_migrations_no_data_modification(self, db):
+        """_apply_migrations не содержит UPDATE/DELETE/INSERT — только DDL.
+
+        Миграции схемы — CREATE TABLE, ALTER TABLE, CREATE INDEX.
+        Data-modifying запросы — ответственность бизнес-логики (scan_catalog и т.д.),
+        не миграций. UPDATE в миграции = блокировка БД при каждом старте.
+        """
+        import inspect, ast, re, textwrap
+        from database import DatabaseManager
+
+        source = textwrap.dedent(inspect.getsource(DatabaseManager._apply_migrations))
+        tree = ast.parse(source)
+
+        forbidden_patterns = [
+            re.compile(r'\bUPDATE\b', re.I),
+            re.compile(r'\bDELETE\b', re.I),
+            re.compile(r'\bINSERT\b', re.I),
+            re.compile(r'\bREPLACE\b', re.I),
+        ]
+        violations = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func_name = ""
+                if isinstance(node.func, ast.Attribute):
+                    func_name = node.func.attr
+                elif isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+
+                if func_name == "execute":
+                    if node.args and isinstance(node.args[0], ast.Constant):
+                        sql = str(node.args[0].value)
+                        for pat in forbidden_patterns:
+                            if pat.search(sql):
+                                violations.append(
+                                    f"найден {pat.pattern} в _apply_migrations: {sql[:80]}..."
+                                )
+
+        assert not violations, (
+            "_apply_migrations содержит data-modifying запросы — это вызывает "
+            "блокировку БД при каждом старте.\n" + "\n".join(violations)
+        )
+
+    def test_migrations_preserve_data_on_reopen(self, db, tmp_data):
+        """Повторное создание DatabaseManager на существующей БД не меняет данные.
+
+        Если миграция содержит UPDATE — повторное открытие БД изменит данные.
+        Создаём БД с фото, переоткрываем — фото должны остаться неизменными.
+        """
+        import sqlite3 as sq3
+        from database import DatabaseManager
+
+        db.add_photo("/test/keep_me.jpg", date="2024-01-01",
+                     description="должно сохраниться")
+        db.sqlite.commit()
+
+        before = db.sqlite.execute(
+            "SELECT path, deleted, description FROM photos"
+        ).fetchall()
+        db.sqlite.close()
+
+        db2 = DatabaseManager(db_path=tmp_data["db_path"])
+        after = db2.sqlite.execute(
+            "SELECT path, deleted, description FROM photos"
+        ).fetchall()
+
+        assert len(before) == len(after), (
+            f"Количество фото изменилось после переоткрытия: {len(before)} → {len(after)}"
+        )
+        for b, a in zip(before, after):
+            assert b[0] == a[0], f"path изменился: {b[0]} → {a[0]}"
+            assert b[1] == a[1], f"deleted изменился для {b[0]}: {b[1]} → {a[1]}"
+            assert b[2] == a[2], f"description изменился для {b[0]}"
+        db2.sqlite.close()
+
+    def test_concurrent_open_no_lock(self, tmp_data):
+        """Два DatabaseManager() одновременно на одной БД не блокируют друг друга.
+
+        После ребута pipeline и uvicorn стартуют одновременно. Если миграция
+        берёт write lock — второй падает с 'database is locked'.
+        """
+        import threading
+        from database import DatabaseManager
+
+        results = {"ok": 0, "errors": []}
+        lock = threading.Lock()
+
+        def open_db():
+            try:
+                manager = DatabaseManager(db_path=tmp_data["db_path"])
+                manager.sqlite.execute("SELECT COUNT(*) FROM photos").fetchone()
+                manager.sqlite.close()
+                with lock:
+                    results["ok"] += 1
+            except Exception as e:
+                with lock:
+                    results["errors"].append(str(e))
+
+        t1 = threading.Thread(target=open_db)
+        t2 = threading.Thread(target=open_db)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+        assert not results["errors"], (
+            f"Конкурентное открытие БД вызвало ошибки: {results['errors']}"
+        )
+        assert results["ok"] == 2, (
+            f"Ожидалось 2 успешных открытия, получилось {results['ok']}"
+        )
+
+    def test_no_duplicate_data_logic_between_modules(self):
+        """Одинаковые data-modifying SQL не должны быть в database.py и scan_catalog.py.
+
+        Дублирование = правишь в одном месте, забываешь в другом.
+        Баг: UPDATE photos SET deleted=1 WHERE NOT EXISTS ... был в обоих файлах.
+        """
+        import ast, re
+        from pathlib import Path
+
+        root = Path(__file__).parent.parent
+
+        data_mod_pattern = re.compile(r'\b(UPDATE|DELETE\s+FROM|INSERT\s+INTO|REPLACE\s+INTO)\b', re.I)
+
+        def extract_data_sql(filepath):
+            source = filepath.read_text()
+            tree = ast.parse(source)
+            queries = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func_name = ""
+                    if isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr
+                    if func_name == "execute" and node.args:
+                        if isinstance(node.args[0], ast.Constant):
+                            sql = str(node.args[0].value).strip()
+                            if data_mod_pattern.search(sql):
+                                norm = " ".join(sql.split())
+                                queries.add(norm)
+            return queries
+
+        db_sql = extract_data_sql(root / "src" / "database.py")
+        scan_sql = extract_data_sql(root / "scan_catalog.py")
+
+        duplicates = db_sql & scan_sql
+        assert not duplicates, (
+            f"Найдены дублирующие SQL-запросы в database.py и scan_catalog.py.\n"
+            f"Это дублирование логики — правь в одном месте.\n"
+            + "\n".join(f"  {q[:100]}..." for q in duplicates)
+        )

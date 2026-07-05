@@ -486,6 +486,8 @@ ExecStart=$VENV_DIR/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-ke
 LimitNOFILE=524288
 Restart=always
 RestartSec=10
+TimeoutStopSec=10
+KillSignal=SIGINT
 StandardOutput=append:$INSTALL_DIR/logs/gailery.log
 StandardError=append:$INSTALL_DIR/logs/gailery-error.log
 
