@@ -58,16 +58,9 @@ FACE_CONFIDENCE_THRESHOLD = 0.5
 
 # Face embeddings
 EMBEDDING_MODEL = "facenet"  # or "insightface"
-EMBEDDING_DIMENSION = 128
 
 # Database
 LANCEDB_PATH = DATA_DIR / "lancedb"
-PHOTOS_TABLE = "photos"
-FACES_TABLE = "faces"
-PERSONAS_TABLE = "personas"
-CATALOG_ROOTS_TABLE = "catalog_roots"
-CATALOG_FILES_TABLE = "catalog_files"
-EMBEDDINGS_TABLE = "photo_embeddings"
 
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 EMBEDDING_DIM = 1024

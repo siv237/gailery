@@ -409,9 +409,6 @@ class ApiMQTT(GailrayMQTT):
                 return name
         return "idle"
 
-    def get_gpu_holder(self):
-        return self._worker_states
-
     def send_start(self, step, params=None):
         data = {"step": step}
         if params:

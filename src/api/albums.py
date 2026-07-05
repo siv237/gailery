@@ -774,7 +774,7 @@ async def get_camera_group(album_id: str, photo_id: str):
             timeline = []
 
             for r in rows:
-                pid, path, date, mdate, dutc, cmake, cmodel, exif_raw, date_tz = r
+                pid, path, date, mdate, _dutc, cmake, cmodel, exif_raw, date_tz = r
                 cam_key = _camera_key(cmake, cmodel)
                 is_camera = (cam_key == anchor_cam_key)
                 is_anchor = (pid == anchor_uuid)
@@ -894,7 +894,7 @@ async def apply_time_shift(album_id: str, request: Request):
 
             count = 0
             for r in rows:
-                pid, date_str, dutc_str, rmake, rmodel, exif_raw = r
+                pid, date_str, _dutc_str, rmake, rmodel, exif_raw = r
                 if _camera_key(rmake, rmodel) != cam_key:
                     continue
                 cam_exif_secs = _exif_time(exif_raw) or 0

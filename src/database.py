@@ -11,7 +11,7 @@ from pathlib import Path
 import lancedb
 import pyarrow as pa
 
-from config import LANCEDB_PATH, DATA_DIR, PHOTO_SHARE_PATH, VIDEO_EXTS
+from config import LANCEDB_PATH, DATA_DIR, VIDEO_EXTS
 
 logger = logging.getLogger(__name__)
 
@@ -424,18 +424,11 @@ class DatabaseManager:
         cur.execute(f"UPDATE photos SET {sets} WHERE photo_id = ?", vals)  # nosec B608 — SQL column names via f-string, values parameterized through ?
         self.sqlite.commit()
 
-    def delete_photo(self, photo_id):
-        self.sqlite.execute("DELETE FROM photos WHERE photo_id = ?", (photo_id,))
-        self.sqlite.commit()
-
     def count_photos(self, where=None):
         sql = "SELECT COUNT(*) FROM photos"
         if where:
             sql += f" WHERE {where}"
         return self.sqlite.execute(sql).fetchone()[0]
-
-    def _get_photo_share_path(self):
-        return PHOTO_SHARE_PATH
 
     def _enabled_root_filter(self, conn=None):
         c = conn or self.sqlite

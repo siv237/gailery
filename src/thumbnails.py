@@ -260,22 +260,6 @@ class ThumbnailGenerator:
 
         return last_path
 
-    def generate_to_buffer(self, image_path: Path, width: int, fmt: str = "webp", quality: int = 80) -> Optional[bytes]:
-        if not image_path.exists():
-            return None
-        if _is_video(image_path):
-            return _video_generate_to_buffer(image_path, width, fmt, quality)
-        if _is_raw(image_path):
-            return _pillow_generate_to_buffer(image_path, width, fmt, quality, crop="centre")
-        try:
-            img = pyvips.Image.new_from_file(str(image_path), access="random")
-            thumb = img.thumbnail_image(width, crop="centre")
-            ext = f".{fmt}"
-            return thumb.write_to_buffer(ext, Q=quality)
-        except (RuntimeError, OSError) as e:
-            logger.error(f"Failed to generate buffer for {image_path}: {e}")
-            return None
-
     def generate_fit_buffer(self, image_path: Path, width: int = 400, quality: int = 80) -> Optional[bytes]:
         if not image_path.exists():
             return None

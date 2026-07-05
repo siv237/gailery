@@ -113,6 +113,8 @@ class BrowserErrorRedirectMiddleware:
         await self.app(scope, receive, send)
 
 
+app.add_middleware(BrowserErrorRedirectMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -949,26 +951,39 @@ async def set_setting(key: str, request: Request):
 
 @app.get("/api/settings/{key}/top_personas")
 async def top_personas_for_facts(key: str):
+    import asyncio
     from database import get_db
-    db = get_db()
-    rows = db.sqlite.execute("""
-        SELECT per.display_name, per.comment, SUM(subcnt) as total_faces
-        FROM (
-            SELECT persona_id, COUNT(*) as subcnt FROM faces WHERE persona_id IS NOT NULL GROUP BY persona_id
-        ) f
-        JOIN personas per ON f.persona_id = per.persona_id
-        WHERE per.display_name IS NOT NULL AND per.display_name != ''
-        GROUP BY per.display_name
-        ORDER BY total_faces DESC
-        LIMIT 10
-    """).fetchall()
-    lines = []
-    for name, comment, total in rows:
-        line = name
-        if comment:
-            line += f" — {comment}"
-        lines.append(line)
-    return {"text": "\n".join(lines)}
+
+    def _top_personas_sync():
+        db = get_db()
+        import sqlite3 as _sq3
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            rows = conn.execute("""
+                SELECT per.display_name, per.comment, SUM(subcnt) as total_faces
+                FROM (
+                    SELECT persona_id, COUNT(*) as subcnt FROM faces WHERE persona_id IS NOT NULL GROUP BY persona_id
+                ) f
+                JOIN personas per ON f.persona_id = per.persona_id
+                WHERE per.display_name IS NOT NULL AND per.display_name != ''
+                GROUP BY per.display_name
+                ORDER BY total_faces DESC
+                LIMIT 10
+            """).fetchall()
+            lines = []
+            for name, comment, total in rows:
+                line = name
+                if comment:
+                    line += f" — {comment}"
+                lines.append(line)
+            return {"text": "\n".join(lines)}
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _top_personas_sync)
 
 from pathlib import Path
 # Admin static assets

@@ -512,7 +512,11 @@ def test_no_dead_code_100pct():
     """Vulture — мёртвый код с 100% confidence (точно неиспользуемое)."""
     try:
         result = subprocess.run(
-            [VENV_PYTHON, "-m", "vulture", "src/", "--min-confidence", "100"],
+            [VENV_PYTHON, "-m", "vulture", ".",
+             "--exclude", "tests/,venv/,venv_vllm/,__pycache__/,.git/,node_modules/,data/,logs/,thumbnails/,models/,build/,dist/,.pytest_cache/,.ruff_cache/,bench_*.py,benchmark_*.py,check_gpu.py,run_chrome.py,migrate_lance_to_sqlite.py",
+             "--ignore-names", "row_factory,do_GET,do_POST,do_OPTIONS,log_message,model_max_length,padding_side,n_gpu_layers,n_ctx,n_batch,n_ubatch,n_seq_max,kv_unified,flash_attn_type,n_threads,n_threads_batch,on_connect,on_message",
+             "--ignore-decorators", "@app.*,@router.*",
+             "--min-confidence", "100"],
             capture_output=True, text=True, cwd=str(ROOT), timeout=30
         )
     except Exception:
@@ -527,7 +531,11 @@ def test_dead_code_report():
     """Отчёт по мёртвому коду — warning."""
     try:
         result = subprocess.run(
-            [VENV_PYTHON, "-m", "vulture", "src/", "--min-confidence", "60"],
+            [VENV_PYTHON, "-m", "vulture", ".",
+             "--exclude", "tests/,venv/,venv_vllm/,__pycache__/,.git/,node_modules/,data/,logs/,thumbnails/,models/,build/,dist/,.pytest_cache/,.ruff_cache/,bench_*.py,benchmark_*.py,check_gpu.py,run_chrome.py,migrate_lance_to_sqlite.py",
+             "--ignore-names", "row_factory,do_GET,do_POST,do_OPTIONS,log_message,model_max_length,padding_side,n_gpu_layers,n_ctx,n_batch,n_ubatch,n_seq_max,kv_unified,flash_attn_type,n_threads,n_threads_batch,on_connect,on_message",
+             "--ignore-decorators", "@app.*,@router.*",
+             "--min-confidence", "60"],
             capture_output=True, text=True, cwd=str(ROOT), timeout=30
         )
     except Exception:

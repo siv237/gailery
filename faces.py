@@ -375,7 +375,7 @@ def _try_gpu_for_clustering():
         t = torch.zeros(1, device='cuda:0')
         del t
         torch.cuda.empty_cache()
-        free_mem, total_mem = torch.cuda.mem_get_info()
+        free_mem, _total_mem = torch.cuda.mem_get_info()
         if free_mem < 1 * 1024 * 1024 * 1024:
             log(f"GPU free VRAM too low for clustering: {free_mem/1e9:.1f}GB")
             return False

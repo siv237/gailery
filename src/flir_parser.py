@@ -9,40 +9,11 @@ We use exiftool to extract EmbeddedImage and metadata.
 """
 
 import subprocess
-import struct
 import logging
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-
-def is_flir_file(file_path: str | Path) -> bool:
-    try:
-        file_path = Path(file_path)
-        with open(file_path, 'rb') as f:
-            content = f.read(min(65536, file_path.stat().st_size))
-        pos = 2
-        while pos < len(content) - 4:
-            if content[pos] != 0xFF:
-                pos += 1
-                continue
-            marker = content[pos + 1]
-            if marker in (0xDA, 0xD9):
-                break
-            if 0xD0 <= marker <= 0xD7 or marker == 0x00:
-                pos += 2
-                continue
-            if pos + 4 > len(content):
-                break
-            length = min(struct.unpack('>H', content[pos + 2:pos + 4])[0], len(content) - pos - 2)
-            data = content[pos + 4:pos + 2 + length]
-            if marker == 0xE1 and data[:4] == b'Exif':
-                return b'FLIR' in data
-            pos += 2 + length
-    except (OSError, struct.error):
-        pass
-    return False
 
 
 def _exiftool_extract(file_path: Path, tag: str) -> Optional[bytes]:

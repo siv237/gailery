@@ -111,7 +111,7 @@ def count_undescribed():
 def _prepare_ollama_image(img_path):
     from PIL import Image
     img = Image.open(img_path)
-    img_w, img_h = img.size
+    img_w, _img_h = img.size
     max_dim = max(img.size)
     if max_dim > 1280:
         scale = 1280 / max_dim

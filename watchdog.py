@@ -122,7 +122,7 @@ def _get_process_map():
         parts = line.split(None, 10)
         if len(parts) < 11:
             continue
-        user, pid, cpu, mem, vsz, rss, tty, stat, start, etime, cmd = parts
+        _user, pid, cpu, mem, _vsz, rss, _tty, stat, start, _etime, cmd = parts
         procs.append({
             "pid": int(pid),
             "rss_mb": int(rss) // 1024,

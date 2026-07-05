@@ -171,7 +171,7 @@ class EmbedEngine:
         if cls._silent_cb is not None:
             return
         CB = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p)
-        cls._silent_cb = CB(lambda level, text, ud: None)
+        cls._silent_cb = CB(lambda _level, _text, _ud: None)
         llama_cpp.llama_log_set(cls._silent_cb, ctypes.c_void_p(0))
 
     def __init__(self, backend=None):
