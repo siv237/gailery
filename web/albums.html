@@ -315,35 +315,6 @@ function _albumCardHtml(a) {
 }
 
 var currentTab = 'auto';
-var _shareBaseUrl = '';
-
-async function _loadShareBaseUrl() {
-  try {
-    var resp = await fetch((API || '/api') + '/share/config');
-    var data = await resp.json();
-    _shareBaseUrl = data.base_url || '';
-  } catch(e) {}
-}
-
-function _copyFallback(text) {
-  var ta = document.createElement('textarea');
-  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); } catch(e) {}
-  document.body.removeChild(ta);
-}
-
-function copyShareLink(albumId, btn) {
-  (async function() {
-    if (!_shareBaseUrl) await _loadShareBaseUrl();
-    var base = _shareBaseUrl || location.origin;
-    var url = base.replace(/\/+$/, '') + '/album/' + albumId;
-    function _done() { if (btn) { var o = btn.textContent; btn.textContent = 'Ссылка скопирована!'; setTimeout(function() { btn.textContent = o; }, 2000); } }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(_done).catch(function() { _copyFallback(url); _done(); });
-    } else { _copyFallback(url); _done(); }
-  })();
-}
 
 function switchTab(tab) {
   currentTab = tab;
@@ -414,7 +385,7 @@ async function loadAlbums() {
       html += '<div class="manual-album-bar" onclick="openManualAlbum(\'' + esc(a.album_id) + '\')">' +
         '<div class="mab-title">' + esc(a.title) + '</div>' +
         '<div class="mab-summary">' + summary + ' \u00B7 ' + a.photo_count + ' фото всего</div>' +
-        '<button class="mab-share-btn" onclick="event.stopPropagation();copyShareLink(\'' + esc(a.album_id) + '\',this)">Поделиться</button>' +
+        '<button class="mab-share-btn" onclick="event.stopPropagation();copyShareLink(\'' + esc(a.album_id) + '\',this,\'album\')">Поделиться</button>' +
         '</div>';
     }
     html += '</div>';
@@ -484,6 +455,7 @@ async function openManualAlbum(id) {
     '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
     '<span class="album-bar-meta">' + album.photo_count + ' фото \u00b7 ' + albumMembers.length + ' альбомов</span>' +
     '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435</button>' +
+    '<button class="album-bar-desc-btn" onclick="copyShareLink(\'' + esc(album.album_id) + '\',this,\'album\')">Поделиться</button>' +
     '</div>';
 
   if (personaMembers.length) {
@@ -625,6 +597,7 @@ async function openAlbum(id) {
     '<span class="album-bar-meta">' + meta + '</span>' +
     camerasHtml +
     '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>' +
+    '<button class="album-bar-desc-btn" onclick="copyShareLink(\'' + esc(album.album_id) + '\',this,\'album\')">Поделиться</button>' +
     removeBtn +
     '</div>' + descHtml + membersHtml + photosHtml;
   if (isManual) loadAlbumMembers(album.album_id);
@@ -809,7 +782,6 @@ async function _doRemoveFromAlbum() {
   if (data.ok) openAlbum(_removeFromAlbumId);
 }
 (function() {
-  _loadShareBaseUrl();
   var params = new URLSearchParams(window.location.search);
   var albumId = params.get('album');
   if (albumId) openAlbum(albumId);

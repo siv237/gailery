@@ -53,6 +53,7 @@ function openDetail(idx) {
     html += '<div style="margin-top:6px">';
     html += '<button class="dp-btn-reprocess" onclick="showReprocessModal(\'' + esc(p.db_id || '') + '\')">Переобработать</button>';
     html += '<button class="dp-btn-toalbum" onclick="showAddToAlbum(\'' + esc(p.db_id || p.photo_id) + '\')">В альбом</button>';
+    html += '<button class="dp-btn-share" onclick="copyShareLink(\'' + esc(p.db_id || '') + '\',this,\'photo\')">Поделиться</button>';
     html += '</div>';
     if (p.date) {
         var showDate = p.manual_date || p.date;

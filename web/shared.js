@@ -10,6 +10,40 @@ if (_savedTheme === 'light') {
     _isLightTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
 }
 
+// --- Share link helpers (доступны везде) ---
+var _shareBaseUrl = '';
+
+async function _loadShareBaseUrl() {
+    try {
+        var resp = await fetch((window.API || '/api') + '/share/config');
+        var data = await resp.json();
+        _shareBaseUrl = data.base_url || '';
+    } catch(e) {}
+}
+
+function _copyFallback(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(ta);
+}
+
+function copyShareLink(id, btn, type) {
+    type = type || 'album';
+    (async function() {
+        if (!_shareBaseUrl) await _loadShareBaseUrl();
+        var base = _shareBaseUrl || location.origin;
+        var url = base.replace(/\/+$/, '') + '/' + type + '/' + id;
+        function _done() { if (btn) { var o = btn.textContent; btn.textContent = 'Ссылка скопирована!'; setTimeout(function() { btn.textContent = o; }, 2000); } }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(_done).catch(function() { _copyFallback(url); _done(); });
+        } else { _copyFallback(url); _done(); }
+    })();
+}
+
+(function() { _loadShareBaseUrl(); })();
+
 var _NAV_ITEMS = [
     { href: '/gallery',  ico: '\u25A0', label: 'Галерея' },
     { href: '/albums',   ico: '\u25A0', label: 'Альбомы' },

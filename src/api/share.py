@@ -414,14 +414,23 @@ async def share_photo(photo_id: str):
 
 # ─── HTML pages ──────────────────────────────────────────────
 
+@router.get("")
+@router.get("/")
+async def share_root():
+    return _not_found_resp()
+
+
 @router.get("/{page}")
-async def serve_page(page: str):
+async def serve_page(page: str, request: Request):
     """Serve gallery pages (gallery, albums, map, persons) with rewritten paths."""
     if page not in _PAGES:
-        raise HTTPException(status_code=404, detail="Page not found")
+        return _not_found_resp()
+    scope = request.cookies.get("share_scope", "")
+    if not scope or ":" not in scope:
+        return _not_found_resp()
     p = _WEB / _PAGES[page]
     if not p.exists():
-        raise HTTPException(status_code=404, detail="Page not found")
+        return _not_found_resp()
     html = p.read_text(encoding="utf-8")
     html = _inject_shared_css(html)
     html = _rewrite_paths(html)
@@ -431,8 +440,11 @@ async def serve_page(page: str):
 # ─── Static files ────────────────────────────────────────────
 
 @router.get("/static/{filename}")
-async def serve_static(filename: str):
+async def serve_static(filename: str, request: Request):
     """Serve static assets (CSS/JS/images) with rewritten paths."""
+    scope = request.cookies.get("share_scope", "")
+    if not scope or ":" not in scope:
+        return _not_found_resp()
     # favicon.ico fallback to favicon.png
     if filename == "favicon.ico":
         p = _WEB / "favicon.png"
@@ -1179,7 +1191,9 @@ async def s_person_faces(persona_id: str, request: Request, limit: int = 100, de
 
 
 @router.get("/api/share/config")
-async def s_share_config():
+async def s_share_config(request: Request):
+    scope = request.cookies.get("share_scope", "")
+    _require_scope(scope)
     from database import get_db
     db = get_db()
     base_url = db.get_setting("share_base_url") or ""
