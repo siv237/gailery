@@ -112,7 +112,6 @@ def _rewrite_paths(content: str) -> str:
 def _inject_shared_css(html: str) -> str:
     """Inject CSS to hide admin-only elements in shared mode."""
     css = """<style>
-body.shared-mode .album-tabs { display: none !important; }
 body.shared-mode #autoActions { display: none !important; }
 body.shared-mode #manualActions { display: none !important; }
 body.shared-mode .mab-share-btn { display: none !important; }
@@ -318,35 +317,66 @@ async def share_album_noid():
 
 @router.get("/album/{album_id}")
 async def share_album(album_id: str):
-    def _check():
+    def _prepare():
         db = get_db()
         album = db.get_album(album_id)
-        return album
+        if not album:
+            return None
+        all_pids = db.get_album_photos(album_id)
+        album["photo_ids"] = all_pids
+        album["photo_count"] = len(all_pids)
+        import random as _r
+        cover = album.get("cover_photo_id")
+        rest = [p for p in all_pids if p != cover]
+        if len(rest) > 2:
+            rest = _r.sample(rest, 2)
+        album["preview_photos"] = ([cover] if cover else (all_pids[:1] if all_pids else [])) + rest[:3]
+        if not album["preview_photos"]:
+            album["preview_photos"] = rest[:3]
+        members = db.get_album_members(album_id)
+        sub_albums = []
+        for m in members:
+            if m.get("member_type") == "album":
+                sa = db.get_album(m["member_id"])
+                if sa:
+                    sa_pids = db.get_album_photos(sa["album_id"])
+                    sa_cover = sa.get("cover_photo_id")
+                    sa_rest = [p for p in sa_pids if p != sa_cover]
+                    if len(sa_rest) > 2:
+                        sa_rest = _r.sample(sa_rest, 2)
+                    sa["preview_photos"] = ([sa_cover] if sa_cover else (sa_pids[:1] if sa_pids else [])) + sa_rest[:3]
+                    if not sa["preview_photos"]:
+                        sa["preview_photos"] = sa_rest[:3]
+                    sa["photo_count"] = len(sa_pids)
+                    sub_albums.append(sa)
+        return {"album": album, "members": members, "sub_albums": sub_albums}
     loop = asyncio.get_event_loop()
-    album = await loop.run_in_executor(None, _check)
-    if not album:
+    data = await loop.run_in_executor(None, _prepare)
+    if not data:
         return _not_found_resp()
+    album = data["album"]
     p = _WEB / "albums.html"
     if not p.exists():
         raise HTTPException(status_code=404, detail="Page not found")
     html = p.read_text(encoding="utf-8")
     html = _inject_shared_css(html)
     html = _rewrite_paths(html)
+    import json as _json
+    preload = _json.dumps(data, ensure_ascii=False, default=str)
     html = html.replace(
         "</head>",
-        f'<script>window.SHARED_ALBUM_ID="{album_id}";</script>\n</head>',
+        f'<script>window.SHARED_ALBUM_ID="{album_id}";window.SHARED_PRELOAD={preload};</script>\n</head>',
         1,
     )
     is_manual = album.get("source") == "manual"
+    html = html.replace(
+        "var albumId = params.get('album');",
+        "var albumId = window.SHARED_ALBUM_ID || params.get('album');",
+    )
     if is_manual:
         html = html.replace(
             "if (albumId) openAlbum(albumId);",
             "if (albumId) openManualAlbum(albumId);",
-        )
-    else:
-        html = html.replace(
-            "var albumId = params.get('album');",
-            "var albumId = window.SHARED_ALBUM_ID || params.get('album');",
         )
     resp = HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     resp.set_cookie("share_scope", f"album:{album_id}", httponly=True, samesite="lax", secure=True, max_age=86400 * 30)
@@ -897,7 +927,7 @@ async def s_neighbor(request: Request, date: str, dir: str = "next"):
 # --- Albums ---
 
 @router.get("/api/albums/")
-async def s_list_albums(request: Request):
+async def s_list_albums(request: Request, source: str = ""):
     scope = request.cookies.get("share_scope", "")
     scope_ids = _require_scope(scope)
 
@@ -906,15 +936,19 @@ async def s_list_albums(request: Request):
         if not scope_ids:
             return []
         ph = ",".join("?" * len(scope_ids))
-        rows = db.sqlite.execute(
+        query = (
             f"SELECT DISTINCT a.album_id, a.title, a.description, a.cover_photo_id, "
             f"a.date_start, a.date_end, a.photo_count, a.source, a.created_at, a.updated_at "
             f"FROM albums a "
             f"JOIN album_photos ap ON ap.album_id = a.album_id "
-            f"WHERE ap.photo_id IN ({ph}) "
-            f"ORDER BY a.date_start DESC",
-            scope_ids,
-        ).fetchall()
+            f"WHERE ap.photo_id IN ({ph})"
+        )
+        params = list(scope_ids)
+        if source in ("auto", "manual"):
+            query += " AND a.source = ?"
+            params.append(source)
+        query += " ORDER BY a.date_start DESC"
+        rows = db.sqlite.execute(query, params).fetchall()
         albums = []
         cols = ["album_id", "title", "description", "cover_photo_id",
                 "date_start", "date_end", "photo_count", "source",

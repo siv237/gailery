@@ -120,7 +120,7 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .search-bar .album-tab:last-child { border-radius: 0 6px 6px 0; border-left: none; }
 .album-actions { display: inline-flex; gap: 8px; }
 
-.manual-album-bar { padding: 16px 20px; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s; }
+.manual-album-bar { padding: 16px 20px; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s; position: relative; padding-right: 120px; }
 .manual-album-bar:hover { border-color: #3fb950; }
 .light-theme .manual-album-bar { border-color: #d0d7de; }
 .light-theme .manual-album-bar:hover { border-color: #1f883d; }
@@ -128,6 +128,10 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .mab-title { color: #24292f; }
 .mab-summary { font-size: 12px; color: #8b949e; margin-top: 4px; }
 .light-theme .mab-summary { color: #57606a; }
+.mab-share-btn { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); background: #1f6feb; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-family: monospace; z-index: 10; }
+.mab-share-btn:hover { background: #58a6ff; }
+.light-theme .mab-share-btn { background: #0969da; }
+.light-theme .mab-share-btn:hover { background: #0969da; }
 
 .album-create-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000; display: none; align-items: center; justify-content: center; }
 .album-create-modal.show { display: flex; }
@@ -311,6 +315,35 @@ function _albumCardHtml(a) {
 }
 
 var currentTab = 'auto';
+var _shareBaseUrl = '';
+
+async function _loadShareBaseUrl() {
+  try {
+    var resp = await fetch((API || '/api') + '/share/config');
+    var data = await resp.json();
+    _shareBaseUrl = data.base_url || '';
+  } catch(e) {}
+}
+
+function _copyFallback(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
+}
+
+function copyShareLink(albumId, btn) {
+  (async function() {
+    if (!_shareBaseUrl) await _loadShareBaseUrl();
+    var base = _shareBaseUrl || location.origin;
+    var url = base.replace(/\/+$/, '') + '/album/' + albumId;
+    function _done() { if (btn) { var o = btn.textContent; btn.textContent = 'Ссылка скопирована!'; setTimeout(function() { btn.textContent = o; }, 2000); } }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(_done).catch(function() { _copyFallback(url); _done(); });
+    } else { _copyFallback(url); _done(); }
+  })();
+}
 
 function switchTab(tab) {
   currentTab = tab;
@@ -381,6 +414,7 @@ async function loadAlbums() {
       html += '<div class="manual-album-bar" onclick="openManualAlbum(\'' + esc(a.album_id) + '\')">' +
         '<div class="mab-title">' + esc(a.title) + '</div>' +
         '<div class="mab-summary">' + summary + ' \u00B7 ' + a.photo_count + ' фото всего</div>' +
+        '<button class="mab-share-btn" onclick="event.stopPropagation();copyShareLink(\'' + esc(a.album_id) + '\',this)">Поделиться</button>' +
         '</div>';
     }
     html += '</div>';
@@ -430,12 +464,18 @@ function _initAlbumStackThrottle() {
 
 async function openManualAlbum(id) {
   albumViewMode = true;
-  var resp = await fetch('/api/albums/' + id + '?full=false');
-  var album = await resp.json();
+  var album, members;
+  if (window.SHARED_PRELOAD && window.SHARED_PRELOAD.album && window.SHARED_PRELOAD.album.album_id === id) {
+    album = window.SHARED_PRELOAD.album;
+    members = window.SHARED_PRELOAD.members;
+  } else {
+    var resp = await fetch((API || '/api') + '/albums/' + id + '?full=false');
+    album = await resp.json();
+    var membersResp = await fetch((API || '/api') + '/albums/' + id + '/members');
+    members = await membersResp.json();
+  }
   currentAlbum = album;
 
-  var membersResp = await fetch('/api/albums/' + id + '/members');
-  var members = await membersResp.json();
   var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
   var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
 
@@ -454,11 +494,15 @@ async function openManualAlbum(id) {
 
   if (albumMembers.length) {
     var subAlbums = [];
-    for (var i = 0; i < albumMembers.length; i++) {
-      var subResp = await fetch('/api/albums/' + albumMembers[i].member_id + '?full=false');
-      var subAlbum = await subResp.json();
-      if (subAlbum && subAlbum.album_id) {
-        subAlbums.push(subAlbum);
+    if (window.SHARED_PRELOAD && window.SHARED_PRELOAD.sub_albums) {
+      subAlbums = window.SHARED_PRELOAD.sub_albums.slice();
+    } else {
+      for (var i = 0; i < albumMembers.length; i++) {
+        var subResp = await fetch((API || '/api') + '/albums/' + albumMembers[i].member_id + '?full=false');
+        var subAlbum = await subResp.json();
+        if (subAlbum && subAlbum.album_id) {
+          subAlbums.push(subAlbum);
+        }
       }
     }
     subAlbums.sort(function(a, b) {
@@ -765,6 +809,7 @@ async function _doRemoveFromAlbum() {
   if (data.ok) openAlbum(_removeFromAlbumId);
 }
 (function() {
+  _loadShareBaseUrl();
   var params = new URLSearchParams(window.location.search);
   var albumId = params.get('album');
   if (albumId) openAlbum(albumId);
