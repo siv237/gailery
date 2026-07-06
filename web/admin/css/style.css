@@ -302,6 +302,9 @@ a { color: inherit; text-decoration: none; }
 
 /* === Log line colors === */
 .l-DESCRIBE{color:#58a6ff} .l-FACES{color:#d29922} .l-EXIF{color:#a5d6ff} .l-EMBED{color:#bc8cff} .l-PIPELINE{color:#3fb950;font-weight:bold} .l-INGEST{color:#c9d1d9} .l-error,.l-FAILED{color:#f85149} .l-DONE,.l-START{color:#3fb950}
+.l-mut{color:#f85149;font-weight:bold} .l-get{color:#58a6ff} .l-warn{color:#d29922}
+.log-container{max-height:70vh;overflow-y:auto;font-family:monospace;font-size:12px;line-height:1.6}
+.log-container .ll{padding:1px 4px;border-bottom:1px solid rgba(48,54,61,.3)}
 
 /* ═════════════════════ NEW MODULES BASE (dark) ═════════════════════ */
 .worker-card { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:8px 12px; font-size:11px; }
@@ -493,6 +496,12 @@ a { color: inherit; text-decoration: none; }
 .light-theme .l-INGEST { color: #24292f; }
 .light-theme .l-error, .light-theme .l-FAILED { color: #cf222e; }
 .light-theme .l-DONE, .light-theme .l-START { color: #1f883d; }
+.light-theme .l-mut { color: #cf222e; font-weight: bold; }
+.light-theme .l-get { color: #0969da; }
+.light-theme .l-warn { color: #9a6700; }
+.light-theme .log-container .ll { border-bottom-color: rgba(208,215,222,.3); }
+.st-err{color:#f85149} .st-warn{color:#d29922} .st-ok{color:#3fb950}
+.light-theme .st-err{color:#cf222e} .light-theme .st-warn{color:#9a6700} .light-theme .st-ok{color:#1f883d}
 
 /* ═════════════════════ uPlot ═════════════════════ */
 .uplot { font-family: monospace; }

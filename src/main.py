@@ -157,6 +157,103 @@ class BodySizeLimitMiddleware:
 app.add_middleware(BodySizeLimitMiddleware)
 
 
+class AuditMiddleware:
+    """Логирование клиентских действий в audit_log.
+
+    Логирует: мутации (POST/PUT/DELETE/PATCH), открытия шаренных ссылок,
+    поиски, просмотры персон/альбомов. НЕ логирует статику, миниатюры, кропы лиц.
+    """
+
+    _SKIP_SUFFIXES = (".css", ".js", ".png", ".ico", ".svg", ".jpg", ".gif", ".woff", ".woff2")
+    _SKIP_PATHS = (
+        "/api/photos/thumbnail", "/api/photos/face/", "/api/photos/face_context/",
+        "/api/photos/video/", "/api/photos/raw/", "/api/photos/edits/",
+        "/s/static/", "/s/lib/", "/favicon", "/admin/css/", "/admin/js/",
+        "/api/log", "/api/audit/log", "/api/system/health", "/api/health",
+        "/api/mqtt/", "/api/watchdog/crashes", "/api/ai-log",
+        "/api/system/metrics", "/api/dashboard",
+    )
+
+    def __init__(self, app):
+        self.app = app
+
+    def _should_log(self, method, path):
+        if any(path.endswith(s) for s in self._SKIP_SUFFIXES):
+            return False
+        if any(path.startswith(p) for p in self._SKIP_PATHS):
+            return False
+        m = method.upper()
+        if m in ("POST", "PUT", "DELETE", "PATCH"):
+            return True
+        if m == "GET":
+            if path.startswith(("/s/album/", "/s/photo/", "/album/", "/photo/")):
+                return True
+            if path.startswith("/api/photos/search"):
+                return True
+            if path.startswith("/api/persons") and "/faces" not in path:
+                return True
+            if path.startswith("/api/albums") and "/members" not in path:
+                return True
+            if path.startswith("/s/api/photos/search"):
+                return True
+            if path.startswith("/s/api/persons") and "/faces" not in path:
+                return True
+            if path.startswith("/s/api/albums") and "/members" not in path:
+                return True
+        return False
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        if not self._should_log(method, path):
+            await self.app(scope, receive, send)
+            return
+        captured_status = None
+        async def send_with_audit(message):
+            nonlocal captured_status
+            if message["type"] == "http.response.start":
+                captured_status = message.get("status", 200)
+            await send(message)
+        await self.app(scope, receive, send_with_audit)
+        try:
+            ip = None
+            client = scope.get("client")
+            if client:
+                ip = client[0]
+            for k, v in scope.get("headers", []):
+                if k == b"x-forwarded-for":
+                    ip = v.decode().split(",")[0].strip()
+                    break
+            if ip in ("127.0.0.1", "::1", "localhost"):
+                return
+            ua = None
+            for k, v in scope.get("headers", []):
+                if k == b"user-agent":
+                    ua = v.decode()[:200]
+                    break
+            scope_cookie = None
+            for k, v in scope.get("headers", []):
+                if k == b"cookie":
+                    cookies = v.decode()
+                    for c in cookies.split(";"):
+                        c = c.strip()
+                        if c.startswith("share_scope="):
+                            scope_cookie = c[len("share_scope="):]
+                            break
+                    break
+            from database import get_db
+            db = get_db()
+            db.audit_log(ip, method, path, captured_status, scope_cookie, ua)
+        except Exception:
+            logger.debug("[AUDIT] failed to log", exc_info=True)
+
+
+app.add_middleware(AuditMiddleware)
+
+
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
@@ -269,6 +366,15 @@ async def get_log(lines: int = 100):
         "lines": all_lines[-lines:],
         "total": len(all_lines),
     }
+
+
+@app.get("/api/audit/log")
+async def get_audit_log(limit: int = 200, offset: int = 0, ip: str = "", method: str = "", path: str = ""):
+    db = get_db()
+    return db.get_audit_log(
+        limit=min(limit, 1000), offset=offset,
+        ip=ip or None, method=method or None, path=path or None,
+    )
 
 
 @app.get("/health")

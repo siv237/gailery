@@ -342,6 +342,21 @@ class DatabaseManager:
                 PRIMARY KEY (album_id, member_type, member_id)
             )
         """)
+        self._create_table_if_missing(cur, 'audit_log', """
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                ip TEXT,
+                method TEXT NOT NULL,
+                path TEXT NOT NULL,
+                status INTEGER,
+                scope TEXT,
+                user_agent TEXT
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_ip ON audit_log(ip)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_method ON audit_log(method)")
         self.sqlite.commit()
 
         self._add_column_if_missing(cur, 'albums', 'user_modified', 'INTEGER DEFAULT 0')
@@ -938,6 +953,42 @@ class DatabaseManager:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
+        """Записать клиентское действие в журнал аудита."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO audit_log (ts, ip, method, path, status, scope, user_agent) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (now, ip, method, path, status, scope, user_agent)
+        )
+        self.sqlite.commit()
+
+    def get_audit_log(self, limit=200, offset=0, ip=None, method=None, path=None):
+        """Читать журнал аудита с фильтрами, новые сверху."""
+        where = []
+        params = []
+        if ip:
+            where.append("ip = ?")
+            params.append(ip)
+        if method:
+            where.append("method = ?")
+            params.append(method)
+        if path:
+            where.append("path LIKE ?")
+            params.append(f"%{path}%")
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = self.sqlite.execute(
+            f"SELECT COUNT(*) FROM audit_log{where_sql}", params
+        ).fetchone()[0]
+        rows = self.sqlite.execute(
+            f"SELECT id, ts, ip, method, path, status, scope, user_agent "
+            f"FROM audit_log{where_sql} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        entries = [dict(zip(["id", "ts", "ip", "method", "path", "status", "scope", "user_agent"], r)) for r in rows]
+        return {"entries": entries, "total": total}
+
     def get_personas_by_name(self, display_name):
         rows = self.sqlite.execute(
             "SELECT * FROM personas WHERE display_name = ?", (display_name,)
@@ -1393,6 +1444,42 @@ class DatabaseManager:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
+        """Записать клиентское действие в журнал аудита."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO audit_log (ts, ip, method, path, status, scope, user_agent) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (now, ip, method, path, status, scope, user_agent)
+        )
+        self.sqlite.commit()
+
+    def get_audit_log(self, limit=200, offset=0, ip=None, method=None, path=None):
+        """Читать журнал аудита с фильтрами, новые сверху."""
+        where = []
+        params = []
+        if ip:
+            where.append("ip = ?")
+            params.append(ip)
+        if method:
+            where.append("method = ?")
+            params.append(method)
+        if path:
+            where.append("path LIKE ?")
+            params.append(f"%{path}%")
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = self.sqlite.execute(
+            f"SELECT COUNT(*) FROM audit_log{where_sql}", params
+        ).fetchone()[0]
+        rows = self.sqlite.execute(
+            f"SELECT id, ts, ip, method, path, status, scope, user_agent "
+            f"FROM audit_log{where_sql} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        entries = [dict(zip(["id", "ts", "ip", "method", "path", "status", "scope", "user_agent"], r)) for r in rows]
+        return {"entries": entries, "total": total}
+
     def is_path_canonical(self, abs_path):
         """Check if a file path is the canonical representative for its content_hash.
         Uses in-memory cache to avoid repeated queries."""
@@ -1536,6 +1623,42 @@ class DatabaseManager:
             (album_id,)
         ).fetchall()
         return [r[0] for r in rows]
+
+    def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
+        """Записать клиентское действие в журнал аудита."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO audit_log (ts, ip, method, path, status, scope, user_agent) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (now, ip, method, path, status, scope, user_agent)
+        )
+        self.sqlite.commit()
+
+    def get_audit_log(self, limit=200, offset=0, ip=None, method=None, path=None):
+        """Читать журнал аудита с фильтрами, новые сверху."""
+        where = []
+        params = []
+        if ip:
+            where.append("ip = ?")
+            params.append(ip)
+        if method:
+            where.append("method = ?")
+            params.append(method)
+        if path:
+            where.append("path LIKE ?")
+            params.append(f"%{path}%")
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = self.sqlite.execute(
+            f"SELECT COUNT(*) FROM audit_log{where_sql}", params
+        ).fetchone()[0]
+        rows = self.sqlite.execute(
+            f"SELECT id, ts, ip, method, path, status, scope, user_agent "
+            f"FROM audit_log{where_sql} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        entries = [dict(zip(["id", "ts", "ip", "method", "path", "status", "scope", "user_agent"], r)) for r in rows]
+        return {"entries": entries, "total": total}
 
     def get_photos_by_ids(self, photo_ids):
         """Полные строки photos+catalog_files по списку photo_id (UUID).
@@ -1740,6 +1863,42 @@ class DatabaseManager:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
+        """Записать клиентское действие в журнал аудита."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO audit_log (ts, ip, method, path, status, scope, user_agent) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (now, ip, method, path, status, scope, user_agent)
+        )
+        self.sqlite.commit()
+
+    def get_audit_log(self, limit=200, offset=0, ip=None, method=None, path=None):
+        """Читать журнал аудита с фильтрами, новые сверху."""
+        where = []
+        params = []
+        if ip:
+            where.append("ip = ?")
+            params.append(ip)
+        if method:
+            where.append("method = ?")
+            params.append(method)
+        if path:
+            where.append("path LIKE ?")
+            params.append(f"%{path}%")
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = self.sqlite.execute(
+            f"SELECT COUNT(*) FROM audit_log{where_sql}", params
+        ).fetchone()[0]
+        rows = self.sqlite.execute(
+            f"SELECT id, ts, ip, method, path, status, scope, user_agent "
+            f"FROM audit_log{where_sql} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        entries = [dict(zip(["id", "ts", "ip", "method", "path", "status", "scope", "user_agent"], r)) for r in rows]
+        return {"entries": entries, "total": total}
+
     def get_persona_auto_album_ids(self, persona_id):
         """Все автоальбомы (source='auto') где есть хотя бы одно фото с этой персоной."""
         photo_ids = self.get_persona_photo_ids(persona_id)
@@ -1753,3 +1912,39 @@ class DatabaseManager:
             photo_ids
         ).fetchall()
         return [r[0] for r in rows]
+
+    def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
+        """Записать клиентское действие в журнал аудита."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT INTO audit_log (ts, ip, method, path, status, scope, user_agent) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (now, ip, method, path, status, scope, user_agent)
+        )
+        self.sqlite.commit()
+
+    def get_audit_log(self, limit=200, offset=0, ip=None, method=None, path=None):
+        """Читать журнал аудита с фильтрами, новые сверху."""
+        where = []
+        params = []
+        if ip:
+            where.append("ip = ?")
+            params.append(ip)
+        if method:
+            where.append("method = ?")
+            params.append(method)
+        if path:
+            where.append("path LIKE ?")
+            params.append(f"%{path}%")
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        total = self.sqlite.execute(
+            f"SELECT COUNT(*) FROM audit_log{where_sql}", params
+        ).fetchone()[0]
+        rows = self.sqlite.execute(
+            f"SELECT id, ts, ip, method, path, status, scope, user_agent "
+            f"FROM audit_log{where_sql} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        entries = [dict(zip(["id", "ts", "ip", "method", "path", "status", "scope", "user_agent"], r)) for r in rows]
+        return {"entries": entries, "total": total}
