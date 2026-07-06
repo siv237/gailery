@@ -254,7 +254,7 @@ def _enrich_album_photos(db, photo_ids, cameras=None):
     if batch_hashes:
         bh_ph = ",".join("?" * len(batch_hashes))
         dup_rows = db.sqlite.execute(
-            f"SELECT content_hash, abs_path FROM catalog_files "
+            f"SELECT content_hash, abs_path FROM catalog_files "  # nosec B608 — bh_ph is ? placeholders, params parameterized
             f"WHERE content_hash IN ({bh_ph}) AND is_canonical = 0 "
             f"ORDER BY content_hash, abs_path",
             batch_hashes
@@ -263,7 +263,7 @@ def _enrich_album_photos(db, photo_ids, cameras=None):
         for dr in dup_rows:
             dup_map.setdefault(dr[0], []).append(dr[1])
         edits_rows = db.sqlite.execute(
-            f"SELECT content_hash, edit_id, action, params, action_order, enabled FROM photo_edits "
+            f"SELECT content_hash, edit_id, action, params, action_order, enabled FROM photo_edits "  # nosec B608 — bh_ph is ? placeholders, params parameterized
             f"WHERE content_hash IN ({bh_ph}) AND enabled = 1 ORDER BY content_hash, action_order",
             batch_hashes
         ).fetchall()

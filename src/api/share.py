@@ -228,7 +228,7 @@ def _get_scope_album_ids(scope: str):
             return []
         ph = ",".join("?" * len(photo_ids))
         rows = db.sqlite.execute(
-            f"SELECT DISTINCT album_id FROM album_photos WHERE photo_id IN ({ph})",
+            f"SELECT DISTINCT album_id FROM album_photos WHERE photo_id IN ({ph})",  # nosec B608 — ph is ? placeholders
             photo_ids,
         ).fetchall()
         return [r[0] for r in rows]
@@ -603,7 +603,7 @@ def _enrich_search_results(conn, rows):
     if hashes:
         hph = ",".join("?" * len(hashes))
         face_rows = conn.execute(
-            f"SELECT face_id, photo_id, content_hash, persona_id, "
+            f"SELECT face_id, photo_id, content_hash, persona_id, "  # nosec B608 — hph is ? placeholders, params parameterized
             f"bbox_x1, bbox_y1, bbox_x2, bbox_y2, confidence "
             f"FROM faces WHERE content_hash IN ({hph})",
             hashes,
@@ -625,7 +625,7 @@ def _enrich_search_results(conn, rows):
             pids_list = list(pids_needed)
             pph = ",".join("?" * len(pids_list))
             p_rows = conn.execute(
-                f"SELECT persona_id, name, display_name, comment "
+                f"SELECT persona_id, name, display_name, comment "  # nosec B608 — pph is ? placeholders, params parameterized
                 f"FROM personas WHERE persona_id IN ({pph})",
                 pids_list,
             ).fetchall()
@@ -681,7 +681,7 @@ async def s_search_photos(
             ed = "COALESCE(date_utc, manual_date, date)"
             ph = ",".join("?" * len(scope_ids))
             base = (
-                f"SELECT photos.*, {ed} as effective_date, cf.content_hash "
+                f"SELECT photos.*, {ed} as effective_date, cf.content_hash "  # nosec B608 — ed is fixed SQL expr, ph is ? placeholders
                 f"FROM photos JOIN catalog_files cf ON cf.abs_path = photos.path "
                 f"WHERE cf.is_canonical = 1 AND cf.deleted = 0 "
                 f"AND photos.deleted = 0 AND photos.photo_id IN ({ph})"
@@ -716,7 +716,7 @@ async def s_search_photos(
             if batch_hashes:
                 bh_ph = ",".join("?" * len(batch_hashes))
                 dup_rows = conn.execute(
-                    f"SELECT content_hash, abs_path FROM catalog_files "
+                    f"SELECT content_hash, abs_path FROM catalog_files "  # nosec B608 — bh_ph is ? placeholders, params parameterized
                     f"WHERE content_hash IN ({bh_ph}) AND is_canonical = 0 "
                     f"ORDER BY content_hash, abs_path",
                     batch_hashes,
@@ -725,7 +725,7 @@ async def s_search_photos(
                 for dr in dup_rows:
                     dup_map.setdefault(dr[0], []).append(dr[1])
                 edits_rows = conn.execute(
-                    f"SELECT content_hash, edit_id, action, params, action_order, enabled "
+                    f"SELECT content_hash, edit_id, action, params, action_order, enabled "  # nosec B608 — bh_ph is ? placeholders
                     f"FROM photo_edits "
                     f"WHERE content_hash IN ({bh_ph}) AND enabled = 1 "
                     f"ORDER BY content_hash, action_order",
@@ -768,7 +768,7 @@ async def s_dates(request: Request):
         ph = ",".join("?" * len(scope_ids))
         ed = "COALESCE(date_utc, manual_date, date)"
         rows = db.sqlite.execute(
-            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, "
+            f"SELECT substr({ed},1,4) as year, substr({ed},1,7) as month, "  # nosec B608 — ed is fixed SQL expr, ph is ? placeholders
             f"substr({ed},1,10) as day, COUNT(*) as cnt "
             f"FROM photos WHERE {ed} IS NOT NULL AND length({ed}) >= 4 "
             f"AND substr({ed},1,4) != '0000' AND deleted = 0 "
@@ -812,7 +812,7 @@ async def s_map(request: Request):
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
         rows = db.sqlite.execute(
-            f"SELECT photo_id, path, description, gps_lat, gps_lon, "
+            f"SELECT photo_id, path, description, gps_lat, gps_lon, "  # nosec B608 — ph is ? placeholders, params parameterized
             f"COALESCE(manual_date, date) as date, camera_make, camera_model, "
             f"img_width, img_height, manual_gps, media_type "
             f"FROM photos WHERE gps_lat IS NOT NULL AND gps_lon IS NOT NULL "
@@ -843,7 +843,7 @@ async def s_map(request: Request):
                 batch = map_pids[i:i + 500]
                 bph = ",".join("?" * len(batch))
                 frs = db.sqlite.execute(
-                    f"SELECT p.photo_id, f.face_id, f.persona_id, "
+                    f"SELECT p.photo_id, f.face_id, f.persona_id, "  # nosec B608 — bph is ? placeholders, params parameterized
                     f"f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, "
                     f"per.display_name, per.name "
                     f"FROM faces f "
@@ -963,7 +963,7 @@ async def s_neighbor(request: Request, date: str, dir: str = "next"):
         ph = ",".join("?" * len(scope_ids))
         if dir == "next":
             row = db.sqlite.execute(
-                f"SELECT photo_id, path, COALESCE(date_utc, manual_date, date) as date, "
+                f"SELECT photo_id, path, COALESCE(date_utc, manual_date, date) as date, "  # nosec B608 — ph is ? placeholders, params parameterized
                 f"camera_make, camera_model, gps_lat, gps_lon, media_type "
                 f"FROM photos WHERE COALESCE(date_utc, manual_date, date) > ? "
                 f"AND deleted = 0 AND photo_id IN ({ph}) "
@@ -972,7 +972,7 @@ async def s_neighbor(request: Request, date: str, dir: str = "next"):
             ).fetchone()
         else:
             row = db.sqlite.execute(
-                f"SELECT photo_id, path, COALESCE(date_utc, manual_date, date) as date, "
+                f"SELECT photo_id, path, COALESCE(date_utc, manual_date, date) as date, "  # nosec B608 — ph is ? placeholders, params parameterized
                 f"camera_make, camera_model, gps_lat, gps_lon, media_type "
                 f"FROM photos WHERE COALESCE(date_utc, manual_date, date) < ? "
                 f"AND deleted = 0 AND photo_id IN ({ph}) "
@@ -1006,7 +1006,7 @@ async def s_list_albums(request: Request, source: str = ""):
             return []
         ph = ",".join("?" * len(scope_ids))
         query = (
-            f"SELECT DISTINCT a.album_id, a.title, a.description, a.cover_photo_id, "
+            f"SELECT DISTINCT a.album_id, a.title, a.description, a.cover_photo_id, "  # nosec B608 — ph is ? placeholders, params parameterized
             f"a.date_start, a.date_end, a.photo_count, a.source, a.created_at, a.updated_at "
             f"FROM albums a "
             f"JOIN album_photos ap ON ap.album_id = a.album_id "
@@ -1105,7 +1105,7 @@ async def s_list_persons(request: Request, limit: int = 500, offset: int = 0, na
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
         rows = db.sqlite.execute(
-            f"SELECT per.persona_id, per.name, per.display_name, per.comment, "
+            f"SELECT per.persona_id, per.name, per.display_name, per.comment, "  # nosec B608 — ph is ? placeholders, params parameterized
             f"COUNT(DISTINCT f.face_id) as face_count, "
             f"MIN(f.face_id) as face_id "
             f"FROM personas per "
@@ -1141,7 +1141,7 @@ async def s_person_names(request: Request):
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
         rows = db.sqlite.execute(
-            f"SELECT DISTINCT per.display_name FROM personas per "
+            f"SELECT DISTINCT per.display_name FROM personas per "  # nosec B608 — ph is ? placeholders, params parameterized
             f"JOIN faces f ON f.persona_id = per.persona_id "
             f"JOIN catalog_files cf ON cf.content_hash = f.content_hash AND cf.is_canonical = 1 "
             f"JOIN photos p ON p.path = cf.abs_path "
@@ -1171,7 +1171,7 @@ async def s_get_person(persona_id: str, request: Request):
         if not row:
             return None
         cnt = db.sqlite.execute(
-            f"SELECT COUNT(DISTINCT f.face_id) FROM faces f "
+            f"SELECT COUNT(DISTINCT f.face_id) FROM faces f "  # nosec B608 — ph is ? placeholders, params parameterized
             f"JOIN catalog_files cf ON cf.content_hash = f.content_hash AND cf.is_canonical = 1 "
             f"JOIN photos p ON p.path = cf.abs_path "
             f"WHERE f.persona_id = ? AND p.photo_id IN ({ph}) AND p.deleted = 0",
@@ -1198,7 +1198,7 @@ async def s_person_faces(persona_id: str, request: Request, limit: int = 100, de
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
         rows = db.sqlite.execute(
-            f"SELECT f.face_id, p.photo_id, f.content_hash, f.persona_id, "
+            f"SELECT f.face_id, p.photo_id, f.content_hash, f.persona_id, "  # nosec B608 — ph is ? placeholders, params parameterized
             f"f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, f.confidence, "
             f"p.path as photo_path, COALESCE(p.date_utc, p.manual_date, p.date) as date, p.media_type "
             f"FROM faces f "

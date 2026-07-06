@@ -85,7 +85,16 @@ function loadAudit() {
             var e = d.entries[i];
             var ts = e.ts || '';
             var m = ts.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
-            if (m) ts = m[1] + ' ' + m[2];
+            if (m) {
+                var d2 = new Date(m[1] + 'T' + m[2] + 'Z');
+                if (!isNaN(d2.getTime())) {
+                    var pad = function(n) { return n < 10 ? '0' + n : n; };
+                    ts = d2.getFullYear() + '-' + pad(d2.getMonth() + 1) + '-' + pad(d2.getDate()) +
+                         ' ' + pad(d2.getHours()) + ':' + pad(d2.getMinutes()) + ':' + pad(d2.getSeconds());
+                } else {
+                    ts = m[1] + ' ' + m[2];
+                }
+            }
             var cls = 'll';
             var mc = (e.method || '').toUpperCase();
             if (mc === 'POST' || mc === 'PUT' || mc === 'DELETE' || mc === 'PATCH') cls += ' l-mut';
