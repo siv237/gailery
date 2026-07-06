@@ -6,6 +6,8 @@ var _isLightTheme = false;
 var _savedTheme = localStorage.getItem('gallery-theme');
 if (_savedTheme === 'light') {
     _isLightTheme = true;
+} else if (!_savedTheme) {
+    _isLightTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
 }
 
 var _NAV_ITEMS = [
