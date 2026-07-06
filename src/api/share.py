@@ -75,6 +75,8 @@ def _rewrite_paths(content: str) -> str:
     content = content.replace("'/api/share/config'", "'/s/api/share/config'")
     content = content.replace('"/api/albums/', '"/s/api/albums/')
     content = content.replace('"/api/persons/', '"/s/api/persons/')
+    content = content.replace('"/lib/leaflet/', '"/s/lib/leaflet/')
+    content = content.replace("'/lib/leaflet/", "'/s/lib/leaflet/")
     content = content.replace('/albums?album=', '/s/albums?album=')
 
     # Nav items in shared.js: remove Catalog and Admin, rewrite rest to /s/
@@ -132,6 +134,19 @@ body.shared-mode #dateEditArea { display: none !important; }
 body.shared-mode .dp-persona-comment { display: none !important; }
 body.shared-mode .del-mark { display: none !important; }
 body.shared-mode .undo-mark { display: none !important; }
+body.shared-mode .rd-all,
+body.shared-mode .rd-one,
+body.shared-mode .pm-toalbum-btn,
+body.shared-mode .pm-cluster-title,
+body.shared-mode .pm-name-input,
+body.shared-mode .pm-save-row,
+body.shared-mode .pm-edit,
+body.shared-mode .pm-admin,
+body.shared-mode #pmSaveRow,
+body.shared-mode #pmAlbumModal,
+body.shared-mode .ma-remove-btn,
+body.shared-mode #albumDescModal { display: none !important; }
+body.shared-mode #albumBarTitle { cursor: default !important; pointer-events: none !important; }
 body.shared-mode .dp-alt-path { display: none !important; }
 body.shared-mode [onclick="generate()"] { display: none !important; }
 body.shared-mode [onclick="clearAll()"] { display: none !important; }
@@ -454,6 +469,24 @@ async def serve_static(filename: str, request: Request):
         p = _WEB / filename
     if not p.exists():
         raise HTTPException(status_code=404, detail="Not found")
+    ext = p.suffix.lower()
+    mt = _MIME.get(ext, "application/octet-stream")
+    content = p.read_bytes()
+    if ext == ".js":
+        content = _rewrite_paths(content.decode("utf-8")).encode("utf-8")
+    return Response(content=content, media_type=mt,
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@router.get("/lib/{file_path:path}")
+async def serve_lib(file_path: str, request: Request):
+    """Serve lib assets (leaflet etc) with path-based routing."""
+    scope = request.cookies.get("share_scope", "")
+    if not scope or ":" not in scope:
+        return _not_found_resp()
+    p = _WEB / "lib" / file_path
+    if not p.exists() or not p.is_file():
+        return _not_found_resp()
     ext = p.suffix.lower()
     mt = _MIME.get(ext, "application/octet-stream")
     content = p.read_bytes()
@@ -859,19 +892,43 @@ async def s_photo(request: Request, path: str):
 
 
 @router.get("/api/photos/face/{face_id}")
-async def s_face_crop(face_id: str, margin: float = 0.5):
+async def s_face_crop(face_id: str, request: Request, margin: float = 0.5):
+    scope = request.cookies.get("share_scope", "")
+    scope_ids = _require_scope(scope)
+    db = get_db()
+    row = db.sqlite.execute(
+        "SELECT f.content_hash FROM faces f WHERE f.face_id = ?", (face_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Face not found")
+    if not _in_scope(row[0], scope_ids):
+        raise HTTPException(status_code=404, detail="Not found")
     from api.photos import get_face_crop
     return await get_face_crop(face_id=face_id, margin=margin)
 
 
 @router.get("/api/photos/face_context/{face_id}")
-async def s_face_context(face_id: str, zoom: float = 3.0):
+async def s_face_context(face_id: str, request: Request, zoom: float = 3.0):
+    scope = request.cookies.get("share_scope", "")
+    scope_ids = _require_scope(scope)
+    db = get_db()
+    row = db.sqlite.execute(
+        "SELECT f.content_hash FROM faces f WHERE f.face_id = ?", (face_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Face not found")
+    if not _in_scope(row[0], scope_ids):
+        raise HTTPException(status_code=404, detail="Not found")
     from api.photos import get_face_context
     return await get_face_context(face_id=face_id, zoom=zoom)
 
 
 @router.get("/api/photos/edits/{content_hash}")
-async def s_get_edits(content_hash: str):
+async def s_get_edits(content_hash: str, request: Request):
+    scope = request.cookies.get("share_scope", "")
+    scope_ids = _require_scope(scope)
+    if not _in_scope(content_hash, scope_ids):
+        raise HTTPException(status_code=404, detail="Not found")
     from api.photos import get_edits
     return await get_edits(content_hash=content_hash)
 
@@ -1047,43 +1104,26 @@ async def s_list_persons(request: Request, limit: int = 500, offset: int = 0, na
     def _list():
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
-        face_rows = db.sqlite.execute(
-            f"SELECT DISTINCT f.persona_id FROM faces f "
+        rows = db.sqlite.execute(
+            f"SELECT per.persona_id, per.name, per.display_name, per.comment, "
+            f"COUNT(DISTINCT f.face_id) as face_count, "
+            f"MIN(f.face_id) as face_id "
+            f"FROM personas per "
+            f"JOIN faces f ON f.persona_id = per.persona_id "
             f"JOIN catalog_files cf ON cf.content_hash = f.content_hash AND cf.is_canonical = 1 "
             f"JOIN photos p ON p.path = cf.abs_path "
-            f"WHERE p.photo_id IN ({ph}) AND p.deleted = 0 AND f.persona_id IS NOT NULL",
-            scope_ids,
-        ).fetchall()
-        persona_ids = [r[0] for r in face_rows]
-        if not persona_ids:
-            return {"total": 0, "persons": []}
-        pph = ",".join("?" * len(persona_ids))
-        rows = db.sqlite.execute(
-            f"SELECT per.persona_id, per.name, per.display_name, per.comment "
-            f"FROM personas per WHERE per.persona_id IN ({pph}) "
+            f"WHERE p.photo_id IN ({ph}) AND p.deleted = 0 "
             + ("AND per.display_name IS NOT NULL " if named_only else "")
-            + "ORDER BY per.display_name",
-            persona_ids,
+            + "GROUP BY per.persona_id, per.name, per.display_name, per.comment "
+            + "ORDER BY face_count DESC",
+            scope_ids,
         ).fetchall()
         persons = []
         for r in rows:
-            pid = r[0]
-            cnt = db.sqlite.execute(
-                f"SELECT COUNT(DISTINCT f.face_id) FROM faces f "
-                f"JOIN catalog_files cf ON cf.content_hash = f.content_hash AND cf.is_canonical = 1 "
-                f"JOIN photos p ON p.path = cf.abs_path "
-                f"WHERE f.persona_id = ? AND p.photo_id IN ({ph}) AND p.deleted = 0",
-                [pid] + scope_ids,
-            ).fetchone()[0]
-            min_face = db.sqlite.execute(
-                "SELECT face_id FROM faces WHERE persona_id = ? LIMIT 1", (pid,)
-            ).fetchone()
             persons.append({
-                "persona_id": pid, "name": r[1], "display_name": r[2],
-                "comment": r[3], "face_count": cnt,
-                "face_id": min_face[0] if min_face else None,
+                "persona_id": r[0], "name": r[1], "display_name": r[2],
+                "comment": r[3], "face_count": r[4], "face_id": r[5],
             })
-        persons.sort(key=lambda x: x.get("face_count", 0), reverse=True)
         total = len(persons)
         persons = persons[offset:offset + limit]
         return {"total": total, "persons": persons}
@@ -1158,7 +1198,7 @@ async def s_person_faces(persona_id: str, request: Request, limit: int = 100, de
         db = get_db()
         ph = ",".join("?" * len(scope_ids))
         rows = db.sqlite.execute(
-            f"SELECT f.face_id, f.photo_id, f.content_hash, f.persona_id, "
+            f"SELECT f.face_id, p.photo_id, f.content_hash, f.persona_id, "
             f"f.bbox_x1, f.bbox_y1, f.bbox_x2, f.bbox_y2, f.confidence, "
             f"p.path as photo_path, COALESCE(p.date_utc, p.manual_date, p.date) as date, p.media_type "
             f"FROM faces f "

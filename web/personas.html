@@ -223,7 +223,7 @@
         <div class="unnamed-area" id="unnamedArea"><h3>Без имени</h3><div class="loading">Загрузка...</div></div>
     </div>
 
-    <div class="rename-dialog" id="renameDialog">
+    <div class="rename-dialog pm-admin" id="renameDialog">
         <div class="rd-box">
             <p id="rdText"></p>
             <div class="rd-btns">
@@ -242,7 +242,7 @@
                 <div class="pm-name" id="pmName"></div>
                 <div class="pm-meta" id="pmMeta"></div>
             </div>
-            <button class="pm-toalbum-btn" id="pmToAlbumBtn" onclick="pmAddToAlbum()" title="Добавить все фото персоны в ручной альбом">В альбом</button>
+            <button class="pm-toalbum-btn pm-admin" id="pmToAlbumBtn" onclick="pmAddToAlbum()" title="Добавить все фото персоны в ручной альбом">В альбом</button>
             <span class="pm-close" onclick="closePersonaModal()">&times;</span>
         </div>
         <div class="pm-body" id="pmBody"></div>
@@ -477,17 +477,17 @@ function openPersonaModal(name, faceId, faceCount, clusterIds, isGroup, singlePi
     bodyHtml += '<label style="margin-top:8px">Комментарий</label>';
     bodyHtml += '<textarea id="pmCommentInput" rows="2" class="pm-comment-input" placeholder="Мама, бабушка, друг семьи...">' + esc(comment || '') + '</textarea>';
     bodyHtml += '<div class="btn-row">';
-    bodyHtml += '<button class="btn-go" style="padding:4px 12px;font-size:12px" onclick="pmSaveName(\'' + esc(pid) + '\')">Сохранить</button>';
+    bodyHtml += '<button class="btn-go pm-admin" style="padding:4px 12px;font-size:12px" onclick="pmSaveName(\'' + esc(pid) + '\')">Сохранить</button>';
     bodyHtml += '</div></div>';
 
     bodyHtml += '<div class="pm-faces-title">Лица (' + faceCount + ')</div>';
     if (isGroup && clusterIds.length > 1) {
         for (var ci = 0; ci < clusterIds.length; ci++) {
-            bodyHtml += '<div class="pm-cluster-title">Кластер ' + (ci + 1) + ' (' + clusterIds[ci] + ') <button class="btn" style="font-size:10px;padding:1px 6px;margin-left:8px" onclick="pmDetachCluster(\'' + clusterIds[ci] + '\')">Отвязать</button></div>';
+            bodyHtml += '<div class="pm-cluster-title pm-admin">Кластер ' + (ci + 1) + ' (' + clusterIds[ci] + ') <button class="btn" style="font-size:10px;padding:1px 6px;margin-left:8px" onclick="pmDetachCluster(\'' + clusterIds[ci] + '\')">Отвязать</button></div>';
             bodyHtml += '<div class="faces-grid" id="pmFaces_' + ci + '"></div>';
         }
     } else if (isGroup && clusterIds.length === 1) {
-        bodyHtml += '<div style="margin-bottom:8px"><button class="btn" onclick="pmDetachCluster(\'' + clusterIds[0] + '\')">Отвязать от имени</button></div>';
+        bodyHtml += '<div class="pm-admin" style="margin-bottom:8px"><button class="btn" onclick="pmDetachCluster(\'' + clusterIds[0] + '\')">Отвязать от имени</button></div>';
         bodyHtml += '<div class="faces-grid" id="pmFaces_0"></div>';
     } else {
         bodyHtml += '<div class="faces-grid" id="pmFaces_0"></div>';
