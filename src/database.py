@@ -1247,8 +1247,8 @@ class DatabaseManager:
                 f"SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND media_type='video' THEN 1 ELSE 0 END),"
-                f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND path IN (SELECT cf.abs_path FROM catalog_files cf WHERE cf.described=1 AND cf.is_canonical=1) THEN 1 ELSE 0 END),"
-                f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND path IN (SELECT cf.abs_path FROM catalog_files cf WHERE cf.faces_done=1 AND cf.is_canonical=1) THEN 1 ELSE 0 END),"
+                f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND description IS NOT NULL AND description != '' THEN 1 ELSE 0 END),"
+                f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND faces_present IS NOT NULL THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND exif_checked=1 THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND (media_type IS NULL OR media_type!='video') AND embedded=1 THEN 1 ELSE 0 END),"
                 f"SUM(CASE WHEN deleted=0 AND media_type='video' AND exif_checked=1 THEN 1 ELSE 0 END),"
@@ -1273,10 +1273,9 @@ class DatabaseManager:
             ).fetchone()[0]
 
             faces_done_count = conn.execute(
-                f"SELECT COUNT(DISTINCT cf.abs_path) FROM catalog_files cf "  # nosec B608 — SQL column names via f-string, values parameterized through ?
-                f"JOIN photos p ON p.path = cf.abs_path "
-                f"WHERE cf.is_canonical=1 AND cf.deleted=0 AND cf.faces_done=1 AND p.deleted=0 "
-                f"AND (p.media_type IS NULL OR p.media_type!='video') AND p.root_id IN ({rid_ph})",
+                f"SELECT COUNT(*) FROM photos WHERE deleted=0 "  # nosec B608 — SQL column names via f-string, values parameterized through ?
+                f"AND (media_type IS NULL OR media_type!='video') "
+                f"AND faces_present IS NOT NULL AND root_id IN ({rid_ph})",
                 enabled_ids
             ).fetchone()[0]
 
@@ -1296,23 +1295,27 @@ class DatabaseManager:
         no_cluster = conn.execute("SELECT COUNT(*) FROM faces WHERE persona_id IS NULL").fetchone()[0]
 
         per_root = []
+        per_root_photos = {}
+        for row in conn.execute(
+            "SELECT root_id, "
+            "SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN deleted=0 AND description IS NOT NULL AND description!='' THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN deleted=0 AND faces_present=1 THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN deleted=0 AND exif_checked=1 THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN deleted=0 AND embedded=1 THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN deleted=0 AND media_type='video' THEN 1 ELSE 0 END) "
+            "FROM photos GROUP BY root_id"
+        ).fetchall():
+            per_root_photos[row[0]] = row[1:]
+        per_root_cat = {}
+        for row in conn.execute(
+            "SELECT root_id, COUNT(*) FROM catalog_files WHERE is_canonical=1 AND deleted=0 GROUP BY root_id"
+        ).fetchall():
+            per_root_cat[row[0]] = row[1]
         for r in enabled_roots:
             rid = r["root_id"]
-            rr = conn.execute(
-                "SELECT "
-                "SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END),"
-                "SUM(CASE WHEN deleted=0 AND description IS NOT NULL AND description!='' THEN 1 ELSE 0 END),"
-                "SUM(CASE WHEN deleted=0 AND faces_present=1 THEN 1 ELSE 0 END),"
-                "SUM(CASE WHEN deleted=0 AND exif_checked=1 THEN 1 ELSE 0 END),"
-                "SUM(CASE WHEN deleted=0 AND embedded=1 THEN 1 ELSE 0 END),"
-                "SUM(CASE WHEN deleted=0 AND media_type='video' THEN 1 ELSE 0 END) "
-                "FROM photos WHERE root_id = ?",
-                (rid,)
-            ).fetchone()
-            r_cat = conn.execute(
-                "SELECT COUNT(*) FROM catalog_files WHERE root_id=? AND is_canonical=1 AND deleted=0",
-                (rid,)
-            ).fetchone()[0]
+            rr = per_root_photos.get(rid)
+            r_cat = per_root_cat.get(rid, 0)
             per_root.append({
                     "root_id": rid,
                     "alias": r.get("alias", ""),
