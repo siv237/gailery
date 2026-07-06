@@ -180,6 +180,9 @@ html.embedded .page-header, html.embedded .search-bar, html.embedded .filter-she
 
 .loading { text-align: center; padding: 40px; color: #8b949e; }
 .empty { text-align: center; padding: 60px 20px; color: #6e7681; font-size: 14px; }
+.spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+.light-theme .spinner { border-color: #d0d7de; border-top-color: #0969da; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .scroll-sentinel { height: 2px; width: 100%; position: relative; }
 .scroll-sentinel .ss-loadbar { display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent 0%, #58a6ff 50%, transparent 100%); background-size: 200% 100%; animation: ssSlide 1.2s ease-in-out infinite; }
 .scroll-sentinel.loading { height: 3px; margin-bottom: 200px; }

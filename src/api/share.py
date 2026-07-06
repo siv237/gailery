@@ -72,6 +72,7 @@ def _rewrite_paths(content: str) -> str:
     content = content.replace("'/api/photos/", "'/s/api/photos/")
     content = content.replace("'/api/albums/", "'/s/api/albums/")
     content = content.replace("'/api/persons/", "'/s/api/persons/")
+    content = content.replace("'/api/share/config'", "'/s/api/share/config'")
     content = content.replace('"/api/albums/', '"/s/api/albums/')
     content = content.replace('"/api/persons/', '"/s/api/persons/')
     content = content.replace('/albums?album=', '/s/albums?album=')
@@ -111,6 +112,10 @@ def _rewrite_paths(content: str) -> str:
 def _inject_shared_css(html: str) -> str:
     """Inject CSS to hide admin-only elements in shared mode."""
     css = """<style>
+body.shared-mode .album-tabs { display: none !important; }
+body.shared-mode #autoActions { display: none !important; }
+body.shared-mode #manualActions { display: none !important; }
+body.shared-mode .mab-share-btn { display: none !important; }
 body.shared-mode .dp-btn-reprocess,
 body.shared-mode .dp-btn-enrich,
 body.shared-mode .dp-btn-custom,
@@ -254,43 +259,73 @@ def _in_scope(photo_path: str, scope_ids: list) -> bool:
     """Check if photo_path corresponds to a photo in scope."""
     if not scope_ids:
         return False
+    scope_set = set(scope_ids)
     db = get_db()
-    row = db.sqlite.execute(
-        "SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (photo_path,)
-    ).fetchone()
-    if row and row[0] in scope_ids:
+    if photo_path in scope_set:
         return True
     row = db.sqlite.execute(
         "SELECT photo_id FROM photos WHERE photo_id = ? AND deleted = 0", (photo_path,)
     ).fetchone()
-    if row and row[0] in scope_ids:
+    if row and row[0] in scope_set:
         return True
     row = db.sqlite.execute(
-        "SELECT cf.abs_path FROM catalog_files cf "
-        "JOIN photos p ON p.path = cf.abs_path "
-        "WHERE cf.content_hash = ? AND cf.is_canonical = 1 AND p.deleted = 0",
+        "SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (photo_path,)
+    ).fetchone()
+    if row and row[0] in scope_set:
+        return True
+    row = db.sqlite.execute(
+        "SELECT p.photo_id FROM photos p "
+        "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+        "WHERE cf.content_hash = ? AND p.deleted = 0",
         (photo_path,),
     ).fetchone()
-    if row:
-        row2 = db.sqlite.execute(
-            "SELECT photo_id FROM photos WHERE path = ? AND deleted = 0", (row[0],)
+    if not row:
+        row = db.sqlite.execute(
+            "SELECT p.photo_id FROM photos p "
+            "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+            "WHERE cf.rel_path = ? AND p.deleted = 0",
+            (photo_path,),
         ).fetchone()
-        if row2 and row2[0] in scope_ids:
-            return True
+    if row and row[0] in scope_set:
+        return True
     return False
 
 
 # ─── Entry points: set cookie, redirect to gallery ───────────
 
+_NOT_FOUND_HTML = """<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Не найдено — Галерея</title>
+<style>
+body{margin:0;font-family:monospace;background:#0d1117;color:#c9d1d9;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.box{text-align:center;padding:40px}
+.box h1{font-size:48px;margin:0 0 8px;color:#f85149}
+.box p{font-size:16px;color:#8b949e;margin:4px 0}
+.box a{display:inline-block;margin-top:20px;color:#58a6ff;text-decoration:none;font-size:14px}
+.box a:hover{text-decoration:underline}
+</style></head><body><div class="box"><h1>404</h1><p>Альбом не найден</p><p>Ссылка недействительна или была удалена</p></div></body></html>"""
+
+
+def _not_found_resp() -> HTMLResponse:
+    return HTMLResponse(_NOT_FOUND_HTML, status_code=404, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@router.get("/album")
+@router.get("/album/")
+async def share_album_noid():
+    return _not_found_resp()
+
+
 @router.get("/album/{album_id}")
 async def share_album(album_id: str):
     def _check():
         db = get_db()
-        return db.get_album(album_id) is not None
+        album = db.get_album(album_id)
+        return album
     loop = asyncio.get_event_loop()
-    exists = await loop.run_in_executor(None, _check)
-    if not exists:
-        raise HTTPException(status_code=404, detail="Album not found")
+    album = await loop.run_in_executor(None, _check)
+    if not album:
+        return _not_found_resp()
     p = _WEB / "albums.html"
     if not p.exists():
         raise HTTPException(status_code=404, detail="Page not found")
@@ -302,13 +337,26 @@ async def share_album(album_id: str):
         f'<script>window.SHARED_ALBUM_ID="{album_id}";</script>\n</head>',
         1,
     )
-    html = html.replace(
-        "var albumId = params.get('album');",
-        "var albumId = window.SHARED_ALBUM_ID || params.get('album');",
-    )
+    is_manual = album.get("source") == "manual"
+    if is_manual:
+        html = html.replace(
+            "if (albumId) openAlbum(albumId);",
+            "if (albumId) openManualAlbum(albumId);",
+        )
+    else:
+        html = html.replace(
+            "var albumId = params.get('album');",
+            "var albumId = window.SHARED_ALBUM_ID || params.get('album');",
+        )
     resp = HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     resp.set_cookie("share_scope", f"album:{album_id}", httponly=True, samesite="lax", secure=True, max_age=86400 * 30)
     return resp
+
+
+@router.get("/photo")
+@router.get("/photo/")
+async def share_photo_noid():
+    return _not_found_resp()
 
 
 @router.get("/photo/{photo_id}")
@@ -322,7 +370,7 @@ async def share_photo(photo_id: str):
     loop = asyncio.get_event_loop()
     exists = await loop.run_in_executor(None, _check)
     if not exists:
-        raise HTTPException(status_code=404, detail="Photo not found")
+        return _not_found_resp()
     p = _WEB / "gallery.html"
     if not p.exists():
         raise HTTPException(status_code=404, detail="Page not found")
@@ -911,6 +959,14 @@ async def s_get_album(album_id: str, request: Request, full: bool = False):
         scoped_pids = [p for p in all_pids if p in scope_set]
         album["photo_ids"] = scoped_pids
         album["photo_count"] = len(scoped_pids)
+        import random as _r
+        cover = album.get("cover_photo_id")
+        rest = [p for p in scoped_pids if p != cover]
+        if len(rest) > 2:
+            rest = _r.sample(rest, 2)
+        album["preview_photos"] = ([cover] if cover else (scoped_pids[:1] if scoped_pids else [])) + rest[:3]
+        if not album["preview_photos"]:
+            album["preview_photos"] = rest[:3]
         if full and scoped_pids:
             from api.albums import _enrich_album_photos
             album["photos"] = _enrich_album_photos(db, scoped_pids)
@@ -1086,6 +1142,33 @@ async def s_person_faces(persona_id: str, request: Request, limit: int = 100, de
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _faces)
+
+
+@router.get("/api/share/config")
+async def s_share_config():
+    from database import get_db
+    db = get_db()
+    base_url = db.get_setting("share_base_url") or ""
+    return {"base_url": base_url}
+
+
+@router.get("/api/albums/{album_id}/members")
+async def s_get_album_members(album_id: str, request: Request):
+    scope = request.cookies.get("share_scope", "")
+    _require_scope(scope)
+    from database import get_db
+
+    def _get():
+        db = get_db()
+        if not db.get_album(album_id):
+            return None
+        return db.get_album_members(album_id)
+
+    loop = asyncio.get_event_loop()
+    members = await loop.run_in_executor(None, _get)
+    if members is None:
+        raise HTTPException(status_code=404, detail="Album not found")
+    return members
 
 
 # --- All mutations: 403 ---

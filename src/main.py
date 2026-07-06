@@ -936,6 +936,14 @@ async def get_setting(key: str):
     return {"key": key, "value": value or ""}
 
 
+@app.get("/api/share/config")
+async def get_share_config():
+    from database import get_db
+    db = get_db()
+    base_url = db.get_setting("share_base_url") or ""
+    return {"base_url": base_url}
+
+
 @app.put("/api/settings/{key}")
 async def set_setting(key: str, request: Request):
     body = await json_body(request)
