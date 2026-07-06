@@ -470,9 +470,10 @@ def _exif_time(exif_raw_str):
 
 
 @router.get("/")
-async def list_albums():
-    """Список всех альбомов с preview-фото для стопки карточек.
-
+async def list_albums(source: str = ""):
+    """Список альбомов с preview-фото для стопки карточек.
+    
+    source: "" (все), "auto", "manual"
     cover_photo_id — на вершине стопки, остальные 2 — случайные каждый запрос.
     """
     import asyncio, random as _random, sqlite3 as _sq3
@@ -485,6 +486,8 @@ async def list_albums():
         conn.execute("PRAGMA busy_timeout=30000")
         try:
             albums = db.get_albums(_thread_conn=conn)
+            if source:
+                albums = [a for a in albums if a.get("source") == source]
             if not albums:
                 return []
             album_ids = [a["album_id"] for a in albums]
@@ -570,6 +573,14 @@ async def get_album(album_id: str, full: bool = False):
         album["photo_ids"] = photo_ids
         cameras = _collect_album_cameras(db, photo_ids)
         album["cameras"] = cameras
+        import random as _r
+        cover = album.get("cover_photo_id")
+        rest = [p for p in photo_ids if p != cover]
+        if len(rest) > 2:
+            rest = _r.sample(rest, 2)
+        album["preview_photos"] = ([cover] if cover else (photo_ids[:1] if photo_ids else [])) + rest[:3]
+        if not album["preview_photos"]:
+            album["preview_photos"] = rest[:3]
         if full:
             album["photos"] = _enrich_album_photos(db, photo_ids, cameras)
         return album
@@ -579,6 +590,29 @@ async def get_album(album_id: str, full: bool = False):
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
     return album
+
+
+@router.post("/create")
+async def create_manual_album(body: dict = None):
+    """Создать ручной альбом.
+    body: {title, description?}
+    """
+    import asyncio
+    from database import get_db
+    if not body or not body.get("title"):
+        raise HTTPException(status_code=422, detail="title is required")
+
+    def _create():
+        db = get_db()
+        return db.create_album(
+            title=body["title"],
+            description=body.get("description", ""),
+            source="manual",
+        )
+
+    loop = asyncio.get_event_loop()
+    album_id = await loop.run_in_executor(None, _create)
+    return {"ok": True, "album_id": album_id}
 
 
 @router.post("/generate")
@@ -744,6 +778,118 @@ async def delete_album(album_id: str):
         raise HTTPException(status_code=404, detail="Album not found")
     db.delete_album(album_id)
     return {"ok": True}
+
+
+# ─── Состав ручных альбомов (семечки) ─────────────────────────
+
+
+@router.get("/{album_id}/members")
+async def get_album_members(album_id: str):
+    """Состав ручного альбома — семечки из которых он составлен."""
+    import asyncio
+    from database import get_db
+
+    def _get():
+        db = get_db()
+        if not db.get_album(album_id):
+            return None
+        return db.get_album_members(album_id)
+
+    loop = asyncio.get_event_loop()
+    members = await loop.run_in_executor(None, _get)
+    if members is None:
+        raise HTTPException(status_code=404, detail="Album not found")
+    return members
+
+
+@router.post("/{album_id}/members")
+async def add_album_member(album_id: str, request: Request):
+    """Добавить семечку в ручной альбом.
+
+    body: {member_type: "persona"|"photo", member_id: "..."}
+    Для persona: все фото персоны + все фото из автоальбомов с ней.
+    Для photo: одно фото.
+    """
+    import asyncio
+    from database import get_db
+    db = get_db()
+    if not db.get_album(album_id):
+        raise HTTPException(status_code=404, detail="Album not found")
+    body = await json_body(request)
+    mtype = body.get("member_type")
+    mid = body.get("member_id")
+    if not mtype or not mid:
+        raise HTTPException(status_code=422, detail="member_type and member_id required")
+
+    def _add():
+        db2 = get_db()
+        if mtype == "persona":
+            photo_ids = db2.get_persona_photo_ids(mid)
+            auto_album_ids = db2.get_persona_auto_album_ids(mid)
+            all_photo_ids = set(photo_ids)
+            album_photo_counts = {}
+            for aid in auto_album_ids:
+                ap_ids = db2.get_album_photos(aid)
+                all_photo_ids.update(ap_ids)
+                album_photo_counts[aid] = len(ap_ids)
+            all_photo_ids = list(all_photo_ids)
+            db2.add_photos_to_album(album_id, all_photo_ids)
+            persona_row = db2.sqlite.execute(
+                "SELECT display_name, name FROM personas WHERE persona_id = ?", (mid,)
+            ).fetchone()
+            label = (persona_row[0] if persona_row else None) or (persona_row[1] if persona_row else mid)
+            db2.add_album_member(album_id, "persona", mid, label, len(all_photo_ids))
+            for aid in auto_album_ids:
+                alb = db2.get_album(aid)
+                alb_label = alb["title"] if alb else aid
+                db2.add_album_member(album_id, "album", aid, alb_label, album_photo_counts[aid])
+            return {"ok": True, "photo_count": len(all_photo_ids),
+                    "auto_albums": [{"album_id": a, "photo_count": album_photo_counts[a]}
+                                    for a in auto_album_ids]}
+        if mtype == "photo":
+            db2.add_photos_to_album(album_id, [mid])
+            db2.add_album_member(album_id, "photo", mid, "", 1)
+            return {"ok": True, "photo_count": 1}
+        raise HTTPException(status_code=422, detail="member_type must be persona or photo")
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _add)
+
+
+@router.delete("/{album_id}/members/{member_type}/{member_id}")
+async def remove_album_member(album_id: str, member_type: str, member_id: str):
+    """Удалить семечку из ручного альбома + её фото."""
+    import asyncio
+    from database import get_db
+    db = get_db()
+    if not db.get_album(album_id):
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    def _remove():
+        db2 = get_db()
+        members = db2.get_album_members(album_id)
+        photo_ids_to_remove = set()
+        if member_type == "persona":
+            photo_ids_to_remove.update(db2.get_persona_photo_ids(member_id))
+            for m in members:
+                if m["member_type"] == "album" and m["member_id"]:
+                    ap_ids = db2.get_album_photos(m["member_id"])
+                    photo_ids_to_remove.update(ap_ids)
+        elif member_type == "photo":
+            photo_ids_to_remove.add(member_id)
+        elif member_type == "album":
+            ap_ids = db2.get_album_photos(member_id)
+            photo_ids_to_remove.update(ap_ids)
+        db2.remove_photos_from_album(album_id, list(photo_ids_to_remove))
+        db2.remove_album_member(album_id, member_type, member_id)
+        if member_type == "persona":
+            for m in members:
+                if m["member_type"] == "album":
+                    db2.remove_album_member(album_id, "album", m["member_id"])
+        return {"ok": True, "removed": len(photo_ids_to_remove)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _remove)
 
 
 # ─── Коррекция времени камеры в альбоме ───────────────────────

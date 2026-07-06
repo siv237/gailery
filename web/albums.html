@@ -108,28 +108,83 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .card.cam-hl-5 { box-shadow: 0 0 0 3px #8250df, 0 2px 8px rgba(0,0,0,.15); }
 .light-theme .card.cam-hl-6 { box-shadow: 0 0 0 3px #e3b341, 0 2px 8px rgba(0,0,0,.15); }
 .light-theme .card.cam-hl-7 { box-shadow: 0 0 0 3px #8250df, 0 2px 8px rgba(0,0,0,.15); }
+
+.album-tabs { display: flex; gap: 0; margin-right: 12px; }
+.search-bar .album-tab { background: none; border: 1px solid #30363d; color: #6e7681; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+.search-bar .album-tab.active { color: #fff; border-color: #238636; background: #238636; }
+.light-theme .search-bar .album-tab { background: none; border-color: #d0d7de; color: #57606a; }
+.light-theme .search-bar .album-tab.active { color: #fff; border-color: #1f883d; background: #1f883d; }
+.search-bar .album-tab:first-child { border-radius: 6px 0 0 6px; }
+.search-bar .album-tab:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.light-theme .search-bar .album-tab:first-child { border-radius: 6px 0 0 6px; }
+.light-theme .search-bar .album-tab:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.album-actions { display: inline-flex; gap: 8px; }
+
+.manual-album-bar { padding: 16px 20px; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s; }
+.manual-album-bar:hover { border-color: #3fb950; }
+.light-theme .manual-album-bar { border-color: #d0d7de; }
+.light-theme .manual-album-bar:hover { border-color: #1f883d; }
+.mab-title { font-size: 18px; color: #c9d1d9; font-weight: bold; }
+.light-theme .mab-title { color: #24292f; }
+.mab-summary { font-size: 12px; color: #8b949e; margin-top: 4px; }
+.light-theme .mab-summary { color: #57606a; }
+
+.album-create-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000; display: none; align-items: center; justify-content: center; }
+.album-create-modal.show { display: flex; }
+.light-theme .album-create-modal { background: rgba(0,0,0,.3); }
+.album-create-box { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; width: 400px; max-width: 90vw; }
+.light-theme .album-create-box { background: #fff; border-color: #d0d7de; }
+.album-create-box h3 { margin: 0 0 16px; color: #c9d1d9; }
+.light-theme .album-create-box h3 { color: #24292f; }
+.album-create-box input, .album-create-box textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-family: inherit; font-size: 14px; }
+.light-theme .album-create-box input, .light-theme .album-create-box textarea { background: #f6f8fa; border-color: #d0d7de; color: #24292f; }
+.album-create-box .acm-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.ma-standalone-title { padding: 12px 20px 4px; font-size: 13px; color: #8b949e; }
+.light-theme .ma-standalone-title { color: #57606a; }
+.ma-remove-btn { color: #f85149; }
+.light-theme .ma-remove-btn { color: #cf222e; }
+.muted-text { color: #6e7681; }
+.light-theme .muted-text { color: #57606a; }
+.modal-title { color: #c9d1d9; }
+.light-theme .modal-title { color: #24292f; }
+.btn-danger { background: #f85149; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-family: monospace; }
+.light-theme .btn-danger { background: #cf222e; }
 </style>
 </head>
 <body>
 
 <script src="/shared.js"></script>
-<script>
-if (window.SHARED_MODE === 'album') {
-  renderHeader('Альбом', '');
-} else {
-  renderHeader('Альбомы', '<div class="search-bar">\
-  <button onclick="generate()">Сгенерировать</button>\
-  <button class="btn-secondary" onclick="clearAll()">Очистить все</button>\
-  <button class="btn-secondary" onclick="copyAlbumShareFromBar()">Поделиться</button>\
+<script>renderHeader('Альбомы', '<div class="search-bar">\
+  <div class="album-tabs">\
+    <button class="album-tab active" id="tabAuto" onclick="switchTab(\'auto\')">Автоальбомы</button>\
+    <button class="album-tab" id="tabManual" onclick="switchTab(\'manual\')">Ручные альбомы</button>\
+  </div>\
+  <span id="autoActions" class="album-actions">\
+    <button onclick="generate()">Сгенерировать</button>\
+    <button class="btn-secondary" onclick="clearAll()">Очистить все</button>\
+  </span>\
+  <span id="manualActions" class="album-actions" style="display:none">\
+    <button onclick="createAlbumDialog()">Создать альбом</button>\
+  </span>\
   <span class="info-bar" style="padding:0;border:none;background:none;flex:1" id="albumCount"></span>\
-</div>');
-}
-</script>
+</div>');</script>
 
 <div id="content">
   <div class="empty">
     <p>Нет альбомов</p>
     <p>Нажмите «Сгенерировать» для авто-создания</p>
+  </div>
+</div>
+
+<div class="album-create-modal" id="createAlbumModal">
+  <div class="album-create-box">
+    <h3>Новый альбом</h3>
+    <input type="text" id="createAlbumTitle" placeholder="Название альбома" maxlength="200">
+    <textarea id="createAlbumDesc" placeholder="Описание (необязательно)" rows="2" maxlength="500"></textarea>
+    <div class="acm-btns">
+      <button class="btn-secondary" onclick="closeCreateAlbum()">Отмена</button>
+      <button onclick="createAlbumSubmit()">Создать</button>
+    </div>
   </div>
 </div>
 
@@ -255,16 +310,81 @@ function _albumCardHtml(a) {
     return '<div class="album-card" onclick="openAlbum(\'' + a.album_id + '\')"><div class="ac-spread">' + photosHtml + '</div></div>';
 }
 
+var currentTab = 'auto';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabAuto').classList.toggle('active', tab === 'auto');
+  document.getElementById('tabManual').classList.toggle('active', tab === 'manual');
+  document.getElementById('autoActions').style.display = tab === 'auto' ? '' : 'none';
+  document.getElementById('manualActions').style.display = tab === 'manual' ? '' : 'none';
+  loadAlbums();
+}
+
+function createAlbumDialog() {
+  document.getElementById('createAlbumTitle').value = '';
+  document.getElementById('createAlbumDesc').value = '';
+  document.getElementById('createAlbumModal').classList.add('show');
+  setTimeout(function() { document.getElementById('createAlbumTitle').focus(); }, 100);
+}
+
+function closeCreateAlbum() {
+  document.getElementById('createAlbumModal').classList.remove('show');
+}
+
+async function createAlbumSubmit() {
+  var title = document.getElementById('createAlbumTitle').value.trim();
+  if (!title) return;
+  var desc = document.getElementById('createAlbumDesc').value.trim();
+  var resp = await fetch('/api/albums/create', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title: title, description: desc})
+  });
+  var data = await resp.json();
+  if (data.ok) {
+    closeCreateAlbum();
+    if (currentTab !== 'manual') switchTab('manual');
+    else loadAlbums();
+  }
+}
+
 async function loadAlbums() {
   albumViewMode = false;
   currentPhotos = [];
-  var resp = await fetch('/api/albums/');
+  var resp = await fetch('/api/albums/?source=' + currentTab);
   var albums = await resp.json();
   var el = document.getElementById('albumCount');
   if (el) el.textContent = albums.length + ' альбомов';
 
   if (!albums.length) {
-    document.getElementById('content').innerHTML = '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>';
+    var msg = currentTab === 'auto'
+      ? '<div class="empty"><p>Нет альбомов</p><p>Нажмите «Сгенерировать» для авто-создания</p></div>'
+      : '<div class="empty"><p>Нет ручных альбомов</p><p>Нажмите «Создать альбом»</p></div>';
+    document.getElementById('content').innerHTML = msg;
+    return;
+  }
+
+  if (currentTab === 'manual') {
+    var html = '<div style="padding:12px 20px">';
+    for (var i = 0; i < albums.length; i++) {
+      var a = albums[i];
+      var membersResp = await fetch('/api/albums/' + a.album_id + '/members');
+      var members = await membersResp.json();
+      var personas = members.filter(function(m) { return m.member_type === 'persona'; });
+      var subAlbums = members.filter(function(m) { return m.member_type === 'album'; });
+      var photoOnly = members.filter(function(m) { return m.member_type === 'photo'; });
+      var summary = '';
+      if (personas.length) summary += personas.map(function(m) { return '\u{1F464} ' + esc(m.member_label); }).join(' \u00B7 ');
+      if (subAlbums.length) summary += (summary ? ' \u00B7 ' : '') + subAlbums.length + ' альбомов';
+      if (photoOnly.length) summary += (summary ? ' \u00B7 ' : '') + photoOnly.length + ' фото';
+      if (!summary) summary = a.photo_count + ' фото';
+      html += '<div class="manual-album-bar" onclick="openManualAlbum(\'' + esc(a.album_id) + '\')">' +
+        '<div class="mab-title">' + esc(a.title) + '</div>' +
+        '<div class="mab-summary">' + summary + ' \u00B7 ' + a.photo_count + ' фото всего</div>' +
+        '</div>';
+    }
+    html += '</div>';
+    document.getElementById('content').innerHTML = html;
     return;
   }
 
@@ -308,6 +428,62 @@ function _initAlbumStackThrottle() {
   }
 }
 
+async function openManualAlbum(id) {
+  albumViewMode = true;
+  var resp = await fetch('/api/albums/' + id + '?full=false');
+  var album = await resp.json();
+  currentAlbum = album;
+
+  var membersResp = await fetch('/api/albums/' + id + '/members');
+  var members = await membersResp.json();
+  var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
+  var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
+
+  var html = '<div class="album-bar">' +
+    '<button class="btn-secondary" onclick="switchTab(\'manual\')">&#8592;</button>' +
+    '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
+    '<span class="album-bar-meta">' + album.photo_count + ' фото \u00b7 ' + albumMembers.length + ' альбомов</span>' +
+    '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435</button>' +
+    '</div>';
+
+  if (personaMembers.length) {
+    html += '<div class="ma-members-bar"><b>Персоны:</b> ' +
+      personaMembers.map(function(m) { return '\u{1F464} ' + esc(m.member_label) + ' (' + m.photo_count + ')'; }).join(' \u00B7 ') +
+      '</div>';
+  }
+
+  if (albumMembers.length) {
+    var subAlbums = [];
+    for (var i = 0; i < albumMembers.length; i++) {
+      var subResp = await fetch('/api/albums/' + albumMembers[i].member_id + '?full=false');
+      var subAlbum = await subResp.json();
+      if (subAlbum && subAlbum.album_id) {
+        subAlbums.push(subAlbum);
+      }
+    }
+    subAlbums.sort(function(a, b) {
+      return (b.date_start || '').localeCompare(a.date_start || '');
+    });
+    html += '<div class="grid-albums">';
+    var lastMonth = null;
+    for (var si = 0; si < subAlbums.length; si++) {
+      var sa = subAlbums[si];
+      var mk = _albumMonthKey(sa.date_start || '');
+      if (mk && mk !== lastMonth) {
+        html += _albumMonthDividerHtml(sa.date_start);
+        lastMonth = mk;
+      }
+      html += _albumCardHtml(sa);
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="empty"><p>В альбоме нет подальбомов</p></div>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+  _initAlbumStackThrottle();
+}
+
 async function openAlbum(id) {
   albumViewMode = true;
   var resp = await fetch('/api/albums/' + id + '?full=true');
@@ -317,21 +493,70 @@ async function openAlbum(id) {
   var photos = album.photos || [];
   currentPhotos = photos;
 
+  var isManual = album.source === 'manual';
   var photosHtml = '';
-  if (photos.length) {
-    photosHtml = '<div class="grid" id="grid">' + photos.map(function(p, idx) {
-      return buildCardHtml(p, idx);
-    }).join('') + '</div>';
-    setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
+
+  if (isManual) {
+    var membersResp = await fetch('/api/albums/' + id + '/members');
+    var members = await membersResp.json();
+    var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
+    var photoMembers = members.filter(function(m) { return m.member_type === 'photo'; });
+    var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
+
+    if (albumMembers.length) {
+      photosHtml += '<div class="grid-albums">';
+      var lastMonth = null;
+      for (var ai = 0; ai < albumMembers.length; ai++) {
+        var am = albumMembers[ai];
+        var subResp = await fetch('/api/albums/' + am.member_id + '?full=false');
+        var subAlbum = await subResp.json();
+        if (subAlbum && subAlbum.album_id) {
+          photosHtml += _albumCardHtml(subAlbum);
+        }
+      }
+      photosHtml += '</div>';
+    }
+
+    var albumPhotoIds = {};
+    for (var mi = 0; mi < albumMembers.length; mi++) {
+      var subResp2 = await fetch('/api/albums/' + albumMembers[mi].member_id + '?full=false');
+      var subAlbum2 = await subResp2.json();
+      if (subAlbum2 && subAlbum2.photo_ids) {
+        for (var pi = 0; pi < subAlbum2.photo_ids.length; pi++) {
+          albumPhotoIds[subAlbum2.photo_ids[pi]] = true;
+        }
+      }
+    }
+    var standalonePhotos = photos.filter(function(p) {
+      var pid = p.photo_id || p.db_id;
+      return !albumPhotoIds[pid];
+    });
+    if (standalonePhotos.length) {
+      photosHtml += '<div class="ma-standalone-title">' + (albumMembers.length ? 'Отдельные фото' : 'Фото') + ' (' + standalonePhotos.length + ')</div>';
+      photosHtml += '<div class="grid" id="grid">' + standalonePhotos.map(function(p, idx) {
+        return buildCardHtml(p, idx);
+      }).join('') + '</div>';
+      setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
+    }
+    if (!albumMembers.length && !standalonePhotos.length) {
+      photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
+    }
   } else {
-    photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
+    if (photos.length) {
+      photosHtml = '<div class="grid" id="grid">' + photos.map(function(p, idx) {
+        return buildCardHtml(p, idx);
+      }).join('') + '</div>';
+      setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
+    } else {
+      photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
+    }
   }
 
-  var meta = album.photo_count + ' фото \u00b7 ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' \u2014 ' + album.date_end.slice(0,10) : '') + ' \u00b7 ' + esc(album.source);
+  var meta = album.photo_count + ' фото \u00b7 ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' \u2014 ' + album.date_end.slice(0,10) : '') + ' \u00b7 ' + esc(album.source === 'manual' ? 'ручной' : 'авто');
   var cameras = album.cameras || [];
   var CAM_COLORS = ['#58a6ff','#f0883e','#3fb950','#d29922','#f85149','#d2a8ff','#e3b341','#8250df'];
   var camerasHtml = '';
-  if (cameras.length) {
+  if (cameras.length && !isManual) {
     camerasHtml = '<div class="cam-chips">';
     for (var ci = 0; ci < cameras.length; ci++) {
       var cam = cameras[ci];
@@ -344,21 +569,39 @@ async function openAlbum(id) {
   }
   var hasDesc = album.description && album.description.trim();
   var descHtml = hasDesc ? '<div class="album-desc-text">' + esc(album.description) + '</div>' : '';
-  var isShared = window.SHARED_MODE === 'album';
-  var titleAttr = isShared ? '' : ' onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u044f"';
-  var titleTag = isShared ? 'span' : 'span';
-  var backBtn = isShared ? '' : '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>';
-  var descBtn = isShared ? '' : '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>';
-  var shareBtn = isShared ? '' : '<button class="album-bar-desc-btn" onclick="copyAlbumShare(\'' + album.album_id + '\')">\u041f\u043e\u0434\u0435\u043b\u0438\u0442\u044c\u0441\u044f</button>';
+  var removeBtn = isManual ? '<button class="album-bar-desc-btn ma-remove-btn" onclick="removePhotoFromAlbum(\'' + esc(album.album_id) + '\')">Удалить фото из альбома</button>' : '';
+  var membersHtml = '';
+  if (isManual) {
+    membersHtml = '<div id="albumMembers" class="ma-members-bar"></div>';
+  }
   document.getElementById('content').innerHTML =
     '<div class="album-bar">' +
-    backBtn +
-    '<' + titleTag + ' class="album-bar-title" id="albumBarTitle"' + titleAttr + '>' + esc(album.title) + '</' + titleTag + '>' +
+    '<button class="btn-secondary" onclick="loadAlbums()">&#8592;</button>' +
+    '<span class="album-bar-title" id="albumBarTitle" onclick="editAlbumTitle()" title="\u041a\u043b\u0438\u043a \u0434\u043b\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u043e\u0331\u0430\u043d\u0438\u044f">' + esc(album.title) + '</span>' +
     '<span class="album-bar-meta">' + meta + '</span>' +
     camerasHtml +
-    descBtn +
-    shareBtn +
-    '</div>' + descHtml + photosHtml;
+    '<button class="album-bar-desc-btn" onclick="showAlbumDescModal()">\u041e\u043f\u0438\u0441\u0430\u043d\u0438\u0435' + (hasDesc ? '<span class="album-desc-badge"></span>' : '') + '</button>' +
+    removeBtn +
+    '</div>' + descHtml + membersHtml + photosHtml;
+  if (isManual) loadAlbumMembers(album.album_id);
+}
+
+async function loadAlbumMembers(albumId) {
+  try {
+    var resp = await fetch('/api/albums/' + albumId + '/members');
+    var members = await resp.json();
+    var el = document.getElementById('albumMembers');
+    if (!el) return;
+    if (!members.length) { el.innerHTML = '<span class="muted-text">Состав: отдельные фото</span>'; return; }
+    var parts = ['<b>Состав:</b> '];
+    for (var i = 0; i < members.length; i++) {
+      var m = members[i];
+      var icon = m.member_type === 'persona' ? '\u{1F464}' : m.member_type === 'album' ? '\u{1F4C1}' : '\u{1F4F7}';
+      var label = m.member_label || m.member_id;
+      parts.push(icon + ' ' + esc(label) + ' <span class="muted-text">(' + m.photo_count + ')</span>');
+    }
+    el.innerHTML = parts.join(' \u00B7 ');
+  } catch(e) {}
 }
 
 var _camActiveIdx = -1;
@@ -471,41 +714,57 @@ async function clearAll() {
   }
 }
 
-function copyAlbumShare(albumId) {
-  var url = location.origin + '/s/album/' + encodeURIComponent(albumId);
-  var btn = event.target;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).then(function() {
-      var orig = btn.textContent;
-      btn.textContent = 'Ссылка скопирована!';
-      setTimeout(function() { btn.textContent = orig; }, 2000);
-    }).catch(function() { _fallbackAlbumCopy(url, btn); });
-  } else {
-    _fallbackAlbumCopy(url, btn);
+var _removeFromAlbumId = null;
+var _removeFromAlbumPhotos = [];
+
+function removePhotoFromAlbum(albumId) {
+  if (!currentAlbum || currentAlbum.album_id !== albumId) return;
+  _removeFromAlbumId = albumId;
+  _removeFromAlbumPhotos = currentPhotos || [];
+  if (!_removeFromAlbumPhotos.length) return;
+  var photoIds = _removeFromAlbumPhotos.map(function(p) { return p.photo_id || p.db_id; });
+  var html = '<div style="max-width:600px;margin:0 auto;padding:20px">' +
+    '<h3 class="modal-title">Выберите фото для удаления из альбома</h3>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:16px 0">';
+  for (var i = 0; i < _removeFromAlbumPhotos.length; i++) {
+    var p = _removeFromAlbumPhotos[i];
+    var pid = p.photo_id || p.db_id;
+    var thumb = API + '/photos/thumbnail?path=' + encodeURIComponent(pid) + '&size=sm';
+    html += '<label style="cursor:pointer;text-align:center">' +
+      '<div style="position:relative"><img src="' + thumb + '" style="width:100%;height:80px;object-fit:cover;border-radius:4px">' +
+      '<input type="checkbox" value="' + esc(pid) + '" style="position:absolute;top:4px;right:4px"></div></label>';
   }
+  html += '</div><div style="text-align:center"><button class="btn-danger" onclick="_doRemoveFromAlbum()">Удалить выбранные</button> ' +
+    '<button class="btn-secondary" onclick="closeRemoveFromAlbum()">Отмена</button></div></div>';
+  var overlay = document.createElement('div');
+  overlay.id = 'removeFromAlbumOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:2000;overflow-y:auto';
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
 }
 
-function _fallbackAlbumCopy(url, btn) {
-  var t = document.createElement('textarea');
-  t.value = url; document.body.appendChild(t); t.select();
-  try { document.execCommand('copy'); } catch(e) {}
-  document.body.removeChild(t);
-  if (btn) {
-    var orig = btn.textContent;
-    btn.textContent = 'Ссылка скопирована!';
-    setTimeout(function() { btn.textContent = orig; }, 2000);
-  }
+function closeRemoveFromAlbum() {
+  var o = document.getElementById('removeFromAlbumOverlay');
+  if (o) o.remove();
+  _removeFromAlbumId = null;
+  _removeFromAlbumPhotos = [];
 }
 
-function copyAlbumShareFromBar() {
-  if (currentAlbum) copyAlbumShare(currentAlbum.album_id);
+async function _doRemoveFromAlbum() {
+  if (!_removeFromAlbumId) return;
+  var checkboxes = document.querySelectorAll('#removeFromAlbumOverlay input[type=checkbox]:checked');
+  var photoIds = [];
+  for (var i = 0; i < checkboxes.length; i++) photoIds.push(checkboxes[i].value);
+  if (!photoIds.length) { closeRemoveFromAlbum(); return; }
+  var resp = await fetch('/api/albums/' + encodeURIComponent(_removeFromAlbumId) + '/photos', {
+    method: 'DELETE', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({photo_ids: photoIds})
+  });
+  var data = await resp.json();
+  closeRemoveFromAlbum();
+  if (data.ok) openAlbum(_removeFromAlbumId);
 }
-
 (function() {
-  if (window.SHARED_MODE === 'album' && window.SHARED_ID) {
-    openAlbum(window.SHARED_ID);
-    return;
-  }
   var params = new URLSearchParams(window.location.search);
   var albumId = params.get('album');
   if (albumId) openAlbum(albumId);

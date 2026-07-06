@@ -331,6 +331,17 @@ class DatabaseManager:
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_album_photos_pid ON album_photos(photo_id)")
+        self._create_table_if_missing(cur, 'album_members', """
+            CREATE TABLE album_members (
+                album_id TEXT NOT NULL,
+                member_type TEXT NOT NULL,
+                member_id TEXT NOT NULL,
+                member_label TEXT,
+                photo_count INTEGER DEFAULT 0,
+                added_at TEXT,
+                PRIMARY KEY (album_id, member_type, member_id)
+            )
+        """)
         self.sqlite.commit()
 
         self._add_column_if_missing(cur, 'albums', 'user_modified', 'INTEGER DEFAULT 0')
@@ -1640,12 +1651,14 @@ class DatabaseManager:
     def delete_album(self, album_id):
         """Удалить альбом и связи (фото не трогаются)."""
         self.sqlite.execute("DELETE FROM album_photos WHERE album_id = ?", (album_id,))
+        self.sqlite.execute("DELETE FROM album_members WHERE album_id = ?", (album_id,))
         self.sqlite.execute("DELETE FROM albums WHERE album_id = ?", (album_id,))
         self.sqlite.commit()
 
     def clear_all_albums(self):
         """Удалить все альбомы и связи. Для экспериментов/регенерации."""
         self.sqlite.execute("DELETE FROM album_photos")
+        self.sqlite.execute("DELETE FROM album_members")
         self.sqlite.execute("DELETE FROM albums")
         self.sqlite.commit()
 
@@ -1683,3 +1696,60 @@ class DatabaseManager:
                     "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
                     (cr[0], album_id)
                 )
+
+    def add_album_member(self, album_id, member_type, member_id, member_label="", photo_count=0):
+        """Добавить семечку в альбом (persona/photo/album)."""
+        now = datetime.now().isoformat()
+        self.sqlite.execute(
+            "INSERT OR IGNORE INTO album_members (album_id, member_type, member_id, member_label, photo_count, added_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (album_id, member_type, member_id, member_label, photo_count, now)
+        )
+        self.sqlite.commit()
+
+    def get_album_members(self, album_id):
+        """Вернуть список семечек альбома."""
+        rows = self.sqlite.execute(
+            "SELECT member_type, member_id, member_label, photo_count, added_at "
+            "FROM album_members WHERE album_id = ? ORDER BY added_at",
+            (album_id,)
+        ).fetchall()
+        return [dict(zip(["member_type", "member_id", "member_label", "photo_count", "added_at"], r)) for r in rows]
+
+    def remove_album_member(self, album_id, member_type, member_id):
+        """Удалить семечку из альбома. Возвращает True если семечка была."""
+        member = self.sqlite.execute(
+            "SELECT member_type, member_id FROM album_members WHERE album_id = ? AND member_type = ? AND member_id = ?",
+            (album_id, member_type, member_id)
+        ).fetchone()
+        self.sqlite.execute(
+            "DELETE FROM album_members WHERE album_id = ? AND member_type = ? AND member_id = ?",
+            (album_id, member_type, member_id)
+        )
+        self.sqlite.commit()
+        return member is not None
+
+    def get_persona_photo_ids(self, persona_id):
+        """Все photo_id где есть лицо этой персоны."""
+        rows = self.sqlite.execute(
+            "SELECT DISTINCT p.photo_id FROM photos p "
+            "JOIN catalog_files cf ON cf.abs_path = p.path AND cf.is_canonical = 1 "
+            "JOIN faces f ON f.content_hash = cf.content_hash "
+            "WHERE f.persona_id = ? AND p.deleted = 0",
+            (persona_id,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_persona_auto_album_ids(self, persona_id):
+        """Все автоальбомы (source='auto') где есть хотя бы одно фото с этой персоной."""
+        photo_ids = self.get_persona_photo_ids(persona_id)
+        if not photo_ids:
+            return []
+        ph = ",".join("?" * len(photo_ids))
+        rows = self.sqlite.execute(
+            f"SELECT DISTINCT ap.album_id FROM album_photos ap "
+            f"JOIN albums a ON a.album_id = ap.album_id AND a.source = 'auto' "
+            f"WHERE ap.photo_id IN ({ph})",
+            photo_ids
+        ).fetchall()
+        return [r[0] for r in rows]

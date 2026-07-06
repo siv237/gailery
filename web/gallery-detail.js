@@ -52,7 +52,7 @@ function openDetail(idx) {
     }
     html += '<div style="margin-top:6px">';
     html += '<button class="dp-btn-reprocess" onclick="showReprocessModal(\'' + esc(p.db_id || '') + '\')">Переобработать</button>';
-    html += '<button class="dp-btn-share" onclick="copyShareLink(\'' + esc(p.db_id || '') + '\')">Поделиться</button>';
+    html += '<button class="dp-btn-toalbum" onclick="showAddToAlbum(\'' + esc(p.db_id || p.photo_id) + '\')">В альбом</button>';
     html += '</div>';
     if (p.date) {
         var showDate = p.manual_date || p.date;
@@ -334,32 +334,6 @@ function _loadPhotoAlbums(p) {
      document.getElementById('detailPanel').classList.remove('show');
      if (_isMobile()) document.documentElement.classList.remove('scroll-lock');
  }
-
-function copyShareLink(photoId) {
-    var url = location.origin + '/s/photo/' + encodeURIComponent(photoId);
-    var btn = event.target;
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(function() {
-            var orig = btn.textContent;
-            btn.textContent = 'Ссылка скопирована!';
-            setTimeout(function() { btn.textContent = orig; }, 2000);
-        }).catch(function() { _fallbackCopy(url, btn); });
-    } else {
-        _fallbackCopy(url, btn);
-    }
-}
-
-function _fallbackCopy(url, btn) {
-    var t = document.createElement('textarea');
-    t.value = url; document.body.appendChild(t); t.select();
-    try { document.execCommand('copy'); } catch(e) {}
-    document.body.removeChild(t);
-    if (btn) {
-        var orig = btn.textContent;
-        btn.textContent = 'Ссылка скопирована!';
-        setTimeout(function() { btn.textContent = orig; }, 2000);
-    }
-}
 
 var _dpRot = 0;
 var _dpIdx = -1;
@@ -1092,4 +1066,68 @@ function _cmHoverEnd() {
     clearTimeout(_cmHoverTimer);
     var p = document.getElementById('cmPrev');
     if (p) p.remove();
+}
+
+var _addToAlbumPhotoId = null;
+
+function showAddToAlbum(photoId) {
+    _addToAlbumPhotoId = photoId;
+    var old = document.getElementById('addToAlbumModal');
+    if (old) old.remove();
+    var m = document.createElement('div');
+    m.id = 'addToAlbumModal';
+    m.className = 'album-create-modal show';
+    m.innerHTML = '<div class="album-create-box" onclick="event.stopPropagation()">' +
+        '<h3>Добавить в альбом</h3>' +
+        '<div id="addToAlbumList" style="max-height:300px;overflow-y:auto;margin-bottom:12px">Загрузка...</div>' +
+        '<div class="acm-btns">' +
+        '<button class="btn-secondary" onclick="closeAddToAlbum()">Отмена</button>' +
+        '</div></div>';
+    m.onclick = closeAddToAlbum;
+    document.body.appendChild(m);
+    loadAddToAlbumList();
+}
+
+function closeAddToAlbum() {
+    var m = document.getElementById('addToAlbumModal');
+    if (m) m.remove();
+    _addToAlbumPhotoId = null;
+}
+
+async function loadAddToAlbumList() {
+    var resp = await fetch('/api/albums/?source=manual');
+    var albums = await resp.json();
+    var el = document.getElementById('addToAlbumList');
+    if (!el) return;
+    if (!albums.length) {
+        el.innerHTML = '<p class="dp-muted-sm">Нет ручных альбомов. Создайте альбом на странице Альбомы.</p>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < albums.length; i++) {
+        var a = albums[i];
+        html += '<label class="album-pick-row"><input type="checkbox" value="' + esc(a.album_id) + '" style="cursor:pointer">' +
+            '<span>' + esc(a.title) + ' <span class="dp-muted-sm">(' + a.photo_count + ')</span></span>' +
+            '</label>';
+    }
+    html += '<button style="margin-top:12px;width:100%" onclick="submitAddToAlbum()">Добавить в выбранные</button>';
+    el.innerHTML = html;
+}
+
+async function submitAddToAlbum() {
+    if (!_addToAlbumPhotoId) return;
+    var checkboxes = document.querySelectorAll('#addToAlbumList input[type=checkbox]:checked');
+    var albumIds = [];
+    for (var i = 0; i < checkboxes.length; i++) albumIds.push(checkboxes[i].value);
+    if (!albumIds.length) return;
+    var added = 0;
+    for (var j = 0; j < albumIds.length; j++) {
+        var resp = await fetch('/api/albums/' + encodeURIComponent(albumIds[j]) + '/photos', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({photo_ids: [_addToAlbumPhotoId]})
+        });
+        var data = await resp.json();
+        if (data.ok) added++;
+    }
+    closeAddToAlbum();
 }
