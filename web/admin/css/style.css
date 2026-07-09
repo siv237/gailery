@@ -81,7 +81,7 @@ a { color: inherit; text-decoration: none; }
 
 .sidebar-footer { padding: 12px 16px 8px; border-top: 1px solid #21262d; flex-shrink: 0; background: #161b22; }
 .sidebar-footer .ver { font-size: 10px; color: #484f58; line-height: 1.5; }
-.sidebar-footer .ver a { color: #58a6ff; text-decoration: none; font-size: 10px; }
+.sidebar-footer .ver a { color: #58a6ff; text-decoration: none; font-size: 10px; display: inline; padding: 0; margin: 0; border: 0; background: none; }
 .sidebar-footer .ver a:hover { text-decoration: underline; }
 .sidebar-footer .mqtt-summary { font-size: 11px; color: #6e7681; display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .sidebar-footer .mqtt-summary .w { padding: 2px 6px; border-radius: 3px; background: #21262d; font-size: 10px; }

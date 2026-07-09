@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
         A.ajax('/api/status', function(d) {
             var c = (d.git_commit || '').substring(0,7);
             var dt = d.git_date || '';
-            vi.innerHTML = '<div class="ver">Gailery · '+c+' · '+dt+'<br><a href="#" id="checkUpdate">Проверить обновления</a></div>';
+            vi.innerHTML = '<div class="ver"><a href="https://github.com/siv237/gailery" target="_blank" rel="noopener">Gailery</a> · <a href="https://github.com/siv237/gailery/commit/'+c+'" target="_blank" rel="noopener">'+c+'</a> · '+dt+'<br><a href="#" id="checkUpdate">Проверить обновления</a></div>';
             document.getElementById('checkUpdate').addEventListener('click', function(e) {
                 e.preventDefault();
                 var self = this;
