@@ -281,13 +281,12 @@ def run_detection(photos):
                 photo_path=path,
                 content_hash=content_hash,
                 photo_id=photo_id,
-                input_image={"original_size": list(img.size) if hasattr(img, 'size') else None, "det_size": [640, 640]},
-                model_params={"model": "insightface buffalo_l", "provider": "CUDA"},
-                output_extra={"faces_detected": len(faces), "faces_saved": saved, "face_details": face_details},
+                request_json={"model": "insightface buffalo_l", "provider": "CUDA", "det_size": [640, 640], "original_size": list(img.size) if hasattr(img, 'size') else None},
+                parsed_result={"faces_detected": len(faces), "faces_saved": saved, "face_details": face_details},
                 elapsed_sec=round(dt_det, 3),
                 success=1,
             )
-        except (sqlite3.Error, KeyError):
+        except (sqlite3.Error, KeyError, TypeError):
             pass
     elapsed = time.time() - t0
     log(f"Detection done: {processed} photos, {total_saved} faces in {elapsed:.0f}s")

@@ -436,10 +436,10 @@ def _ingest_new_canonical(db, root_id):
 def _cleanup_noncanonical_photos(db):
     db.sqlite.execute(
         "UPDATE photos SET deleted = 1 "
-        "WHERE deleted = 0 AND path IN ("
-        "SELECT p.path FROM photos p "
-        "WHERE NOT EXISTS ("
-        "SELECT 1 FROM catalog_files cf WHERE cf.abs_path = p.path AND cf.is_canonical = 1 AND cf.deleted = 0"
+        "WHERE deleted = 0 AND photo_id IN ("
+        "SELECT p.photo_id FROM photos p "
+        "WHERE p.deleted = 0 AND NOT EXISTS ("
+        "SELECT 1 FROM catalog_files cf WHERE cf.abs_path = p.path AND cf.is_canonical + 0 = 1 AND cf.deleted + 0 = 0"
         "))"
     )
     db.sqlite.commit()
