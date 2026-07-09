@@ -7,6 +7,15 @@
 curl -fsSL https://raw.githubusercontent.com/siv237/gailery/main/install.sh | sudo bash
 ```
 
+**Авто-установка** (сам детектит GPU/CPU):
+```bash
+curl -fsSL https://raw.githubusercontent.com/siv237/gailery/main/auto_install.sh | sudo bash
+```
+`auto_install.sh` определяет наличие NVIDIA GPU сам. Если карта есть — ставит CUDA-зависимости (как `install.sh`). Если **нет** — ставит CPU-сборки (`torch`/`onnxruntime`/`llama.cpp` без CUDA) и проект работает на процессоре (медленнее, но без ошибок — хардкод `n_gpu_layers` в коде инертен на CPU-сборках). Чтобы AI-задачи ушли на удалённый сервер с GPU, задайте адрес Ollama:
+```bash
+curl -fsSL https://raw.githubusercontent.com/siv237/gailery/main/auto_install.sh | sudo AUTO_OLLAMA_URL=http://host:11434 bash
+```
+
 **Gailery** — это веб-галерея для домашней файлопомойки, которая не просто показывает фотки, а понимает что на них. Запускается на вашем сервере, в фоне неторопливо анализирует фотографии и строит базу знаний: кто на фото, где снято, что происходит. Ваши фото остаются на вашем диске, ничто не уходит в облако.
 
 Что она умеет:
