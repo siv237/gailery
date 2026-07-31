@@ -1272,3 +1272,83 @@ class TestAlbumCatalogMembersAPI:
         assert aid in ids
         mine = [a for a in result if a["album_id"] == aid][0]
         assert mine["photo_count"] == 3
+
+
+class TestAlbumPhotosPageAPI:
+    """Серверный батчинг сетки альбома: GET /api/albums/{id}/photos_page."""
+
+    @staticmethod
+    def _seed(db):
+        TestAlbumCatalogMembersAPI._seed(db)
+
+    def _album_with_catalog(self, app_client):
+        aid = TestAlbumCatalogMembersAPI._create_album(self, app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "rcat|2024"})
+        assert resp.status_code == 200
+        return aid
+
+    def test_photos_page_pagination(self, app_client, db):
+        """Порции по limit, total = полный состав, offset за границей — пусто."""
+        self._seed(db)
+        aid = self._album_with_catalog(app_client)
+
+        resp = app_client.get(f"/api/albums/{aid}/photos_page?offset=0&limit=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert len(data["photos"]) == 2
+        page1_ids = {p.get("db_id") or p.get("photo_id") for p in data["photos"]}
+
+        resp = app_client.get(f"/api/albums/{aid}/photos_page?offset=2&limit=2")
+        data2 = resp.json()
+        assert data2["total"] == 3
+        assert len(data2["photos"]) == 1
+        page2_ids = {p.get("db_id") or p.get("photo_id") for p in data2["photos"]}
+        assert not (page1_ids & page2_ids)  # порции не пересекаются
+
+        resp = app_client.get(f"/api/albums/{aid}/photos_page?offset=3&limit=2")
+        assert resp.json()["photos"] == []
+
+    def test_photos_page_live_catalog(self, app_client, db):
+        """Живость: новое фото каталога появляется в выдаче без действий с альбомом."""
+        self._seed(db)
+        aid = self._album_with_catalog(app_client)
+        db.add_catalog_files_batch([
+            {"file_id": "c9", "root_id": "rcat", "rel_path": "2024/new.jpg",
+             "abs_path": "/photos/2024/new.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch9"},
+        ])
+        db.add_photo("/photos/2024/new.jpg", date="2024-01-04 10:00:00")
+        resp = app_client.get(f"/api/albums/{aid}/photos_page?offset=0&limit=10")
+        assert resp.json()["total"] == 4
+
+    def test_photos_page_unknown_album(self, app_client):
+        """Несуществующий альбом — 404."""
+        resp = app_client.get("/api/albums/nonexistent/photos_page")
+        assert resp.status_code == 404
+
+    def test_share_photos_page_scope(self, app_client, db, monkeypatch):
+        """Share: photos_page фильтруется по scope (фото вне scope не выдаются)."""
+        self._seed(db)
+        aid = self._album_with_catalog(app_client)
+        # статичное фото в альбом, но НЕ в scope
+        static_pid = db.add_photo("/photos/2025/static.jpg", date="2025-01-01 10:00:00")
+        db.add_photos_to_album(aid, [static_pid])
+
+        import asyncio, importlib
+        share_mod = importlib.import_module("api.share")
+        monkeypatch.setattr(share_mod, "get_db", lambda: db)
+
+        class _FakeReq:
+            cookies = {"share_scope": f"album:{aid}"}
+
+        # scope = фото альбома БЕЗ static (эмуляция scope старой ссылки)
+        scope_pids = [p for p in db.get_album_photos(aid) if p != static_pid]
+        monkeypatch.setattr(share_mod, "_get_scope_photo_ids",
+                            lambda scope: scope_pids)
+        result = asyncio.run(share_mod.s_album_photos_page(
+            aid, _FakeReq(), offset=0, limit=10))
+        assert result["total"] == 3
+        result_ids = {p.get("db_id") or p.get("photo_id") for p in result["photos"]}
+        assert static_pid not in result_ids

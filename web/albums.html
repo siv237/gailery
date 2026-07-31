@@ -162,6 +162,9 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .album-loading .al-spinner { border-color: #d0d7de; border-top-color: #0969da; }
 @keyframes alspin { to { transform: rotate(360deg); } }
 .album-card.loading, .manual-album-bar.loading { opacity: .55; pointer-events: none; transition: opacity .15s; }
+.album-sentinel { display: flex; justify-content: center; padding: 24px; }
+.album-sentinel .al-spinner { width: 24px; height: 24px; border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: alspin .8s linear infinite; }
+.light-theme .album-sentinel .al-spinner { border-color: #d0d7de; border-top-color: #0969da; }
 </style>
 </head>
 <body>
@@ -387,6 +390,8 @@ async function createAlbumSubmit() {
 async function loadAlbums() {
   albumViewMode = false;
   currentPhotos = [];
+  if (_albumObserver) { _albumObserver.disconnect(); _albumObserver = null; }
+  _albumPaging = null;
   _syncUrl();
   var resp = await fetch('/api/albums/?source=' + currentTab);
   var albums = await resp.json();
@@ -543,75 +548,106 @@ async function openManualAlbum(id, el) {
   _initAlbumStackThrottle();
 }
 
+var ALBUM_PAGE = 120;
+var _albumPaging = null;    // {albumId, offset, total, loading, done, excludeIds, titleText}
+var _albumObserver = null;
+
+// IntersectionObserver на донышке сетки — догрузка следующей порции
+function _setupAlbumSentinel() {
+  if (_albumObserver) { _albumObserver.disconnect(); _albumObserver = null; }
+  var s = document.getElementById('albumSentinel');
+  if (!s) return;
+  _albumObserver = new IntersectionObserver(function(entries) {
+    if (entries[0].isIntersecting) _loadAlbumPage();
+  }, {rootMargin: '600px'});
+  _albumObserver.observe(s);
+}
+
+async function _loadAlbumPage() {
+  var pg = _albumPaging;
+  if (!pg || pg.loading || pg.done) return;
+  pg.loading = true;
+  try {
+    var resp = await fetch(API + '/albums/' + pg.albumId + '/photos_page?offset=' + pg.offset + '&limit=' + ALBUM_PAGE);
+    var data = await resp.json();
+    var batch = data.photos || [];
+    pg.offset += batch.length;
+    pg.total = data.total;
+    if (pg.offset >= data.total || !batch.length) pg.done = true;
+    if (pg.excludeIds) {
+      batch = batch.filter(function(p) { return !pg.excludeIds[p.photo_id || p.db_id]; });
+    }
+    var grid = document.getElementById('grid');
+    if (grid && batch.length) {
+      var startIdx = currentPhotos.length;
+      var html = '';
+      for (var i = 0; i < batch.length; i++) html += buildCardHtml(batch[i], startIdx + i);
+      grid.insertAdjacentHTML('beforeend', html);
+      currentPhotos = currentPhotos.concat(batch);
+      setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 300);
+    }
+    var t = document.getElementById('albumPhotosTitle');
+    if (t) {
+      if (currentPhotos.length) {
+        t.style.display = '';
+        t.textContent = pg.titleText + ' (' + currentPhotos.length + (pg.done ? '' : '…') + ')';
+      } else if (pg.done) {
+        t.style.display = 'none';
+      }
+    }
+    if (pg.done && !currentPhotos.length && !document.querySelector('.grid-albums') && grid) {
+      grid.innerHTML = '<div class="empty"><p>В альбоме нет фото</p></div>';
+    }
+  } catch(e) {}
+  pg.loading = false;
+  if (pg.done) {
+    var s = document.getElementById('albumSentinel');
+    if (s) s.style.display = 'none';
+  }
+}
+
 async function openAlbum(id, el) {
   albumViewMode = true;
   _showAlbumLoading(el);
-  var resp = await fetch('/api/albums/' + id + '?full=true');
+  // Лёгкий запрос: альбом + photo_ids + cameras, без обогащённых фото
+  var resp = await fetch(API + '/albums/' + id + '?full=false');
   var album = await resp.json();
   currentAlbum = album;
   _syncUrl();
 
-  var photos = album.photos || [];
-  currentPhotos = photos;
-
+  currentPhotos = [];
   var isManual = album.source === 'manual';
   var photosHtml = '';
+  var excludeIds = null;
+  var hasSubAlbums = false;
 
   if (isManual) {
-    var membersResp = await fetch('/api/albums/' + id + '/members');
+    var membersResp = await fetch(API + '/albums/' + id + '/members');
     var members = await membersResp.json();
     var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
-    var photoMembers = members.filter(function(m) { return m.member_type === 'photo'; });
-    var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
 
     if (albumMembers.length) {
+      hasSubAlbums = true;
+      excludeIds = {};
       photosHtml += '<div class="grid-albums">';
-      var lastMonth = null;
       for (var ai = 0; ai < albumMembers.length; ai++) {
         var am = albumMembers[ai];
-        var subResp = await fetch('/api/albums/' + am.member_id + '?full=false');
+        var subResp = await fetch(API + '/albums/' + am.member_id + '?full=false');
         var subAlbum = await subResp.json();
         if (subAlbum && subAlbum.album_id) {
           photosHtml += _albumCardHtml(subAlbum);
+          var subIds = subAlbum.photo_ids || [];
+          for (var pi = 0; pi < subIds.length; pi++) excludeIds[subIds[pi]] = true;
         }
       }
       photosHtml += '</div>';
     }
-
-    var albumPhotoIds = {};
-    for (var mi = 0; mi < albumMembers.length; mi++) {
-      var subResp2 = await fetch('/api/albums/' + albumMembers[mi].member_id + '?full=false');
-      var subAlbum2 = await subResp2.json();
-      if (subAlbum2 && subAlbum2.photo_ids) {
-        for (var pi = 0; pi < subAlbum2.photo_ids.length; pi++) {
-          albumPhotoIds[subAlbum2.photo_ids[pi]] = true;
-        }
-      }
-    }
-    var standalonePhotos = photos.filter(function(p) {
-      var pid = p.photo_id || p.db_id;
-      return !albumPhotoIds[pid];
-    });
-    if (standalonePhotos.length) {
-      photosHtml += '<div class="ma-standalone-title">' + (albumMembers.length ? 'Отдельные фото' : 'Фото') + ' (' + standalonePhotos.length + ')</div>';
-      photosHtml += '<div class="grid" id="grid">' + standalonePhotos.map(function(p, idx) {
-        return buildCardHtml(p, idx);
-      }).join('') + '</div>';
-      setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
-    }
-    if (!albumMembers.length && !standalonePhotos.length) {
-      photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
-    }
-  } else {
-    if (photos.length) {
-      photosHtml = '<div class="grid" id="grid">' + photos.map(function(p, idx) {
-        return buildCardHtml(p, idx);
-      }).join('') + '</div>';
-      setTimeout(function() { _faceLoadEnabled = true; _observeThumbs(); }, 500);
-    } else {
-      photosHtml = '<div class="empty"><p>В альбоме нет фото</p></div>';
-    }
   }
+
+  // Сетка с серверным батчингом: порции по ALBUM_PAGE через sentinel
+  if (isManual) photosHtml += '<div class="ma-standalone-title" id="albumPhotosTitle" style="display:none"></div>';
+  photosHtml += '<div class="grid" id="grid"></div>';
+  photosHtml += '<div id="albumSentinel" class="album-sentinel"><div class="al-spinner"></div></div>';
 
   var meta = album.photo_count + ' фото \u00b7 ' + (album.date_start ? album.date_start.slice(0,10) : '') + (album.date_end ? ' \u2014 ' + album.date_end.slice(0,10) : '') + ' \u00b7 ' + esc(album.source === 'manual' ? 'ручной' : 'авто');
   var cameras = album.cameras || [];
@@ -646,6 +682,14 @@ async function openAlbum(id, el) {
     removeBtn +
     '</div>' + descHtml + membersHtml + photosHtml;
   if (isManual) loadAlbumMembers(album.album_id);
+
+  // Запуск серверного батчинга сетки (принцип основной галереи)
+  _albumPaging = {
+    albumId: id, offset: 0, total: null, loading: false, done: false,
+    excludeIds: excludeIds, titleText: hasSubAlbums ? 'Отдельные фото' : 'Фото'
+  };
+  _setupAlbumSentinel();
+  _loadAlbumPage();
 }
 
 async function loadAlbumMembers(albumId) {

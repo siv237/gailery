@@ -13,7 +13,9 @@
 - Источники: `src/api/albums.py`, `src/database.py`, `web/catalog.html`, `web/albums.html`.
 - Дополнение: фикс share-списка альбомов (`s_list_albums` собирался SQL по album_photos —
   живые альбомы пропадали); фикс UI `openManualAlbum` (альбом без подальбомов открывался
-  пустым); страница `entities/albums.md` уточнена.
+  пустым); серверный батчинг сетки альбома `photos_page` (44с → ~1с на 4750 фото);
+  F5-состояние в URL; спиннер открытия; скрытие «Удалить фото из альбома» в share-режиме;
+  страница `entities/albums.md` уточнена.
 
 ## [2026-07-09] ingest | Инициализация вики
 Создан слой LLM Wiki для проекта Gailery по паттерну LLM Wiki.

@@ -610,6 +610,44 @@ async def get_album(album_id: str, full: bool = False):
     return album
 
 
+@router.get("/{album_id}/photos_page")
+async def get_album_photos_page(album_id: str, offset: int = 0, limit: int = 120):
+    """Порция фото альбома — серверный батчинг сетки (принцип основной галереи).
+
+    Возвращает {photos, total, offset, limit}: обогащённые фото среза
+    [offset, offset+limit) полного состава (резолвер: статика + живой каталог).
+    cam_idx проставляется только для автоальбомов (в ручных UI камеры не
+    показывает — не тратим запрос).
+    """
+    import asyncio
+
+    if limit < 1 or limit > 500:
+        limit = 120
+    if offset < 0:
+        offset = 0
+
+    def _page():
+        from database import get_db
+        db = get_db()
+        album = db.get_album(album_id)
+        if not album:
+            return None
+        photo_ids = db.get_album_photos(album_id)
+        total = len(photo_ids)
+        page_ids = photo_ids[offset:offset + limit]
+        cameras = None
+        if album.get("source") != "manual":
+            cameras = _collect_album_cameras(db, photo_ids)
+        photos = _enrich_album_photos(db, page_ids, cameras) if page_ids else []
+        return {"photos": photos, "total": total, "offset": offset, "limit": limit}
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _page)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Album not found")
+    return result
+
+
 @router.post("/create")
 async def create_manual_album(body: dict = None):
     """Создать ручной альбом.

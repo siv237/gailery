@@ -1107,6 +1107,36 @@ async def s_get_album(album_id: str, request: Request, full: bool = False):
     return album
 
 
+@router.get("/api/albums/{album_id}/photos_page")
+async def s_album_photos_page(album_id: str, request: Request, offset: int = 0, limit: int = 120):
+    """Порция фото альбома в share-режиме (батчинг сетки), фильтр по scope."""
+    scope = request.cookies.get("share_scope", "")
+    scope_ids = _require_scope(scope)
+    scope_set = set(scope_ids)
+
+    if limit < 1 or limit > 500:
+        limit = 120
+    if offset < 0:
+        offset = 0
+
+    def _page():
+        db = get_db()
+        if not db.get_album(album_id):
+            return None
+        scoped = [p for p in db.get_album_photos(album_id) if p in scope_set]
+        total = len(scoped)
+        page_ids = scoped[offset:offset + limit]
+        from api.albums import _enrich_album_photos
+        photos = _enrich_album_photos(db, page_ids) if page_ids else []
+        return {"photos": photos, "total": total, "offset": offset, "limit": limit}
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _page)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Album not found")
+    return result
+
+
 @router.get("/api/albums/by_photo/{photo_id}")
 async def s_find_album_by_photo(photo_id: str, request: Request):
     scope = request.cookies.get("share_scope", "")
