@@ -1143,3 +1143,103 @@ class TestMaintenanceExtendedAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("ok") is True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Album catalog members — живые ссылки на папку каталога
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestAlbumCatalogMembersAPI:
+    """API семечек типа catalog: add/get/remove + валидация формата."""
+
+    @staticmethod
+    def _seed(db):
+        db.add_catalog_root("rcat", "/photos", alias="Каталог")
+        db.add_catalog_files_batch([
+            {"file_id": "c1", "root_id": "rcat", "rel_path": "2024/a.jpg",
+             "abs_path": "/photos/2024/a.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch1"},
+            {"file_id": "c2", "root_id": "rcat", "rel_path": "2024/b.jpg",
+             "abs_path": "/photos/2024/b.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch2"},
+            {"file_id": "c3", "root_id": "rcat", "rel_path": "2024/sub/c.jpg",
+             "abs_path": "/photos/2024/sub/c.jpg", "parent_dir": "2024/sub",
+             "ext": ".jpg", "is_canonical": 1, "ingested": 1, "content_hash": "ch3"},
+        ])
+        db.add_photo("/photos/2024/a.jpg", date="2024-01-01 10:00:00")
+        db.add_photo("/photos/2024/b.jpg", date="2024-01-02 10:00:00")
+        db.add_photo("/photos/2024/sub/c.jpg", date="2024-01-03 10:00:00")
+
+    def _create_album(self, app_client, title="Каталог тест"):
+        resp = app_client.post("/api/albums/create", json={"title": title})
+        assert resp.status_code == 200
+        return resp.json()["album_id"]
+
+    def test_catalog_member_lifecycle(self, app_client, db):
+        """Добавление семечки → состав альбома живой → удаление семечки."""
+        self._seed(db)
+        aid = self._create_album(app_client)
+
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "rcat|2024"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["ok"] is True
+        assert resp.json()["photo_count"] == 3  # 2024 + вложенная 2024/sub
+
+        resp = app_client.get(f"/api/albums/{aid}")
+        assert resp.status_code == 200
+        album = resp.json()
+        assert album["photo_count"] == 3
+        assert len(album["photo_ids"]) == 3
+
+        resp = app_client.get(f"/api/albums/{aid}/members")
+        assert resp.status_code == 200
+        cat = [m for m in resp.json() if m["member_type"] == "catalog"]
+        assert len(cat) == 1
+        assert cat[0]["photo_count"] == 3
+        assert "Каталог" in cat[0]["member_label"]
+
+        resp = app_client.delete(f"/api/albums/{aid}/members/catalog/rcat|2024")
+        assert resp.status_code == 200
+        resp = app_client.get(f"/api/albums/{aid}")
+        assert resp.json()["photo_ids"] == []
+
+    def test_catalog_member_nested_path_in_url(self, app_client, db):
+        """member_id со слэшами в пути работает через path-converter роута."""
+        self._seed(db)
+        aid = self._create_album(app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "rcat|2024/sub"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["photo_count"] == 1
+        resp = app_client.delete(f"/api/albums/{aid}/members/catalog/rcat|2024/sub")
+        assert resp.status_code == 200
+
+    def test_catalog_member_bad_format(self, app_client, db):
+        """member_id без разделителя | — 422."""
+        aid = self._create_album(app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "no-separator"})
+        assert resp.status_code == 422
+
+    def test_catalog_member_unknown_root(self, app_client, db):
+        """Несуществующий root_id — 404."""
+        aid = self._create_album(app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "nonexistent|2024"})
+        assert resp.status_code == 404
+
+    def test_catalog_member_no_album_photos_copy(self, app_client, db):
+        """Живая ссылка: album_photos остаётся пустой, фото не копируются."""
+        self._seed(db)
+        aid = self._create_album(app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "rcat|2024"})
+        assert resp.status_code == 200
+        cnt = db.sqlite.execute(
+            "SELECT COUNT(*) FROM album_photos WHERE album_id = ?", (aid,)
+        ).fetchone()[0]
+        assert cnt == 0
+        # а состав через API — полный
+        resp = app_client.get(f"/api/albums/{aid}?full=true")
+        assert len(resp.json()["photos"]) == 3

@@ -4,6 +4,14 @@
 Формат префикса: `## [YYYY-MM-DD] <ingest|query|lint> | <заголовок>`.
 Последние 5 записей: `grep "^## \[" wiki/log.md | tail -5`
 
+## [2026-07-31] ingest | Альбомы: семечка catalog (живая ссылка)
+Новая фича: добавление каталога (папки со всеми вложениями) в альбом из вкладки Каталог.
+- Создана страница `entities/albums.md` (хранилище, семечки, живой резолвер, API, UI,
+  план соответствия на перевод всех групповых семечек в динамику + exclude-семечки).
+- Добавлено решение `D-2026-07-31` в `decisions/decision-log.md`.
+- Обновлён `index.md` (сущность Альбомы).
+- Источники: `src/api/albums.py`, `src/database.py`, `web/catalog.html`, `web/albums.html`.
+
 ## [2026-07-09] ingest | Инициализация вики
 Создан слой LLM Wiki для проекта Gailery по паттерну LLM Wiki.
 - Создана схема `wiki/AGENTS.md` (слои raw sources / wiki / schema, воркфлоу ingest/query/lint).

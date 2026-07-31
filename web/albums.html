@@ -377,8 +377,10 @@ async function loadAlbums() {
       var personas = members.filter(function(m) { return m.member_type === 'persona'; });
       var subAlbums = members.filter(function(m) { return m.member_type === 'album'; });
       var photoOnly = members.filter(function(m) { return m.member_type === 'photo'; });
+      var catalogs = members.filter(function(m) { return m.member_type === 'catalog'; });
       var summary = '';
       if (personas.length) summary += personas.map(function(m) { return '\u{1F464} ' + esc(m.member_label); }).join(' \u00B7 ');
+      if (catalogs.length) summary += (summary ? ' \u00B7 ' : '') + catalogs.map(function(m) { return '\u{1F4C2} ' + esc(m.member_label); }).join(' \u00B7 ');
       if (subAlbums.length) summary += (summary ? ' \u00B7 ' : '') + subAlbums.length + ' альбомов';
       if (photoOnly.length) summary += (summary ? ' \u00B7 ' : '') + photoOnly.length + ' фото';
       if (!summary) summary = a.photo_count + ' фото';
@@ -449,6 +451,12 @@ async function openManualAlbum(id) {
 
   var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
   var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
+
+  // Альбом без подальбомов (фото напрямую, каталог, персоны) —
+  // сразу полный вид с сеткой фото (openAlbum умеет состав + members-бар)
+  if (!albumMembers.length) {
+    return openAlbum(id);
+  }
 
   var html = '<div class="album-bar">' +
     '<button class="btn-secondary" onclick="switchTab(\'manual\')">&#8592;</button>' +
@@ -613,7 +621,7 @@ async function loadAlbumMembers(albumId) {
     var parts = ['<b>Состав:</b> '];
     for (var i = 0; i < members.length; i++) {
       var m = members[i];
-      var icon = m.member_type === 'persona' ? '\u{1F464}' : m.member_type === 'album' ? '\u{1F4C1}' : '\u{1F4F7}';
+      var icon = m.member_type === 'persona' ? '\u{1F464}' : m.member_type === 'album' ? '\u{1F4C1}' : m.member_type === 'catalog' ? '\u{1F4C2}' : '\u{1F4F7}';
       var label = m.member_label || m.member_id;
       parts.push(icon + ' ' + esc(label) + ' <span class="muted-text">(' + m.photo_count + ')</span>');
     }

@@ -490,6 +490,18 @@ async def list_albums(source: str = ""):
                 albums = [a for a in albums if a.get("source") == source]
             if not albums:
                 return []
+            # Альбомы с живыми catalog-семечками: мета могла устареть
+            # (индексация меняет содержимое каталога) — пересчитываем.
+            cat_aids = {r[0] for r in conn.execute(
+                "SELECT DISTINCT album_id FROM album_members WHERE member_type = 'catalog'"
+            ).fetchall()}
+            for a in albums:
+                if a["album_id"] in cat_aids:
+                    db.refresh_album_meta_if_catalog(a["album_id"])
+                    fresh = db.get_album(a["album_id"])
+                    if fresh:
+                        for k in ("photo_count", "date_start", "date_end", "cover_photo_id"):
+                            a[k] = fresh[k]
             album_ids = [a["album_id"] for a in albums]
             ph = ",".join("?" * len(album_ids))
             rows = conn.execute(
@@ -502,7 +514,11 @@ async def list_albums(source: str = ""):
             for aid, pid in rows:
                 all_pids.setdefault(aid, []).append(pid)
             for a in albums:
-                ids = all_pids.get(a["album_id"], [])
+                if a["album_id"] in cat_aids:
+                    # Полный состав через резолвер (статика + живой каталог)
+                    ids = db.get_album_photos(a["album_id"])
+                else:
+                    ids = all_pids.get(a["album_id"], [])
                 cover = a.get("cover_photo_id")
                 rest = [i for i in ids if i != cover]
                 if len(rest) > 2:
@@ -565,7 +581,9 @@ async def get_album(album_id: str, full: bool = False):
     import asyncio
 
     def _get_album_sync():
+        from database import get_db
         db = get_db()
+        db.refresh_album_meta_if_catalog(album_id)
         album = db.get_album(album_id)
         if not album:
             return None
@@ -806,9 +824,12 @@ async def get_album_members(album_id: str):
 async def add_album_member(album_id: str, request: Request):
     """Добавить семечку в ручной альбом.
 
-    body: {member_type: "persona"|"photo", member_id: "..."}
+    body: {member_type: "persona"|"photo"|"catalog", member_id: "..."}
     Для persona: все фото персоны + все фото из автоальбомов с ней.
     Для photo: одно фото.
+    Для catalog: живая ссылка на папку каталога (member_id = "root_id|path").
+      Фото НЕ копируются в album_photos — состав вычисляется динамически
+      при каждом чтении альбома (см. get_album_photos).
     """
     import asyncio
     from database import get_db
@@ -850,15 +871,35 @@ async def add_album_member(album_id: str, request: Request):
             db2.add_photos_to_album(album_id, [mid])
             db2.add_album_member(album_id, "photo", mid, "", 1)
             return {"ok": True, "photo_count": 1}
-        raise HTTPException(status_code=422, detail="member_type must be persona or photo")
+        if mtype == "catalog":
+            root_id, sep, path = mid.partition("|")
+            if not sep or not root_id:
+                raise HTTPException(status_code=422,
+                                    detail="catalog member_id format: root_id|path")
+            root = db2.get_catalog_root(root_id)
+            if not root:
+                raise HTTPException(status_code=404, detail="Catalog root not found")
+            photo_ids = db2.get_catalog_photo_ids(root_id, path)
+            alias = root.get("alias") or root_id
+            label = alias + (": " + path if path else "")
+            db2.add_album_member(album_id, "catalog", mid, label, len(photo_ids))
+            db2._update_album_meta(album_id)
+            db2.sqlite.commit()
+            return {"ok": True, "photo_count": len(photo_ids)}
+        raise HTTPException(status_code=422, detail="member_type must be persona, photo or catalog")
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _add)
 
 
-@router.delete("/{album_id}/members/{member_type}/{member_id}")
+@router.delete("/{album_id}/members/{member_type}/{member_id:path}")
 async def remove_album_member(album_id: str, member_type: str, member_id: str):
-    """Удалить семечку из ручного альбома + её фото."""
+    """Удалить семечку из ручного альбома + её фото.
+
+    Для catalog-семечки (member_id = "root_id|path", содержит слэши —
+    поэтому member_id:path) фото чистить не нужно: живая ссылка,
+    фото не хранятся в album_photos.
+    """
     import asyncio
     from database import get_db
     db = get_db()
@@ -880,12 +921,18 @@ async def remove_album_member(album_id: str, member_type: str, member_id: str):
         elif member_type == "album":
             ap_ids = db2.get_album_photos(member_id)
             photo_ids_to_remove.update(ap_ids)
+        elif member_type == "catalog":
+            pass  # живая ссылка — фото не материализованы, чистить нечего
         db2.remove_photos_from_album(album_id, list(photo_ids_to_remove))
         db2.remove_album_member(album_id, member_type, member_id)
         if member_type == "persona":
             for m in members:
                 if m["member_type"] == "album":
                     db2.remove_album_member(album_id, "album", m["member_id"])
+        if member_type == "catalog":
+            # Состав изменился (живая часть отцепилась) — пересчёт мета
+            db2._update_album_meta(album_id)
+            db2.sqlite.commit()
         return {"ok": True, "removed": len(photo_ids_to_remove)}
 
     loop = asyncio.get_event_loop()

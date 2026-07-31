@@ -226,6 +226,24 @@
         .ad-cancel:hover { background: #30363d; }
 
         .loading { font-size: 12px; }
+
+        /* Модалка «Каталог в альбом» (по аналогии с personas/albums) */
+        .album-create-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000; display: none; align-items: center; justify-content: center; }
+        .album-create-modal.show { display: flex; }
+        .light-theme .album-create-modal { background: rgba(0,0,0,.3); }
+        .album-create-box { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw; }
+        .light-theme .album-create-box { background: #fff; border-color: #d0d7de; }
+        .album-create-box h3 { margin: 0 0 16px; color: #c9d1d9; }
+        .light-theme .album-create-box h3 { color: #24292f; }
+        .album-create-box input[type=text] { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 13px; box-sizing: border-box; }
+        .light-theme .album-create-box input[type=text] { background: #f6f8fa; border-color: #d0d7de; color: #24292f; }
+        .acm-btns { display: flex; gap: 8px; justify-content: flex-end; }
+        .acm-album-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; border-bottom: 1px solid #21262d; font-size: 13px; }
+        .light-theme .acm-album-row { border-color: #eaeef2; }
+        .acm-muted { color: #6e7681; font-size: 11px; }
+        .light-theme .acm-muted { color: #57606a; }
+        .acm-section { margin: 14px 0 8px; color: #8b949e; font-size: 11px; font-family: monospace; }
+        .light-theme .acm-section { color: #57606a; }
 .sidebar-toggle { display: none; position: fixed; bottom: 20px; left: 20px; z-index: 90; background: #238636; color: #fff; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 22px; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; }
 .sidebar-close-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; }
 .sidebar-close-overlay.mob-open { display: block; }
@@ -702,7 +720,88 @@ function showFolderDetail(rootId, path) {
     var html = '<div class="dp-label">Имя</div><div class="dp-value">' + esc(folderName) + '</div>';
     html += '<div class="dp-label">Путь</div><div class="dp-value">' + esc(path || '/') + '</div>';
     html += '<div class="dp-label">Источник</div><div class="dp-value">' + esc(currentRootAlias) + '</div>';
+    html += '<div style="margin-top:16px"><button class="dp-btn-toalbum" onclick="showFolderToAlbum()" title="Добавить каталог со всеми вложениями в альбом (живая ссылка)">В альбом</button></div>';
     body.innerHTML = html;
+}
+
+function showFolderToAlbum() {
+    if (!currentRootId) return;
+    var old = document.getElementById('folderAlbumModal');
+    if (old) old.remove();
+    var m = document.createElement('div');
+    m.id = 'folderAlbumModal';
+    m.className = 'album-create-modal show';
+    var folderName = currentPath ? currentPath.split('/').pop() : (currentRootAlias || 'Корень');
+    m.innerHTML = '<div class="album-create-box" onclick="event.stopPropagation()">' +
+        '<h3>Каталог в альбом</h3>' +
+        '<p class="acm-muted" style="margin:0 0 6px">Живая ссылка: альбом будет сам следить за изменениями каталога (новые/удалённые фото после индексации)</p>' +
+        '<div class="acm-section">Существующий альбом</div>' +
+        '<div id="ftaAlbumList" style="max-height:220px;overflow-y:auto">Загрузка...</div>' +
+        '<div class="acm-section">Или создать новый</div>' +
+        '<input type="text" id="ftaNewTitle" value="' + esc(folderName) + '">' +
+        '<button style="width:100%;margin-top:8px" onclick="_ftaCreate()">Создать и добавить</button>' +
+        '<div class="acm-btns" style="margin-top:12px"><button class="btn-secondary" onclick="_ftaClose()">Отмена</button></div></div>';
+    m.onclick = _ftaClose;
+    document.body.appendChild(m);
+    _ftaLoadList();
+}
+
+function _ftaClose() {
+    var m = document.getElementById('folderAlbumModal');
+    if (m) m.remove();
+}
+
+async function _ftaLoadList() {
+    var el = document.getElementById('ftaAlbumList');
+    if (!el) return;
+    var resp = await fetch(API + '/albums/?source=manual');
+    var albums = await resp.json();
+    if (!albums.length) {
+        el.innerHTML = '<p class="acm-muted" style="margin:4px 0">Нет ручных альбомов</p>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < albums.length; i++) {
+        var a = albums[i];
+        html += '<label class="acm-album-row"><input type="radio" name="ftaAlbum" value="' + esc(a.album_id) + '" style="cursor:pointer">' +
+            '<span>' + esc(a.title) + ' <span class="acm-muted">(' + a.photo_count + ')</span></span></label>';
+    }
+    html += '<button style="width:100%;margin-top:10px" onclick="_ftaSubmit()">Добавить в выбранный</button>';
+    el.innerHTML = html;
+}
+
+async function _ftaSubmit() {
+    var selected = document.querySelector('#folderAlbumModal input[name=ftaAlbum]:checked');
+    if (!selected) return;
+    await _ftaAddTo(selected.value);
+}
+
+async function _ftaCreate() {
+    var inp = document.getElementById('ftaNewTitle');
+    var title = inp ? inp.value.trim() : '';
+    if (!title) return;
+    var resp = await fetch(API + '/albums/create', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: title})
+    });
+    var data = await resp.json();
+    if (data.ok && data.album_id) {
+        await _ftaAddTo(data.album_id);
+    }
+}
+
+async function _ftaAddTo(albumId) {
+    var memberId = currentRootId + '|' + currentPath;
+    var resp = await fetch(API + '/albums/' + encodeURIComponent(albumId) + '/members', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({member_type: 'catalog', member_id: memberId})
+    });
+    var data = await resp.json();
+    if (data.ok) {
+        _ftaClose();
+    } else {
+        alert('Ошибка: ' + (data.detail || 'неизвестно'));
+    }
 }
 
 function showPhotoDetail(idx) {

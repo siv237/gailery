@@ -804,3 +804,172 @@ class TestMigrationSafety:
             f"Это дублирование логики — правь в одном месте.\n"
             + "\n".join(f"  {q[:100]}..." for q in duplicates)
         )
+
+
+class TestAlbumCatalogMembers:
+    """Семечки типа catalog — живые ссылки на папку каталога.
+
+    Состав альбома с catalog-семечкой вычисляется динамически при чтении:
+    фото НЕ копируются в album_photos. Изменения каталога (новые файлы,
+    deleted-флаги) автоматически отражаются в альбоме.
+    """
+
+    @staticmethod
+    def _seed_catalog(db):
+        """Root + файлы: 2024/ (a, b), 2024/sub/ (c), 2025/ (d), 2024x/ (e)."""
+        db.add_catalog_root("rcat", "/photos", alias="Каталог")
+        db.add_catalog_files_batch([
+            {"file_id": "c1", "root_id": "rcat", "rel_path": "2024/a.jpg",
+             "abs_path": "/photos/2024/a.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch1"},
+            {"file_id": "c2", "root_id": "rcat", "rel_path": "2024/b.jpg",
+             "abs_path": "/photos/2024/b.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch2"},
+            {"file_id": "c3", "root_id": "rcat", "rel_path": "2024/sub/c.jpg",
+             "abs_path": "/photos/2024/sub/c.jpg", "parent_dir": "2024/sub",
+             "ext": ".jpg", "is_canonical": 1, "ingested": 1, "content_hash": "ch3"},
+            {"file_id": "c4", "root_id": "rcat", "rel_path": "2025/d.jpg",
+             "abs_path": "/photos/2025/d.jpg", "parent_dir": "2025", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch4"},
+            {"file_id": "c5", "root_id": "rcat", "rel_path": "2024x/e.jpg",
+             "abs_path": "/photos/2024x/e.jpg", "parent_dir": "2024x", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch5"},
+        ])
+        pids = {
+            "a": db.add_photo("/photos/2024/a.jpg", date="2024-01-01 10:00:00"),
+            "b": db.add_photo("/photos/2024/b.jpg", date="2024-01-02 10:00:00"),
+            "c": db.add_photo("/photos/2024/sub/c.jpg", date="2024-01-03 10:00:00"),
+            "d": db.add_photo("/photos/2025/d.jpg", date="2025-01-01 10:00:00"),
+            "e": db.add_photo("/photos/2024x/e.jpg", date="2024-05-01 10:00:00"),
+        }
+        return pids
+
+    def test_catalog_photo_ids_recursive(self, db):
+        """Папка включает все вложенные подпапки рекурсивно."""
+        pids = self._seed_catalog(db)
+        ids = set(db.get_catalog_photo_ids("rcat", "2024"))
+        assert ids == {pids["a"], pids["b"], pids["c"]}
+
+    def test_catalog_photo_ids_prefix_safety(self, db):
+        """Папка 2024x НЕ попадает в выборку папки 2024 (граница слэша)."""
+        pids = self._seed_catalog(db)
+        ids = set(db.get_catalog_photo_ids("rcat", "2024"))
+        assert pids["e"] not in ids
+
+    def test_catalog_photo_ids_whole_root(self, db):
+        """Пустой path — весь root целиком."""
+        pids = self._seed_catalog(db)
+        ids = set(db.get_catalog_photo_ids("rcat", ""))
+        assert ids == set(pids.values())
+
+    def test_catalog_photo_ids_excludes_noncanonical(self, db):
+        """Дубли (is_canonical=0), удалённые и не-ingested файлы не входят."""
+        pids = self._seed_catalog(db)
+        db.update_catalog_file("c2", deleted=1)
+        db.update_catalog_file("c3", is_canonical=0)
+        db.add_catalog_files_batch([
+            {"file_id": "c6", "root_id": "rcat", "rel_path": "2024/f.jpg",
+             "abs_path": "/photos/2024/f.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 0, "content_hash": "ch6"},
+        ])
+        db.add_photo("/photos/2024/f.jpg", date="2024-01-06 10:00:00")
+        ids = set(db.get_catalog_photo_ids("rcat", "2024"))
+        assert ids == {pids["a"]}
+
+    def test_catalog_member_dynamic_lifecycle(self, db):
+        """Живость: новые фото каталога появляются в альбоме сами, удалённые исчезают."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual")
+        db.add_album_member(album_id, "catalog", "rcat|2024", "Каталог: 2024", 3)
+
+        # Состав содержит каталожные фото, album_photos пуст (ничего не копируется)
+        assert set(db.get_album_photos(album_id)) == {pids["a"], pids["b"], pids["c"]}
+        rows = db.sqlite.execute(
+            "SELECT COUNT(*) FROM album_photos WHERE album_id = ?", (album_id,)
+        ).fetchone()
+        assert rows[0] == 0
+
+        # Новое фото в каталоге появляется в альбоме БЕЗ повторного добавления
+        db.add_catalog_files_batch([
+            {"file_id": "c7", "root_id": "rcat", "rel_path": "2024/new.jpg",
+             "abs_path": "/photos/2024/new.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch7"},
+        ])
+        new_pid = db.add_photo("/photos/2024/new.jpg", date="2024-01-05 10:00:00")
+        assert new_pid in set(db.get_album_photos(album_id))
+
+        # Файл помечен удалённым — исчез из альбома
+        db.update_catalog_file("c7", deleted=1)
+        assert new_pid not in set(db.get_album_photos(album_id))
+
+        # Удаление семечки — состав пуст
+        db.remove_album_member(album_id, "catalog", "rcat|2024")
+        assert db.get_album_photos(album_id) == []
+
+    def test_catalog_member_dedup(self, db):
+        """Фото и в album_photos и в каталоге — показывается один раз."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual",
+                                   photo_ids=[pids["a"]])
+        db.add_album_member(album_id, "catalog", "rcat|2024", "", 3)
+        ids = db.get_album_photos(album_id)
+        assert ids.count(pids["a"]) == 1
+        assert set(ids) == {pids["a"], pids["b"], pids["c"]}
+
+    def test_catalog_member_meta(self, db):
+        """_update_album_meta считает мету с учётом живого каталога."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual")
+        db.add_album_member(album_id, "catalog", "rcat|2024", "", 3)
+        db._update_album_meta(album_id)
+        db.sqlite.commit()
+        album = db.get_album(album_id)
+        assert album["photo_count"] == 3
+        assert album["date_start"].startswith("2024-01-01")
+        assert album["date_end"].startswith("2024-01-03")
+        assert album["cover_photo_id"] in {pids["a"], pids["b"], pids["c"]}
+
+    def test_get_album_members_live_count(self, db):
+        """photo_count catalog-семечки пересчитывается живьём при чтении."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual")
+        db.add_album_member(album_id, "catalog", "rcat|2024", "Каталог: 2024", 0)
+        members = db.get_album_members(album_id)
+        assert members[0]["photo_count"] == 3
+        # Добавили фото в каталог — счётчик обновился сам
+        db.add_catalog_files_batch([
+            {"file_id": "c8", "root_id": "rcat", "rel_path": "2024/z.jpg",
+             "abs_path": "/photos/2024/z.jpg", "parent_dir": "2024", "ext": ".jpg",
+             "is_canonical": 1, "ingested": 1, "content_hash": "ch8"},
+        ])
+        db.add_photo("/photos/2024/z.jpg", date="2024-01-07 10:00:00")
+        members = db.get_album_members(album_id)
+        assert members[0]["photo_count"] == 4
+
+    def test_refresh_album_meta_if_catalog(self, db):
+        """refresh срабатывает только для альбомов с catalog-семечками."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual",
+                                   photo_ids=[pids["d"]])
+        assert db.refresh_album_meta_if_catalog(album_id) is False
+        db.add_album_member(album_id, "catalog", "rcat|2024", "", 0)
+        assert db.refresh_album_meta_if_catalog(album_id) is True
+        album = db.get_album(album_id)
+        assert album["photo_count"] == 4  # 3 каталожных + 1 статичное
+
+    def test_static_only_album_unchanged(self, db):
+        """Регрессия: альбом без catalog-семечек ведёт себя как раньше."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="S", source="manual",
+                                   photo_ids=[pids["a"], pids["b"]])
+        assert db.get_album_photos(album_id) == [pids["a"], pids["b"]]
+
+    def test_update_album_meta_preserves_valid_cover(self, db):
+        """Обложка, выбранная пользователем, не сбрасывается если она в составе."""
+        pids = self._seed_catalog(db)
+        album_id = db.create_album(title="Тест", source="manual",
+                                   photo_ids=[pids["a"], pids["b"]])
+        db.update_album(album_id, cover_photo_id=pids["b"])
+        db.add_photos_to_album(album_id, [pids["c"]])  # триггерит _update_album_meta
+        album = db.get_album(album_id)
+        assert album["cover_photo_id"] == pids["b"]

@@ -1550,12 +1550,38 @@ class DatabaseManager:
         ))
 
     def get_album_photos(self, album_id):
-        """Список photo_id в альбоме, отсортированные ранние → поздние."""
+        """Список photo_id в альбоме, отсортированные ранние → поздние.
+
+        Состав = статические фото (album_photos) + живые фото catalog-семечек
+        (вычисляются в момент чтения через catalog_files — см. get_catalog_photo_ids).
+        Для альбомов без catalog-семечек поведение идентично прежнему.
+        """
         rows = self.sqlite.execute(
             "SELECT ap.photo_id FROM album_photos ap "
             "JOIN photos p ON p.photo_id = ap.photo_id "
             "WHERE ap.album_id = ? ORDER BY COALESCE(p.date_utc, p.manual_date, p.date) ASC, p.path ASC",
             (album_id,)
+        ).fetchall()
+        photo_ids = [r[0] for r in rows]
+        cat_members = self.sqlite.execute(
+            "SELECT member_id FROM album_members "
+            "WHERE album_id = ? AND member_type = 'catalog'",
+            (album_id,)
+        ).fetchall()
+        if not cat_members:
+            return photo_ids
+        ids = set(photo_ids)
+        for (mid,) in cat_members:
+            root_id, _, path = (mid or "").partition("|")
+            if root_id:
+                ids.update(self.get_catalog_photo_ids(root_id, path))
+        if not ids:
+            return []
+        ph = ",".join("?" * len(ids))
+        rows = self.sqlite.execute(
+            f"SELECT photo_id FROM photos WHERE photo_id IN ({ph}) "  # nosec B608 — ph is ? placeholders only, values parameterized
+            f"ORDER BY COALESCE(date_utc, manual_date, date) ASC, path ASC",
+            list(ids)
         ).fetchall()
         return [r[0] for r in rows]
 
@@ -1687,37 +1713,48 @@ class DatabaseManager:
     def _update_album_meta(self, album_id):
         """Пересчитать photo_count, date_start, date_end, cover.
 
-        Cover — первое фото с лицами, иначе первое фото.
+        Считает по полному составу альбома (статика + живые catalog-семечки).
+        Обложка сохраняется если текущая ещё в составе; иначе —
+        первое фото с лицами, иначе первое фото.
+        Без commit — вызывающий метод коммитит сам.
         """
+        photo_ids = self.get_album_photos(album_id)
+        now = datetime.now().isoformat()
+        if not photo_ids:
+            self.sqlite.execute(
+                "UPDATE albums SET photo_count = 0, date_start = NULL, date_end = NULL, "
+                "cover_photo_id = NULL, updated_at = ? WHERE album_id = ?",
+                (now, album_id)
+            )
+            return
+        ph = ",".join("?" * len(photo_ids))
         r = self.sqlite.execute(
-            "SELECT COUNT(*), MIN(p.date), MAX(p.date) "
-            "FROM album_photos ap JOIN photos p ON p.photo_id = ap.photo_id "
-            "WHERE ap.album_id = ? AND p.deleted = 0",
-            (album_id,)
+            f"SELECT COUNT(*), MIN(p.date), MAX(p.date) FROM photos p "  # nosec B608 — ph is ? placeholders only, values parameterized
+            f"WHERE p.photo_id IN ({ph}) AND p.deleted = 0",
+            photo_ids
         ).fetchone()
         count, d1, d2 = r if r else (0, None, None)
         self.sqlite.execute(
             "UPDATE albums SET photo_count = ?, date_start = ?, date_end = ?, updated_at = ? "
             "WHERE album_id = ?",
-            (count, d1, d2, datetime.now().isoformat(), album_id)
+            (count, d1, d2, now, album_id)
         )
-        if count == 0:
+        cur = self.sqlite.execute(
+            "SELECT cover_photo_id FROM albums WHERE album_id = ?", (album_id,)
+        ).fetchone()
+        cur_cover = cur[0] if cur else None
+        if cur_cover and cur_cover in set(photo_ids):
+            return
+        cr = self.sqlite.execute(
+            f"SELECT photo_id FROM photos WHERE photo_id IN ({ph}) AND deleted = 0 "  # nosec B608 — ph is ? placeholders only, values parameterized
+            f"ORDER BY faces_present DESC, date ASC LIMIT 1",
+            photo_ids
+        ).fetchone()
+        if cr:
             self.sqlite.execute(
-                "UPDATE albums SET cover_photo_id = NULL WHERE album_id = ?", (album_id,)
+                "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
+                (cr[0], album_id)
             )
-        else:
-            cr = self.sqlite.execute(
-                "SELECT ap.photo_id FROM album_photos ap "
-                "JOIN photos p ON p.photo_id = ap.photo_id "
-                "WHERE ap.album_id = ? AND p.deleted = 0 "
-                "ORDER BY p.faces_present DESC, p.date ASC LIMIT 1",
-                (album_id,)
-            ).fetchone()
-            if cr:
-                self.sqlite.execute(
-                    "UPDATE albums SET cover_photo_id = ? WHERE album_id = ?",
-                    (cr[0], album_id)
-                )
 
     def add_album_member(self, album_id, member_type, member_id, member_label="", photo_count=0):
         """Добавить семечку в альбом (persona/photo/album)."""
@@ -1730,13 +1767,22 @@ class DatabaseManager:
         self.sqlite.commit()
 
     def get_album_members(self, album_id):
-        """Вернуть список семечек альбома."""
+        """Вернуть список семечек альбома.
+
+        Для catalog-семечек photo_count пересчитывается живьём —
+        запомненное значение могло устареть после изменений каталога.
+        """
         rows = self.sqlite.execute(
             "SELECT member_type, member_id, member_label, photo_count, added_at "
             "FROM album_members WHERE album_id = ? ORDER BY added_at",
             (album_id,)
         ).fetchall()
-        return [dict(zip(["member_type", "member_id", "member_label", "photo_count", "added_at"], r)) for r in rows]
+        members = [dict(zip(["member_type", "member_id", "member_label", "photo_count", "added_at"], r)) for r in rows]
+        for m in members:
+            if m["member_type"] == "catalog":
+                root_id, _, path = (m["member_id"] or "").partition("|")
+                m["photo_count"] = len(self.get_catalog_photo_ids(root_id, path))
+        return members
 
     def remove_album_member(self, album_id, member_type, member_id):
         """Удалить семечку из альбома. Возвращает True если семечка была."""
@@ -1775,6 +1821,50 @@ class DatabaseManager:
             photo_ids
         ).fetchall()
         return [r[0] for r in rows]
+
+    def get_catalog_photo_ids(self, root_id, path=""):
+        """Все photo_id фото каталога (root_id + папка path) со всеми вложениями.
+
+        Живой запрос: canonical, не удалённые, ingested файлы каталога,
+        JOIN photos (не удалённые). path="" — весь root.
+        Состав меняется сам по мере работы индексации (scan/ingest/deleted).
+        """
+        if path:
+            rows = self.sqlite.execute(
+                "SELECT p.photo_id FROM catalog_files cf "
+                "JOIN photos p ON p.path = cf.abs_path AND p.deleted = 0 "
+                "WHERE cf.root_id = ? AND cf.is_canonical = 1 AND cf.deleted = 0 "
+                "AND cf.ingested = 1 "
+                "AND (cf.parent_dir = ? OR substr(cf.parent_dir, 1, ?) = ?)",
+                (root_id, path, len(path) + 1, path + "/")
+            ).fetchall()
+        else:
+            rows = self.sqlite.execute(
+                "SELECT p.photo_id FROM catalog_files cf "
+                "JOIN photos p ON p.path = cf.abs_path AND p.deleted = 0 "
+                "WHERE cf.root_id = ? AND cf.is_canonical = 1 AND cf.deleted = 0 "
+                "AND cf.ingested = 1",
+                (root_id,)
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    def refresh_album_meta_if_catalog(self, album_id):
+        """Пересчитать мету альбома если у него есть catalog-семечки.
+
+        Живые семечки меняют состав вне add/remove операций (индексация,
+        удаление файлов) — мету пересчитываем при чтении. Возвращает True
+        если пересчёт был выполнен. Делает commit.
+        """
+        r = self.sqlite.execute(
+            "SELECT 1 FROM album_members WHERE album_id = ? AND member_type = 'catalog' "
+            "LIMIT 1",
+            (album_id,)
+        ).fetchone()
+        if not r:
+            return False
+        self._update_album_meta(album_id)
+        self.sqlite.commit()
+        return True
 
     def audit_log(self, ip, method, path, status, scope=None, user_agent=None):
         """Записать клиентское действие в журнал аудита."""
