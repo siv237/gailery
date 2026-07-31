@@ -11,6 +11,9 @@
 - Добавлено решение `D-2026-07-31` в `decisions/decision-log.md`.
 - Обновлён `index.md` (сущность Альбомы).
 - Источники: `src/api/albums.py`, `src/database.py`, `web/catalog.html`, `web/albums.html`.
+- Дополнение: фикс share-списка альбомов (`s_list_albums` собирался SQL по album_photos —
+  живые альбомы пропадали); фикс UI `openManualAlbum` (альбом без подальбомов открывался
+  пустым); страница `entities/albums.md` уточнена.
 
 ## [2026-07-09] ingest | Инициализация вики
 Создан слой LLM Wiki для проекта Gailery по паттерну LLM Wiki.

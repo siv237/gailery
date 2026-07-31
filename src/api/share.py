@@ -1018,6 +1018,29 @@ async def s_list_albums(request: Request, source: str = ""):
             params.append(source)
         query += " ORDER BY a.date_start DESC"
         rows = db.sqlite.execute(query, params).fetchall()
+        # Живые альбомы (catalog-семечки): album_photos пусты, SQL по album_photos
+        # их не находит — добираем те, чей живой состав пересекается со scope.
+        found_ids = {r[0] for r in rows}
+        cat_ids = [r[0] for r in db.sqlite.execute(
+            "SELECT DISTINCT album_id FROM album_members WHERE member_type = 'catalog'"
+        ).fetchall()]
+        missing = [aid for aid in cat_ids if aid not in found_ids]
+        if missing:
+            scope_set_live = set(scope_ids)
+            mph = ",".join("?" * len(missing))
+            mrows = db.sqlite.execute(
+                "SELECT a.album_id, a.title, a.description, a.cover_photo_id, "
+                "a.date_start, a.date_end, a.photo_count, a.source, a.created_at, a.updated_at "
+                "FROM albums a WHERE a.album_id IN (" + mph + ")",  # nosec B608 — mph is ? placeholders only, values parameterized
+                missing
+            ).fetchall()
+            for r in mrows:
+                if source in ("auto", "manual") and r[7] != source:
+                    continue
+                if scope_set_live.isdisjoint(db.get_album_photos(r[0])):
+                    continue
+                rows.append(r)
+            rows.sort(key=lambda r: r[4] or "", reverse=True)
         albums = []
         cols = ["album_id", "title", "description", "cover_photo_id",
                 "date_start", "date_end", "photo_count", "source",

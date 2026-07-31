@@ -1243,3 +1243,32 @@ class TestAlbumCatalogMembersAPI:
         # а состав через API — полный
         resp = app_client.get(f"/api/albums/{aid}?full=true")
         assert len(resp.json()["photos"]) == 3
+
+    def test_share_list_includes_catalog_album(self, app_client, db, monkeypatch):
+        """Share: живой альбом виден в списке альбомов шаринга.
+
+        Регрессия: share list собирался SQL по album_photos — для живого
+        каталога она пуста, альбом пропадал из списка ручных альбомов.
+        Вызов endpoint-функции напрямую (в тестовом окружении app держит
+        свой изолированный модуль api.share — HTTP-слой его не достаёт).
+        """
+        self._seed(db)
+        aid = self._create_album(app_client)
+        resp = app_client.post(f"/api/albums/{aid}/members", json={
+            "member_type": "catalog", "member_id": "rcat|2024"})
+        assert resp.status_code == 200
+        # scope как у share-ссылки album:aid — фото альбома через резолвер
+        assert len(db.get_album_photos(aid)) == 3
+
+        import asyncio, importlib
+        share_mod = importlib.import_module("api.share")
+        monkeypatch.setattr(share_mod, "get_db", lambda: db)
+
+        class _FakeReq:
+            cookies = {"share_scope": f"album:{aid}"}
+
+        result = asyncio.run(share_mod.s_list_albums(_FakeReq(), source="manual"))
+        ids = [a["album_id"] for a in result]
+        assert aid in ids
+        mine = [a for a in result if a["album_id"] == aid][0]
+        assert mine["photo_count"] == 3
