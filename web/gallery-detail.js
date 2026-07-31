@@ -719,6 +719,9 @@ function _camStyles() {
         '.cm-cap-date{font-size:9px;color:#6e7681;white-space:nowrap}',
         '.cm-cap-anc .cm-cap-time{color:#d29922;font-size:14px}',
         '.cm-cap-ph .cm-cap-time{color:#8b949e;font-size:10px;font-weight:normal}',
+        '.cm-cap-diff{font-size:9px;color:#6e7681;white-space:nowrap}',
+        '.cm-cap-diff.warn{color:#d29922;font-weight:bold}',
+        '.cm-cap-diff.crit{color:#f85149;font-weight:bold}',
         '.cm-item-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0}'
     ].join('\n');
     document.head.appendChild(s);
@@ -752,7 +755,19 @@ function _fd(d) {
 function _fs(sc) {
     var sg = sc >= 0 ? '+' : '-', a = Math.abs(sc);
     var h = Math.floor(a/3600), m = Math.floor((a%3600)/60);
-    return sg + (h > 0 ? h+'\u0447 '+m+'\u043c' : m+'\u043c');
+    return sg + (h > 0 ? h+'ч '+m+'м' : m+'м');
+}
+function _fm(mn) {
+    // Точное расхождение в минутах: "-5760 мин", "+3.5 мин", "0 мин"
+    var r = Math.round(mn * 10) / 10;
+    if (Math.abs(r) < 0.05) return '0 мин';
+    return (r > 0 ? '+' : '') + r + ' мин';
+}
+function _fmCls(mn) {
+    var a = Math.abs(mn);
+    if (a < 0.05) return 'cm-cap-diff';
+    if (a >= 720) return 'cm-cap-diff crit';
+    return 'cm-cap-diff warn';
 }
 
 function openCam(aid, pid) {
@@ -775,7 +790,10 @@ function _camRender() {
         var t = d.timeline[i];
         var dt = _d2jTz(t.date, t.date_tz);
         if (!dt) continue;
-        items.push({i: i, d: dt, cam: t.is_camera, anc: t.is_anchor, id: t.db_id});
+        var baseDt = t.is_camera
+            ? (t.db_date ? _d2j(t.db_date) : null)
+            : (t.original_date ? _d2jTz(t.original_date, t.date_tz) : null);
+        items.push({i: i, d: dt, cam: t.is_camera, anc: t.is_anchor, id: t.db_id, base: baseDt});
     }
     items.sort(function(a, b) { return a.d - b.d; });
     d._items = items;
@@ -791,6 +809,7 @@ function _camRender() {
         var timeStr = _fd(it.d);
         var dateStr = it.d.getFullYear()+'-'+String(it.d.getMonth()+1).padStart(2,'0')+'-'+String(it.d.getDate()).padStart(2,'0');
         var timeOnly = String(it.d.getHours()).padStart(2,'0')+':'+String(it.d.getMinutes()).padStart(2,'0')+':'+String(it.d.getSeconds()).padStart(2,'0');
+        var diffMn = it.base ? (it.d - it.base) / 60000 : 0;
         sh += '<div class="cm-item-wrap">' +
             '<img class="' + imgCls + '"' + idAttr + ' data-k="' + it.i + '" data-full="' + esc(fullUrl) + '" ' +
             'data-time="' + esc(timeStr) + '" src="' + url + '" loading="lazy" onerror="this.style.opacity=0.3" ' +
@@ -798,6 +817,7 @@ function _camRender() {
             '<div class="cm-cap ' + capCls + '">' +
             '<div class="cm-cap-time">' + esc(timeOnly) + '</div>' +
             '<div class="cm-cap-date">' + esc(dateStr) + '</div>' +
+            '<div class="' + _fmCls(diffMn) + '">' + esc(_fm(diffMn)) + '</div>' +
             '</div></div>';
     }
 
@@ -878,8 +898,14 @@ function _camReorder() {
             var dateStr = sh.getFullYear()+'-'+String(sh.getMonth()+1).padStart(2,'0')+'-'+String(sh.getDate()).padStart(2,'0');
             var tEl = el.querySelector('.cm-cap-time');
             var dEl = el.querySelector('.cm-cap-date');
+            var fEl = el.querySelector('.cm-cap-diff');
             if (tEl) tEl.textContent = timeOnly;
             if (dEl) dEl.textContent = dateStr;
+            if (fEl && it.base) {
+                var diffMn = (sh - it.base) / 60000;
+                fEl.textContent = _fm(diffMn);
+                fEl.className = _fmCls(diffMn);
+            }
             if (img) img.dataset.time = _fd(sh);
         }
         return {el: el, d: sh};

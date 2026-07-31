@@ -1352,3 +1352,119 @@ class TestAlbumPhotosPageAPI:
         assert result["total"] == 3
         result_ids = {p.get("db_id") or p.get("photo_id") for p in result["photos"]}
         assert static_pid not in result_ids
+
+
+class TestAlbumManualDatesUTC:
+    """UTC скорректированных кадров — по ближайшей UTC-привязке альбома
+    (кадр телефона с EXIF offset), а не по поясу браузера.
+
+    Сценарий: фотик выровнен по телефону на шкале времени сцены, пояс
+    браузера (+10) не совпадает с поясом сцены (+07). Старый алгоритм
+    (utc = manual − tz браузера) уводил кадры на 3 часа от телефона.
+    """
+
+    @staticmethod
+    def _seed(db):
+        import json as _json
+        # Телефон, пояс сцены +07 (Пхукет): сцена 10:19:25, истинный utc 03:19:25
+        pid_phone = db.add_photo("/photos/2024/phone.jpg", date="2024-01-02 10:19:25")
+        db.sqlite.execute(
+            "UPDATE photos SET date_utc = ?, exif_raw = ? WHERE photo_id = ?",
+            ("2024-01-02 03:19:25",
+             _json.dumps({"EXIF OffsetTimeOriginal": "+07:00"}), pid_phone))
+        # Телефон, другой пояс +10 (Владивосток, перелёт): сцена 08:00, utc 22:00 вчера
+        pid_vlad = db.add_photo("/photos/2024/phone_vlad.jpg", date="2024-01-01 08:00:00")
+        db.sqlite.execute(
+            "UPDATE photos SET date_utc = ?, exif_raw = ? WHERE photo_id = ?",
+            ("2023-12-31 22:00:00",
+             _json.dumps({"EXIF OffsetTimeOriginal": "+10:00"}), pid_vlad))
+        # Фотик без offset — его корректируем (EXIF-часы 13:10:28)
+        pid_cam = db.add_photo("/photos/2024/cam.jpg", date="2024-01-02 13:10:28")
+        db.sqlite.commit()
+        return pid_phone, pid_vlad, pid_cam
+
+    def _album_with_photos(self, app_client, db, pids):
+        resp = app_client.post("/api/albums/create", json={"title": "UTC тест"})
+        assert resp.status_code == 200
+        aid = resp.json()["album_id"]
+        db.add_photos_to_album(aid, pids)
+        return aid
+
+    def _utc_of(self, db, pid):
+        return db.sqlite.execute(
+            "SELECT date_utc FROM photos WHERE photo_id = ?", (pid,)).fetchone()[0]
+
+    def test_save_manual_dates_utc_from_nearest_anchor(self, app_client, db):
+        """utc кадра = utc ближайшего соседа + разница времён сцены (−7, не −10 браузера)."""
+        pid_phone, pid_vlad, pid_cam = self._seed(db)
+        aid = self._album_with_photos(app_client, db, [pid_phone, pid_vlad, pid_cam])
+
+        resp = app_client.post(f"/api/albums/{aid}/save_manual_dates", json={
+            "updates": [{"photo_id": pid_cam, "manual_date": "2024-01-02 10:09:32"}],
+            "tz_offset": 600,  # браузер +10 — должен быть проигнорирован
+        })
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 1
+        assert resp.json()["utc_anchors"] == 2
+        # Ближайший сосед — phone (10:19:25, +07): utc = 03:19:25 + (10:09:32 − 10:19:25)
+        assert self._utc_of(db, pid_cam) == "2024-01-02 03:09:32"
+
+    def test_save_manual_dates_multiple_timezones(self, app_client, db):
+        """Кадр рядом с другим поясом (перелёт) получает utc по СВОЕМУ соседу."""
+        pid_phone, pid_vlad, pid_cam = self._seed(db)
+        aid = self._album_with_photos(app_client, db, [pid_phone, pid_vlad, pid_cam])
+
+        resp = app_client.post(f"/api/albums/{aid}/save_manual_dates", json={
+            "updates": [{"photo_id": pid_cam, "manual_date": "2024-01-01 07:30:00"}],
+            "tz_offset": 600,
+        })
+        assert resp.status_code == 200
+        # Ближайший сосед — phone_vlad (01-01 08:00, +10): utc = 22:00 + (07:30 − 08:00)
+        assert self._utc_of(db, pid_cam) == "2023-12-31 21:30:00"
+
+    def test_save_manual_dates_fallback_browser_tz(self, app_client, db):
+        """Нет привязок в альбоме — fallback на tz_offset браузера (старое поведение)."""
+        pid_cam = db.add_photo("/photos/2024/cam_only.jpg", date="2024-01-02 13:10:28")
+        aid = self._album_with_photos(app_client, db, [pid_cam])
+
+        resp = app_client.post(f"/api/albums/{aid}/save_manual_dates", json={
+            "updates": [{"photo_id": pid_cam, "manual_date": "2024-01-02 10:09:32"}],
+            "tz_offset": 600,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["utc_anchors"] == 0
+        assert self._utc_of(db, pid_cam) == "2024-01-02 00:09:32"  # −10 браузера
+
+    def test_repair_manual_utc(self, app_client, db):
+        """Ремонт: кривой utc (от браузера) пересчитывается по привязке альбома."""
+        pid_phone, pid_vlad, pid_cam = self._seed(db)
+        aid = self._album_with_photos(app_client, db, [pid_phone, pid_vlad, pid_cam])
+        # Эмуляция старого бага: manual + tz='local' + utc от браузера (+10)
+        db.sqlite.execute(
+            "UPDATE photos SET manual_date = ?, date_utc = ?, date_tz = 'local' "
+            "WHERE photo_id = ?",
+            ("2024-01-02 10:09:32", "2024-01-02 00:09:32", pid_cam))
+        db.sqlite.commit()
+
+        resp = app_client.post(f"/api/albums/{aid}/repair_manual_utc")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["updated"] == 1
+        assert self._utc_of(db, pid_cam) == "2024-01-02 03:09:32"
+
+    def test_repair_manual_utc_no_anchors(self, app_client, db):
+        """Ремонт без привязок — ничего не трогает, ok=False."""
+        pid_cam = db.add_photo("/photos/2024/cam_solo.jpg", date="2024-01-02 13:10:28")
+        aid = self._album_with_photos(app_client, db, [pid_cam])
+        db.sqlite.execute(
+            "UPDATE photos SET manual_date = ?, date_utc = ?, date_tz = 'local' "
+            "WHERE photo_id = ?",
+            ("2024-01-02 10:09:32", "2024-01-02 00:09:32", pid_cam))
+        db.sqlite.commit()
+
+        resp = app_client.post(f"/api/albums/{aid}/repair_manual_utc")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+        assert resp.json()["updated"] == 0
+        assert self._utc_of(db, pid_cam) == "2024-01-02 00:09:32"  # не изменился

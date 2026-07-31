@@ -445,8 +445,59 @@ def _parse_date(s):
         return None
 
 
-def _exif_time(exif_raw_str):
-    """Извлечь время из EXIF DateTimeOriginal → секунды от полуночи."""
+def _album_utc_anchors(conn, photo_ids):
+    """Точки UTC-привязки альбома: [(scene_dt, utc_dt)], сорт. по scene_dt.
+
+    Источник — нескорректированные кадры (manual_date IS NULL) с EXIF offset:
+    у них date — истинное локальное время сцены, date_utc — истинный UTC
+    (вычислен из OffsetTimeOriginal при индексации). Одной такой точки
+    достаточно, чтобы разложить всю камеру на шкалу UTC; ближайшая точка
+    к каждому кадру — покрывает несколько поясов внутри альбома (перелёт).
+    """
+    if not photo_ids:
+        return []
+    ph = ",".join("?" * len(photo_ids))
+    rows = conn.execute(
+        f"SELECT date, date_utc FROM photos WHERE photo_id IN ({ph}) "  # nosec B608 — ph is ? placeholders only, values parameterized
+        f"AND deleted = 0 AND manual_date IS NULL AND date_utc IS NOT NULL "
+        f"AND exif_raw LIKE '%OffsetTime%'",
+        photo_ids
+    ).fetchall()
+    table = []
+    for scene, utc in rows:
+        s_dt, u_dt = _parse_date(scene), _parse_date(utc)
+        if s_dt and u_dt:
+            table.append((s_dt, u_dt))
+    table.sort(key=lambda x: x[0])
+    return table
+
+
+def _utc_from_anchor(anchors, scene_dt):
+    """UTC кадра по ближайшей точке привязки: utc_соседа + (scene_кадра - scene_соседа).
+
+    None если привязок нет (caller должен использовать fallback).
+    """
+    if not anchors or not scene_dt:
+        return None
+    import bisect as _bis
+    i = _bis.bisect_left(anchors, scene_dt, key=lambda x: x[0])
+    best = None
+    for j in (i - 1, i):
+        if 0 <= j < len(anchors):
+            if best is None or abs(anchors[j][0] - scene_dt) < abs(best[0] - scene_dt):
+                best = anchors[j]
+    if not best:
+        return None
+    return best[1] + (scene_dt - best[0])
+
+
+def _exif_dt(exif_raw_str):
+    """Извлечь полный datetime из EXIF DateTimeOriginal (дата+время).
+
+    Коррекция времени работает в рамках периода альбома: разница между
+    кадрами считается по полным датам, а не по времени суток — кадры
+    многодневной съёмки сохраняют свои дни относительно якоря.
+    """
     if not exif_raw_str:
         return None
     try:
@@ -460,8 +511,7 @@ def _exif_time(exif_raw_str):
             if len(s) >= 19 and s[4] == ':':
                 s = s[:10].replace(':', '-') + s[10:]
             try:
-                dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
-                return dt.hour * 3600 + dt.minute * 60 + dt.second
+                return datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 continue
     except (ValueError, TypeError):
@@ -984,9 +1034,12 @@ async def remove_album_member(album_id: str, member_type: str, member_id: str):
 async def get_camera_group(album_id: str, photo_id: str):
     """Данные для коррекции времени камеры в альбоме.
 
-    Anchor остаётся на своей позиции (00:00:00 из БД).
-    Остальные кадры камеры получают позицию = anchor + (exif_time_кадра - exif_time_anchor).
-    Timeline: обычные фото на своей дате, кадры камеры на сдвинутой позиции.
+    Якорь стартует со своей текущей эффективной позиции (manual_date или date).
+    Остальные кадры камеры = якорь + (полный EXIF datetime кадра − полный EXIF datetime якоря):
+    кадры многодневной съёмки сохраняют свои дни относительно якоря (период альбома,
+    не сутки). Позиции кадров всегда пересчитываются от якоря — старые manual_date
+    кадров игнорируются, чтобы повторная коррекция работала от исходного EXIF-расклада.
+    Timeline: обычные фото на своей дате, кадры камеры на позициях от якоря.
     """
     import asyncio, sqlite3 as _sq3
     from database import get_db
@@ -1030,8 +1083,9 @@ async def get_camera_group(album_id: str, photo_id: str):
             if not anchor_cam_key:
                 return None, 400
 
-            anchor_exif_secs = _exif_time(anchor_row[7]) or 0
-            anchor_date_str = anchor_row[2]
+            anchor_exif_dt = _exif_dt(anchor_row[7])
+            # Якорь стартует со своей текущей эффективной позиции (manual_date или date)
+            anchor_date_str = anchor_row[3] or anchor_row[2]
             anchor_base = _parse_date(anchor_date_str)
 
             camera_photos = []
@@ -1045,17 +1099,19 @@ async def get_camera_group(album_id: str, photo_id: str):
                 is_anchor = (pid == anchor_uuid)
 
                 if is_camera:
-                    cam_exif_secs = _exif_time(exif_raw) or 0
-                    rel_shift = cam_exif_secs - anchor_exif_secs
-                    if anchor_base:
+                    cam_exif_dt = _exif_dt(exif_raw)
+                    if anchor_base and anchor_exif_dt and cam_exif_dt:
+                        # Позиция = якорь + разница ПОЛНЫХ EXIF-дат (дни сохраняются)
+                        rel_shift = (cam_exif_dt - anchor_exif_dt).total_seconds()
                         positioned = anchor_base + timedelta(seconds=rel_shift)
                         display_date = positioned.strftime("%Y-%m-%d %H:%M:%S")
                     else:
-                        display_date = date
+                        display_date = mdate or date
                     timeline.append({
                         "db_id": pid,
-                        "date": mdate or display_date,
+                        "date": display_date,
                         "original_date": display_date,
+                        "db_date": date,
                         "is_camera": True,
                         "is_anchor": is_anchor,
                     })
@@ -1064,7 +1120,7 @@ async def get_camera_group(album_id: str, photo_id: str):
                         "photo_id": path,
                         "date": date,
                         "manual_date": mdate,
-                        "exif_secs": cam_exif_secs,
+                        "exif_dt": cam_exif_dt.strftime("%Y-%m-%d %H:%M:%S") if cam_exif_dt else None,
                     })
                 else:
                     eff_date = mdate or date
@@ -1084,7 +1140,7 @@ async def get_camera_group(album_id: str, photo_id: str):
                 "other_count": other_count,
                 "anchor_uuid": anchor_uuid,
                 "anchor_date": anchor_date_str,
-                "anchor_exif_secs": anchor_exif_secs,
+                "anchor_exif_dt": anchor_exif_dt.strftime("%Y-%m-%d %H:%M:%S") if anchor_exif_dt else None,
                 "camera_photos": camera_photos,
                 "timeline": timeline,
             }, 200
@@ -1104,8 +1160,10 @@ async def get_camera_group(album_id: str, photo_id: str):
 async def apply_time_shift(album_id: str, request: Request):
     """Применить коррекцию: new_anchor_time → manual_date каждому кадру камеры.
 
-    shift = new_anchor_time - anchor.date (00:00:00).
-    Для каждого кадра: manual_date = anchor.date + (exif_secs_кадра - anchor_exif_secs) + shift.
+    shift = new_anchor_time - anchor.date.
+    Для каждого кадра: manual_date = new_anchor_time + (полный EXIF datetime кадра
+    − полный EXIF datetime якоря) — дни многодневной съёмки сохраняются.
+    Кадры без EXIF-даты пропускаются.
     """
     import asyncio, sqlite3 as _sq3
     from database import get_db
@@ -1142,7 +1200,7 @@ async def apply_time_shift(album_id: str, request: Request):
                 return None, 400
 
             anchor_base = _parse_date(a_date_str)
-            anchor_exif_secs = _exif_time(a_exif) or 0
+            anchor_exif_dt = _exif_dt(a_exif)
             target = _parse_date(new_anchor_time)
             if not anchor_base or not target:
                 return None, 400
@@ -1162,8 +1220,10 @@ async def apply_time_shift(album_id: str, request: Request):
                 pid, date_str, _dutc_str, rmake, rmodel, exif_raw = r
                 if _camera_key(rmake, rmodel) != cam_key:
                     continue
-                cam_exif_secs = _exif_time(exif_raw) or 0
-                rel_shift = cam_exif_secs - anchor_exif_secs
+                cam_exif_dt = _exif_dt(exif_raw)
+                if not anchor_exif_dt or not cam_exif_dt:
+                    continue
+                rel_shift = (cam_exif_dt - anchor_exif_dt).total_seconds()
                 new_md = (anchor_base + timedelta(seconds=rel_shift) + user_shift)
                 new_md_str = new_md.strftime("%Y-%m-%d %H:%M:%S")
                 conn.execute(
@@ -1194,7 +1254,11 @@ async def save_manual_dates(album_id: str, request: Request):
     """Сохранить manual_date для списка фото.
 
     Body: {updates: [{photo_id, manual_date}, ...], tz_offset: minutes}
-    Записывает manual_date, вычисляет date_utc из tz_offset, ставит date_tz='local'.
+    Записывает manual_date, ставит date_tz='local'.
+    date_utc вычисляется по ближайшей UTC-привязке альбома (кадр телефона
+    с EXIF offset: utc_соседа + разница времён сцены) — так скорректированные
+    кадры встают на истинную шкалу UTC рядом с телефоном, независимо от
+    пояса браузера. Fallback (нет привязок в альбоме): tz_offset браузера.
     """
     import asyncio, sqlite3 as _sq3
     from database import get_db
@@ -1219,6 +1283,7 @@ async def save_manual_dates(album_id: str, request: Request):
         conn.row_factory = _sq3.Row
         conn.execute("PRAGMA busy_timeout=30000")
         try:
+            anchors = _album_utc_anchors(conn, db.get_album_photos(album_id))
             count = 0
             for u in updates:
                 pid = u.get("photo_id")
@@ -1226,12 +1291,12 @@ async def save_manual_dates(album_id: str, request: Request):
                 if not pid or not md:
                     continue
                 date_utc = None
-                try:
-                    dt_local = datetime.strptime(md[:19], "%Y-%m-%d %H:%M:%S")
-                    dt_utc = dt_local - timedelta(minutes=tz_offset)
+                dt_local = _parse_date(md)
+                if dt_local:
+                    dt_utc = _utc_from_anchor(anchors, dt_local)
+                    if dt_utc is None:
+                        dt_utc = dt_local - timedelta(minutes=tz_offset)
                     date_utc = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
-                except (ValueError, TypeError):
-                    pass
                 conn.execute(
                     "UPDATE photos SET manual_date = ?, date_utc = ?, date_tz = 'local' WHERE photo_id = ?",
                     (md, date_utc, pid)
@@ -1239,9 +1304,67 @@ async def save_manual_dates(album_id: str, request: Request):
                 count += 1
 
             conn.commit()
-            return {"ok": True, "updated": count}
+            return {"ok": True, "updated": count, "utc_anchors": len(anchors)}
         finally:
             conn.close()
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _save_sync)
+
+
+@router.post("/{album_id}/repair_manual_utc")
+async def repair_manual_utc(album_id: str):
+    """Ремонт date_utc ранее скорректированных кадров альбома.
+
+    Кадры с manual_date + date_tz='local' получают date_utc по ближайшей
+    UTC-привязке альбома (см. save_manual_dates). Нужен разово после смены
+    алгоритма: старый считал utc от пояса браузера, что неверно, когда пояс
+    браузера не совпадает с поясом сцены.
+    """
+    import asyncio, sqlite3 as _sq3
+    from database import get_db
+
+    db = get_db()
+    if not db.get_album(album_id):
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    def _repair_sync():
+        conn = _sq3.connect(str(db.db_path), timeout=30)
+        conn.row_factory = _sq3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        try:
+            album_photo_ids = db.get_album_photos(album_id)
+            anchors = _album_utc_anchors(conn, album_photo_ids)
+            if not anchors:
+                return {"ok": False, "reason": "no_utc_anchors", "updated": 0}, 200
+            ph = ",".join("?" * len(album_photo_ids))
+            rows = conn.execute(
+                f"SELECT photo_id, manual_date, date_utc FROM photos "  # nosec B608
+                f"WHERE photo_id IN ({ph}) AND deleted = 0 "
+                f"AND manual_date IS NOT NULL AND date_tz = 'local'",
+                album_photo_ids
+            ).fetchall()
+            updated = 0
+            for pid, md, old_utc in rows:
+                dt_local = _parse_date(md)
+                if not dt_local:
+                    continue
+                dt_utc = _utc_from_anchor(anchors, dt_local)
+                if dt_utc is None:
+                    continue
+                new_utc = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+                if new_utc != old_utc:
+                    conn.execute(
+                        "UPDATE photos SET date_utc = ? WHERE photo_id = ?",
+                        (new_utc, pid)
+                    )
+                    updated += 1
+            conn.commit()
+            return {"ok": True, "updated": updated, "checked": len(rows),
+                    "utc_anchors": len(anchors)}, 200
+        finally:
+            conn.close()
+
+    loop = asyncio.get_event_loop()
+    result, _status = await loop.run_in_executor(None, _repair_sync)
+    return result
