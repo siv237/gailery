@@ -65,6 +65,51 @@ _FILENAME_DATE_PATTERNS = [
     r'(\d{4})[_\-](\d{2})[_\-](\d{2})',
 ]
 
+_FILENAME_DATETIME_PATTERNS = [
+    # видеорегистратор: EMER260712-130023-002964.MOV → буквы + YYMMDD-HHMMSS
+    r'[A-Za-z]+(\d{2})(\d{2})(\d{2})[_\-](\d{2})(\d{2})(\d{2})',
+    # YYYYMMDD-HHMMSS / YYYYMMDD_HHMMSS (без цифры перед годом)
+    r'(?<!\d)(\d{4})(\d{2})(\d{2})[_\-](\d{2})(\d{2})(\d{2})(?!\d)',
+]
+
+
+def _match_filename_datetime(fname):
+    """Полная дата+время из имени файла → (y, mo, d, h, mi, s) или None."""
+    for pat in _FILENAME_DATETIME_PATTERNS:
+        m = re.search(pat, fname)
+        if not m:
+            continue
+        y, mo, d, h, mi, s = (int(g) for g in m.groups())
+        if y < 100:
+            y += 2000
+        if (1990 <= y <= 2030 and 1 <= mo <= 12 and 1 <= d <= 31
+                and h <= 23 and mi <= 59 and s <= 59):
+            return y, mo, d, h, mi, s
+    return None
+
+
+def _extract_folder_full_ymd(path_str):
+    """Полная дата (год+месяц+день) из ИМЁН ПАПОК (имя файла не учитывается).
+
+    Понимает: '2026-07-28', '2026.07.28', '28.07.2026', '2026_07_28',
+    триплет папок '2026/07/28'. Год+месяц без дня — дата неполная (None).
+    """
+    p = path_str.replace('\\', '/')
+    parts = p.split('/')[:-1]
+    for part in parts:
+        r = _match_exact_date_part(part)
+        if r:
+            return r
+    for i in range(len(parts) - 2):
+        y_m = re.match(r'^(\d{4})$', parts[i])
+        mo_m = re.match(r'^(\d{1,2})$', parts[i + 1])
+        d_m = re.match(r'^(\d{1,2})$', parts[i + 2])
+        if y_m and mo_m and d_m:
+            mo_val, d_val = int(mo_m.group(1)), int(d_m.group(1))
+            if 1 <= mo_val <= 12 and 1 <= d_val <= 31:
+                return int(y_m.group(1)), mo_val, d_val
+    return None
+
 _EXIF_SKIP_PREFIXES = ('JPEGThumbnail', 'TIFFThumbnail', 'Thumbnail', 'Interoperability', 'PrintIM', 'EXIF MakerNote', 'MakerNote')
 _EXIF_SKIP_KEYS = {'Image ExifOffset', 'Image PrintIM', 'EXIF ExifVersion', 'EXIF FlashPixVersion',
                    'EXIF ComponentsConfiguration', 'EXIF InteroperabilityOffset',
@@ -196,8 +241,23 @@ def resolve_date(exif_date, path_str, mtime=None):
     if norm_exif:
         return norm_exif, False
 
-    if path_date:
-        return f"{path_date[0]:04d}-{path_date[1]:02d}-{path_date[2]:02d} 00:00:00", False
+    # EXIF нет. Папка — только если дата в ней ПОЛНАЯ (год+месяц+день);
+    # время папка не хранит → из имени файла. Папка неполная → дата+время
+    # из имени файла (видеорегистратор: EMER260712-130023 → 12.07.2026 13:00:23).
+    # Совсем ничего → mtime.
+    fname = path_str.replace('\\', '/').split('/')[-1] if path_str else ''
+    fname_dt = _match_filename_datetime(fname)
+    folder_full = _extract_folder_full_ymd(path_str)
+    if folder_full:
+        h, mi, s = fname_dt[3:6] if fname_dt else (0, 0, 0)
+        return (f"{folder_full[0]:04d}-{folder_full[1]:02d}-{folder_full[2]:02d} "
+                f"{h:02d}:{mi:02d}:{s:02d}", False)
+    if fname_dt:
+        return (f"{fname_dt[0]:04d}-{fname_dt[1]:02d}-{fname_dt[2]:02d} "
+                f"{fname_dt[3]:02d}:{fname_dt[4]:02d}:{fname_dt[5]:02d}", False)
+    fname_d = _match_filename_date(fname)
+    if fname_d:
+        return f"{fname_d[0]:04d}-{fname_d[1]:02d}-{fname_d[2]:02d} 00:00:00", False
 
     if mtime:
         from datetime import datetime
@@ -531,7 +591,7 @@ def _apply_photo_exif(path, exif, updates, stats):
 def _process_exif_result(photo_id, path, exif, is_missing, stats):
     updates = {"exif_checked": 1}
 
-    is_video = any(path.endswith(ext) for ext in VIDEO_EXTS)
+    is_video = any(path.lower().endswith(ext) for ext in VIDEO_EXTS)
 
     if is_video:
         _apply_video_metadata(path, updates, stats)
