@@ -25,6 +25,9 @@ class TestMatchFilenameDatetime:
     def test_full_year_datetime(self):
         assert _match_filename_datetime("20260712_130023.MOV") == (2026, 7, 12, 13, 0, 23)
 
+    def test_compact_14_digits(self):
+        assert _match_filename_datetime("lv_0_20260719171750.mp4") == (2026, 7, 19, 17, 17, 50)
+
     def test_invalid_month_rejected(self):
         # ABC123456-789012: mo=34 невалиден
         assert _match_filename_datetime("ABC123456-789012.MOV") is None

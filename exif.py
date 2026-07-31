@@ -70,6 +70,8 @@ _FILENAME_DATETIME_PATTERNS = [
     r'[A-Za-z]+(\d{2})(\d{2})(\d{2})[_\-](\d{2})(\d{2})(\d{2})',
     # YYYYMMDD-HHMMSS / YYYYMMDD_HHMMSS (без цифры перед годом)
     r'(?<!\d)(\d{4})(\d{2})(\d{2})[_\-](\d{2})(\d{2})(\d{2})(?!\d)',
+    # YYYYMMDDHHMMSS слитно: lv_0_20260719171750.mp4
+    r'(?<!\d)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?!\d)',
 ]
 
 
