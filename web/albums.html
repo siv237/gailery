@@ -153,6 +153,15 @@ body { font-family: monospace; background: #0d1117; color: #c9d1d9; }
 .light-theme .modal-title { color: #24292f; }
 .btn-danger { background: #f85149; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-family: monospace; }
 .light-theme .btn-danger { background: #cf222e; }
+
+/* Индикация загрузки альбома */
+.album-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 90px 20px; color: #8b949e; gap: 14px; font-size: 14px; }
+.album-loading .al-spinner { width: 36px; height: 36px; border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: alspin .8s linear infinite; }
+.album-loading .al-hint { font-size: 11px; opacity: .7; }
+.light-theme .album-loading { color: #57606a; }
+.light-theme .album-loading .al-spinner { border-color: #d0d7de; border-top-color: #0969da; }
+@keyframes alspin { to { transform: rotate(360deg); } }
+.album-card.loading, .manual-album-bar.loading { opacity: .55; pointer-events: none; transition: opacity .15s; }
 </style>
 </head>
 <body>
@@ -311,18 +320,41 @@ function _albumCardHtml(a) {
     if (!photosHtml) {
       photosHtml = '<div class="ac-photo ac-front"><div class="ac-no-cover">&#128247;</div><div class="ac-count">' + a.photo_count + '</div></div>';
     }
-    return '<div class="album-card" onclick="openAlbum(\'' + a.album_id + '\')"><div class="ac-spread">' + photosHtml + '</div></div>';
+    return '<div class="album-card" onclick="openAlbum(\'' + a.album_id + '\', this)"><div class="ac-spread">' + photosHtml + '</div></div>';
 }
 
 var currentTab = 'auto';
 
-function switchTab(tab) {
+// Синхронизация состояния в URL (восстановление после F5).
+// В share-режиме (SHARED_ALBUM_ID) URL не трогаем — там своя ссылка.
+function _syncUrl() {
+  if (window.SHARED_ALBUM_ID) return;
+  var p = new URLSearchParams();
+  if (albumViewMode && currentAlbum && currentAlbum.album_id) {
+    p.set('album', currentAlbum.album_id);
+  }
+  p.set('tab', currentTab);
+  history.replaceState(null, '', window.location.pathname + '?' + p.toString());
+}
+
+// Индикация открытия альбома: спиннер в контенте + затемнение нажатой карточки.
+function _showAlbumLoading(el) {
+  if (el && el.classList) el.classList.add('loading');
+  document.getElementById('content').innerHTML =
+    '<div class="album-loading"><div class="al-spinner"></div>' +
+    '<div>Открываю альбом…</div>' +
+    '<div class="al-hint">Большие альбомы загружаются дольше</div></div>';
+}
+
+function switchTab(tab, skipLoad) {
   currentTab = tab;
   document.getElementById('tabAuto').classList.toggle('active', tab === 'auto');
   document.getElementById('tabManual').classList.toggle('active', tab === 'manual');
   document.getElementById('autoActions').style.display = tab === 'auto' ? '' : 'none';
   document.getElementById('manualActions').style.display = tab === 'manual' ? '' : 'none';
-  loadAlbums();
+  albumViewMode = false;
+  _syncUrl();
+  if (!skipLoad) loadAlbums();
 }
 
 function createAlbumDialog() {
@@ -355,6 +387,7 @@ async function createAlbumSubmit() {
 async function loadAlbums() {
   albumViewMode = false;
   currentPhotos = [];
+  _syncUrl();
   var resp = await fetch('/api/albums/?source=' + currentTab);
   var albums = await resp.json();
   var el = document.getElementById('albumCount');
@@ -384,7 +417,7 @@ async function loadAlbums() {
       if (subAlbums.length) summary += (summary ? ' \u00B7 ' : '') + subAlbums.length + ' альбомов';
       if (photoOnly.length) summary += (summary ? ' \u00B7 ' : '') + photoOnly.length + ' фото';
       if (!summary) summary = a.photo_count + ' фото';
-      html += '<div class="manual-album-bar" onclick="openManualAlbum(\'' + esc(a.album_id) + '\')">' +
+      html += '<div class="manual-album-bar" onclick="openManualAlbum(\'' + esc(a.album_id) + '\', this)">' +
         '<div class="mab-title">' + esc(a.title) + '</div>' +
         '<div class="mab-summary">' + summary + ' \u00B7 ' + a.photo_count + ' фото всего</div>' +
         '<button class="mab-share-btn" onclick="event.stopPropagation();copyShareLink(\'' + esc(a.album_id) + '\',this,\'album\')">Поделиться</button>' +
@@ -435,8 +468,9 @@ function _initAlbumStackThrottle() {
   }
 }
 
-async function openManualAlbum(id) {
+async function openManualAlbum(id, el) {
   albumViewMode = true;
+  _showAlbumLoading(el);
   var album, members;
   if (window.SHARED_PRELOAD && window.SHARED_PRELOAD.album && window.SHARED_PRELOAD.album.album_id === id) {
     album = window.SHARED_PRELOAD.album;
@@ -448,6 +482,7 @@ async function openManualAlbum(id) {
     members = await membersResp.json();
   }
   currentAlbum = album;
+  _syncUrl();
 
   var albumMembers = members.filter(function(m) { return m.member_type === 'album'; });
   var personaMembers = members.filter(function(m) { return m.member_type === 'persona'; });
@@ -455,7 +490,7 @@ async function openManualAlbum(id) {
   // Альбом без подальбомов (фото напрямую, каталог, персоны) —
   // сразу полный вид с сеткой фото (openAlbum умеет состав + members-бар)
   if (!albumMembers.length) {
-    return openAlbum(id);
+    return openAlbum(id, el);
   }
 
   var html = '<div class="album-bar">' +
@@ -508,11 +543,13 @@ async function openManualAlbum(id) {
   _initAlbumStackThrottle();
 }
 
-async function openAlbum(id) {
+async function openAlbum(id, el) {
   albumViewMode = true;
+  _showAlbumLoading(el);
   var resp = await fetch('/api/albums/' + id + '?full=true');
   var album = await resp.json();
   currentAlbum = album;
+  _syncUrl();
 
   var photos = album.photos || [];
   currentPhotos = photos;
@@ -593,7 +630,7 @@ async function openAlbum(id) {
   }
   var hasDesc = album.description && album.description.trim();
   var descHtml = hasDesc ? '<div class="album-desc-text">' + esc(album.description) + '</div>' : '';
-  var removeBtn = isManual ? '<button class="album-bar-desc-btn ma-remove-btn" onclick="removePhotoFromAlbum(\'' + esc(album.album_id) + '\')">Удалить фото из альбома</button>' : '';
+  var removeBtn = (isManual && !window.SHARED_ALBUM_ID) ? '<button class="album-bar-desc-btn ma-remove-btn" onclick="removePhotoFromAlbum(\'' + esc(album.album_id) + '\')">Удалить фото из альбома</button>' : '';
   var membersHtml = '';
   if (isManual) {
     membersHtml = '<div id="albumMembers" class="ma-members-bar"></div>';
@@ -792,6 +829,8 @@ async function _doRemoveFromAlbum() {
 (function() {
   var params = new URLSearchParams(window.location.search);
   var albumId = params.get('album');
+  var tab = params.get('tab');
+  if (tab === 'manual' || tab === 'auto') switchTab(tab, true);
   if (albumId) openAlbum(albumId);
   else loadAlbums();
 })();
