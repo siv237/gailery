@@ -1406,13 +1406,13 @@ async def get_neighbor(date: str, dir: str = "next"):
     if dir == "next":
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
-            "FROM photos WHERE COALESCE(date_utc, manual_date, date) > ? AND deleted = 0 ORDER BY COALESCE(date_utc, manual_date, date) ASC LIMIT 1",
+            "FROM photos WHERE COALESCE(manual_date, date) > ? AND deleted = 0 ORDER BY COALESCE(manual_date, date) ASC LIMIT 1",
             (date,)
         ).fetchone()
     else:
         row = cur.execute(
             "SELECT photo_id, path, description, COALESCE(manual_date, date) as effective_date, camera_make, camera_model, gps_lat, gps_lon, media_type, img_width, img_height "
-            "FROM photos WHERE COALESCE(date_utc, manual_date, date) < ? AND deleted = 0 ORDER BY COALESCE(date_utc, manual_date, date) DESC LIMIT 1",
+            "FROM photos WHERE COALESCE(manual_date, date) < ? AND deleted = 0 ORDER BY COALESCE(manual_date, date) DESC LIMIT 1",
             (date,)
         ).fetchone()
 

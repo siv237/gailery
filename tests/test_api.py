@@ -1468,3 +1468,58 @@ class TestAlbumManualDatesUTC:
         assert resp.json()["ok"] is False
         assert resp.json()["updated"] == 0
         assert self._utc_of(db, pid_cam) == "2024-01-02 00:09:32"  # не изменился
+
+
+class TestNeighborAPI:
+    """Листание фото по времени (viewer карты): /api/photos/neighbor.
+
+    Шкала — «время на часах» COALESCE(manual_date, date), консистентная с
+    /photos/map. Баг: WHERE шёл по COALESCE(date_utc, ...) — для камер с
+    utc ≠ date (телефон с EXIF offset, скорректированные) сосед находился
+    только через ~7 часов кадров — листание выглядело сломанным.
+    """
+
+    @staticmethod
+    def _seed(db):
+        # «Фотик» скорректированный: сцена 10:09:32 (manual), utc 03:09:32
+        pid_a = db.add_photo("/photos/2026/cam_a.jpg", date="2026-07-19 13:10:28")
+        db.sqlite.execute(
+            "UPDATE photos SET manual_date = ?, date_utc = ? WHERE photo_id = ?",
+            ("2026-07-19 10:09:32", "2026-07-19 03:09:32", pid_a))
+        # «Телефон» с offset: сцена 10:19:25, utc 03:19:25
+        pid_b = db.add_photo("/photos/2026/phone_b.jpg", date="2026-07-19 10:19:25")
+        db.sqlite.execute(
+            "UPDATE photos SET date_utc = ? WHERE photo_id = ?",
+            ("2026-07-19 03:19:25", pid_b))
+        # Дальний контрольный кадр: сцена 18:00, utc 12:00
+        pid_c = db.add_photo("/photos/2026/far_c.jpg", date="2026-07-19 18:00:00")
+        db.sqlite.execute(
+            "UPDATE photos SET date_utc = ? WHERE photo_id = ?",
+            ("2026-07-19 12:00:00", pid_c))
+        db.sqlite.commit()
+        return pid_a, pid_b, pid_c
+
+    def test_next_finds_scene_neighbor_not_utc_far(self, app_client, db):
+        """next от скорректированного фотика → телефон в 10:19 (не кадр через 7ч)."""
+        self._seed(db)
+        resp = app_client.get("/api/photos/neighbor?date=2026-07-19 10:09:32&dir=next")
+        assert resp.status_code == 200
+        p = resp.json()
+        assert p is not None
+        assert "phone_b" in p["path"]
+        assert p["date"] == "2026-07-19 10:19:25"
+
+    def test_prev_finds_scene_neighbor(self, app_client, db):
+        """prev от телефона → фотик в 10:09."""
+        self._seed(db)
+        resp = app_client.get("/api/photos/neighbor?date=2026-07-19 10:19:25&dir=prev")
+        p = resp.json()
+        assert p is not None
+        assert "cam_a" in p["path"]
+        assert p["date"] == "2026-07-19 10:09:32"
+
+    def test_next_beyond_last_returns_none(self, app_client, db):
+        self._seed(db)
+        resp = app_client.get("/api/photos/neighbor?date=2026-07-19 18:00:00&dir=next")
+        assert resp.status_code == 200
+        assert resp.json() is None
