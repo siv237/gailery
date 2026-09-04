@@ -37,7 +37,7 @@ A.renderBlock_pipelineStatus = function(containerId) {
         renderSummaryInto('psSummary_'+containerId);
         renderCycloInto('psCyclo_'+containerId);
         renderCtrlInto('psCtrl_'+containerId, containerId);
-    });
+    }, function() { showStatusError('psSummary_'+containerId); });
 };
 
 A.refreshBlock_pipelineStatus = function(containerId, d) {
@@ -569,8 +569,35 @@ function loadRoots() {
     });
 }
 
+var _statusInFlight = false;
+var _lastGoodStatusTs = null;
+
+function showStatusError(containerId) {
+    var t = _lastGoodStatusTs ? new Date(_lastGoodStatusTs).toLocaleTimeString() : null;
+    var msg = '<div style="color:var(--c-warn,#e6a23c);padding:8px 12px;font-size:12px">'+
+        '⚠ API не отвечает'+(t?' — данные на момент '+t:'')+'. Повтор через 5с…</div>';
+    if (containerId) {
+        var el = document.getElementById(containerId);
+        if (el && !st) el.innerHTML = msg;
+        else if (el && el.innerHTML.indexOf('⚠ API не отвечает') < 0) el.innerHTML = msg + el.innerHTML;
+        return;
+    }
+    var targets = [A.$('summary')];
+    document.querySelectorAll('[id^="psSummary_"]').forEach(function(e) { targets.push(e); });
+    for (var i=0;i<targets.length;i++) {
+        var s = targets[i];
+        if (!s) continue;
+        if (!st) s.innerHTML = msg;
+        else if (s.innerHTML.indexOf('⚠ API не отвечает') < 0) s.innerHTML = msg + s.innerHTML;
+    }
+}
+
 function loadStatus() {
+    if (_statusInFlight) return;
+    _statusInFlight = true;
     A.ajax('/api/status', function(d) {
+        _statusInFlight = false;
+        _lastGoodStatusTs = Date.now();
         st = d; A.st = d;
         var step = (d.step_details||'').toLowerCase();
         if (d.current_step==='idle') {
@@ -581,6 +608,9 @@ function loadStatus() {
         }
         renderSummary(); renderCyclo(); renderTasks();
         renderMQTT();
+    }, function() {
+        _statusInFlight = false;
+        showStatusError(null);
     });
     A.ajax('/api/mqtt/workers', function(d) {
         A.workers = d.workers || {};

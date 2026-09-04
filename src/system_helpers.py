@@ -45,7 +45,7 @@ def _determine_pipeline_step(flag_dir, mq, mqtt_states):
             pipeline_state = mqtt_states.get("pipeline", {})
             if pipeline_state.get("status") == "running" and pipeline_state.get("pid"):
                 try:
-                    os.path.getmtime(f"/proc/{pipeline_state['pid']}")
+                    mtime = os.path.getmtime(f"/proc/{pipeline_state['pid']}")
                     pipeline_started_at = dt.datetime.fromtimestamp(mtime, tz=dt.timezone.utc).isoformat()
                     pipeline_alive = True
                 except OSError:

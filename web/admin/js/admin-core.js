@@ -39,11 +39,17 @@ function fmtBytes(b) {
     return (b/1073741824).toFixed(1) + 'GB';
 }
 
-function ajax(url, ok, fail) {
-    fetch(url).then(function(r) {
+function ajax(url, ok, fail, opts) {
+    opts = opts || {};
+    var timeoutMs = opts.timeout || 15000;
+    var controller = new AbortController();
+    var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+    fetch(url, {signal: controller.signal}).then(function(r) {
+        clearTimeout(timer);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     }).then(ok).catch(function(e) {
+        clearTimeout(timer);
         if (fail) fail(e);
     });
 }

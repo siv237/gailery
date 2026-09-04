@@ -82,6 +82,17 @@ class TestDeterminePipelineStep:
         assert step == "pipeline"
         assert details == "PIPELINE"
 
+    def test_mqtt_running_with_pid_no_crash(self, tmp_path):
+        """Регрессия: MQTT-шаг с running+pid не должен падать UnboundLocalError.
+        Баг: os.path.getmtime не присваивал mtime перед использованием."""
+        from system_helpers import _determine_pipeline_step
+        flag_dir, mq = self._setup(tmp_path)
+        mq.get_current_step.return_value = "pipeline"
+        states = {"pipeline": {"status": "running", "pid": os.getpid()}}
+        step, details, _, pl_started = _determine_pipeline_step(flag_dir, mq, states)
+        assert step == "pipeline"
+        assert pl_started is not None
+
     def test_no_mq(self, tmp_path):
         """Работа без MQTT (mq=None)."""
         from system_helpers import _determine_pipeline_step

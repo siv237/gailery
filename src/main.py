@@ -34,7 +34,10 @@ async def lifespan(app: FastAPI):
     db_manager = get_db()
     logger.info("Database connected")
 
-    pass
+    # MQTT-клиент API инициализируем в фоне, чтобы не блокировать старт и первый запрос
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _get_api_mqtt)
+
     yield
     logger.info("Shutting down application...")
     if _monitor_task:
@@ -387,6 +390,9 @@ async def health():
 
 _status_cache = {"data": None, "ts": 0}
 _STATUS_TTL = 10
+_status_compute_lock = asyncio.Lock()
+_git_cache = {"commit": None, "date": None, "ts": 0}
+_GIT_TTL = 600
 _api_mqtt = None
 
 
@@ -401,46 +407,48 @@ def _get_api_mqtt():
     return _api_mqtt if _api_mqtt else None
 
 
-@app.get("/api/status")
-async def get_status():
+def _compute_status_full():
+    """Все блокирующие операции статуса (SQLite, subprocess, файлы) — в одном
+    воркере executor'а. Event loop не блокируется, ответ /api/status не зависит
+    от нагрузки на БД/диск."""
     import time as _time
-    import asyncio
-    now = _time.time()
-    cache_key = "_all"
-    if _status_cache.get(cache_key) and (now - _status_cache[cache_key]["ts"]) < _STATUS_TTL:
-        return _status_cache[cache_key]["data"]
-
+    import sqlite3
     from database import get_db
     from datetime import datetime
 
-    def _compute_status():
-        db = get_db()
-        import sqlite3
-        conn = sqlite3.connect(str(db.db_path), timeout=30)
-        conn.row_factory = sqlite3.Row
-        try:
-            return db.get_status(_thread_conn=conn)
-        finally:
-            conn.close()
-
-    loop = asyncio.get_event_loop()
-    status = await loop.run_in_executor(None, _compute_status)
+    db = get_db()
+    conn = sqlite3.connect(str(db.db_path), timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        status = db.get_status(_thread_conn=conn)
+    finally:
+        conn.close()
 
     import os
     flag_dir = str(FLAG_DIR)
     os.makedirs(flag_dir, exist_ok=True)
 
     mq = _get_api_mqtt()
-    mqtt_states = mq.get_worker_states() if mq else {}
+    try:
+        mqtt_states = mq.get_worker_states() if mq else {}
+    except Exception:
+        mqtt_states = {}
 
-    procs = {"vlm": False, "face_pipeline": False, "embed": False}
-    for key, worker_name in [("vlm", "describe"), ("face_pipeline", "faces"), ("embed", "embed")]:
-        if mq and mq.is_worker_alive(worker_name):
-            procs[key] = True
-        elif os.path.exists(os.path.join(flag_dir, worker_name)):
-            procs[key] = True
+    try:
+        procs = {"vlm": False, "face_pipeline": False, "embed": False}
+        for key, worker_name in [("vlm", "describe"), ("face_pipeline", "faces"), ("embed", "embed")]:
+            if mq and mq.is_worker_alive(worker_name):
+                procs[key] = True
+            elif os.path.exists(os.path.join(flag_dir, worker_name)):
+                procs[key] = True
+    except Exception:
+        procs = {"vlm": False, "face_pipeline": False, "embed": False}
 
-    current_step, step_details, step_started_at, pipeline_started_at = _determine_pipeline_step(flag_dir, mq, mqtt_states)
+    try:
+        current_step, step_details, step_started_at, pipeline_started_at = _determine_pipeline_step(flag_dir, mq, mqtt_states)
+    except Exception:
+        logger.exception("[STATUS] _determine_pipeline_step failed")
+        current_step, step_details, step_started_at, pipeline_started_at = "idle", "", None, None
 
     status["processes"] = procs
     status["current_step"] = current_step
@@ -449,22 +457,30 @@ async def get_status():
     status["pipeline_started_at"] = pipeline_started_at
     status["server_time"] = datetime.now().isoformat()
 
-    git_commit, git_date = _get_git_info()
-    if git_commit:
-        status["git_commit"] = git_commit
-        status["git_date"] = git_date
+    now = _time.time()
+    if now - _git_cache["ts"] > _GIT_TTL:
+        git_commit, git_date = _get_git_info()
+        _git_cache["commit"] = git_commit
+        _git_cache["date"] = git_date
+        _git_cache["ts"] = now
+    if _git_cache["commit"]:
+        status["git_commit"] = _git_cache["commit"]
+        status["git_date"] = _git_cache["date"]
 
     if mq:
-        mqtt_progress = {}
-        for name in ["ingest", "describe", "faces", "exif", "embed"]:
-            prog = mqtt_states.get(name, {}).get("progress")
-            if prog:
-                mqtt_progress[name] = f"[{name.upper()}] {prog.get('done',0)}/{prog.get('total',0)} ({prog.get('pct',0):.1f}%)"
-        if mqtt_progress:
-            status["mqtt_progress"] = mqtt_progress
+        try:
+            mqtt_progress = {}
+            for name in ["ingest", "describe", "faces", "exif", "embed"]:
+                prog = mqtt_states.get(name, {}).get("progress")
+                if prog:
+                    mqtt_progress[name] = f"[{name.upper()}] {prog.get('done',0)}/{prog.get('total',0)} ({prog.get('pct',0):.1f}%)"
+            if mqtt_progress:
+                status["mqtt_progress"] = mqtt_progress
+        except Exception:
+            pass
 
     try:
-        progress_info, faces_phase, faces_detail = await loop.run_in_executor(None, _read_log_info, str(LOG_FILE))
+        progress_info, faces_phase, faces_detail = _read_log_info(str(LOG_FILE))
         status["progress_lines"] = progress_info
         status["faces_phase"] = faces_phase
         status["faces_detail"] = faces_detail
@@ -473,8 +489,25 @@ async def get_status():
         status["faces_phase"] = ""
         status["faces_detail"] = ""
 
-    _status_cache[cache_key] = {"data": status, "ts": now}
     return status
+
+
+@app.get("/api/status")
+async def get_status():
+    import time as _time
+    now = _time.time()
+    if _status_cache.get("_all") and (now - _status_cache["_all"]["ts"]) < _STATUS_TTL:
+        return _status_cache["_all"]["data"]
+
+    # Single-flight: параллельные запросы ждут готовый результат, а не считают каждый свой
+    async with _status_compute_lock:
+        now = _time.time()
+        if _status_cache.get("_all") and (now - _status_cache["_all"]["ts"]) < _STATUS_TTL:
+            return _status_cache["_all"]["data"]
+        loop = asyncio.get_event_loop()
+        status = await loop.run_in_executor(None, _compute_status_full)
+        _status_cache["_all"] = {"data": status, "ts": _time.time()}
+        return status
 
 
 @app.get("/api/monitoring")
@@ -618,9 +651,13 @@ async def watchdog_crashes():
     import asyncio
     def _read_crashes():
         try:
-            with open(str(LOG_FILE), "r") as f:
-                lines = f.readlines()[-500:]
-        except (OSError, UnicodeDecodeError):
+            size = os.path.getsize(str(LOG_FILE))
+            chunk = min(512 * 1024, size)
+            with open(str(LOG_FILE), "rb") as f:
+                f.seek(-chunk, os.SEEK_END)
+                data = f.read().decode("utf-8", errors="replace")
+            lines = data.splitlines()[-500:]
+        except (OSError, ValueError, UnicodeDecodeError):
             return []
         crashes = []
         for line in reversed(lines):
