@@ -90,3 +90,15 @@ viewer standalone → neighbor) в одной шкале «время на ча�
 next от SONY 10:09:32 → SONY 10:09:33, prev от телефона 10:19:25 → SONY 10:15:05.
 3 теста TestNeighborAPI. Известный остаток: utc-видео (h264, tz='utc') стоят по
 utc-цифре (сдвиг от сцены +7) — отдельная тема (нужен пояс сцены).
+
+## [2026-09-05] maintenance | Оптимизация логов в обслуживании БД
+Логи разрослись до 2.2ГБ (gailray-error.log 1ГБ, pipeline.log 560МБ) — сервисы
+пишут через systemd StandardOutput=append: без ротации. Добавлено в UI
+«Обслуживание БД» (tools.js) секция «Оптимизация логов»: обзор размеров
+(GET /api/maintenance/logs), ротация всех *.log (POST .../logs/rotate — gzip-копия
+в logs/archive/, обнуление живого файла; безопасно для append:), обнуление
+одиночного файла (.../logs/clear), очистка ai_log.db по возрасту (.../ai_log/prune —
+DELETE + VACUUM). Ретенция архивов: 5 на файл. Systemic: /etc/logrotate.d/gailery
+(daily, maxsize 500M, rotate 7, copytruncate, dateext) — устанавливается install.sh.
+Первый прогон: освобождено 2.07ГБ (архивы 98МБ) + ai_log.db 583МБ→1МБ (63 894
+записей старше 30 дней). copytruncate валиден т.к. все писатели — O_APPEND.

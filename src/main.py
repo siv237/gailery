@@ -13,7 +13,7 @@ import sqlite3
 import requests
 
 from database import get_db
-from config import LANCEDB_PATH, LOG_FILE, FLAG_DIR, VENV_PYTHON, PROJECT_ROOT, DATA_DIR
+from config import LANCEDB_PATH, LOG_FILE, FLAG_DIR, VENV_PYTHON, PROJECT_ROOT, DATA_DIR, LOGS_DIR
 from system_helpers import (
     _determine_pipeline_step, _get_git_info, _read_log_info,
     _collect_disks, _collect_gpu_processes, _collect_top_procs,
@@ -1410,6 +1410,190 @@ async def maintenance_dedup_embeddings():
         return {"ok": True, "before": before, "after": after, "removed": removed}
     except (RuntimeError, OSError) as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+_ROTATE_KEEP = 5          # архивов на файл
+_ROTATE_MIN_SIZE = 512 * 1024  # файлы меньше 512КБ не ротируем
+
+
+def _logs_overview():
+    import time as _t
+    import sqlite3
+    files = []
+    total = 0
+    if LOGS_DIR.exists():
+        for entry in sorted(LOGS_DIR.iterdir()):
+            if not entry.is_file():
+                continue
+            try:
+                s = entry.stat().st_size
+                mtime = entry.stat().st_mtime
+            except OSError:
+                continue
+            files.append({
+                "name": entry.name,
+                "size": s,
+                "mtime": int(mtime),
+            })
+            total += s
+    files.sort(key=lambda f: -f["size"])
+    ai_rows = 0
+    ai_db = DATA_DIR / "ai_log.db"
+    if ai_db.exists():
+        try:
+            conn = sqlite3.connect(str(ai_db), timeout=5)
+            seq = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name='ai_calls'"
+            ).fetchone()
+            ai_rows = seq[0] if seq else 0
+            conn.close()
+        except sqlite3.Error:
+            ai_rows = -1
+    return {
+        "ok": True,
+        "logs_dir": str(LOGS_DIR),
+        "files": files,
+        "total": total,
+        "ai_log_db": ai_db.stat().st_size if ai_db.exists() else 0,
+        "ai_log_rows": ai_rows,
+        "archive_dir": str(LOGS_DIR / "archive"),
+        "checked_at": int(_t.time()),
+    }
+
+
+@app.get("/api/maintenance/logs")
+async def maintenance_logs():
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _logs_overview)
+
+
+@app.post("/api/maintenance/logs/rotate")
+async def maintenance_logs_rotate(request: Request):
+    """Ротация логов: gzip-копия в logs/archive/, обнуление живого файла.
+    Сервисы пишут через O_APPEND (systemd append:) — copytruncate безопасен."""
+    import gzip as _gzip
+    from datetime import datetime as _dt
+
+    body = {}
+    try:
+        body = await json_body(request)
+    except Exception:
+        pass
+    min_size = int(body.get("min_size", _ROTATE_MIN_SIZE))
+    if min_size < 0:
+        min_size = _ROTATE_MIN_SIZE
+
+    def _rotate():
+        if not LOGS_DIR.exists():
+            return {"ok": False, "error": "logs dir missing"}
+        archive_dir = LOGS_DIR / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        ts = _dt.now().strftime("%Y%m%d-%H%M%S")
+        rotated = []
+        freed = 0
+        for entry in sorted(LOGS_DIR.iterdir()):
+            if not entry.is_file() or entry.suffix != ".log":
+                continue
+            size = entry.stat().st_size
+            if size < min_size:
+                continue
+            stamp = _dt.fromtimestamp(entry.stat().st_mtime).strftime("%Y%m%d-%H%M%S")
+            arc_name = f"{entry.stem}.{stamp or ts}.log.gz"
+            arc_path = archive_dir / arc_name
+            with open(entry, "rb") as f_in, _gzip.open(str(arc_path), "wb", compresslevel=6) as f_out:
+                while True:
+                    chunk = f_in.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    f_out.write(chunk)
+            with open(entry, "r+") as f:
+                f.truncate(0)
+            freed += size
+            rotated.append({"name": entry.name, "size": size, "archive": arc_name})
+        # ретенция архивов: не более _ROTATE_KEEP на базовое имя
+        pruned = 0
+        by_base = {}
+        for arc in archive_dir.glob("*.log.gz"):
+            base = arc.name.split(".")[0]
+            by_base.setdefault(base, []).append(arc)
+        for base, arcs in by_base.items():
+            arcs.sort(reverse=True)
+            for old in arcs[_ROTATE_KEEP:]:
+                freed += old.stat().st_size
+                old.unlink()
+                pruned += 1
+        return {"ok": True, "rotated": rotated, "freed": freed, "archives_pruned": pruned}
+
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, _rotate)
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/maintenance/logs/clear")
+async def maintenance_logs_clear(request: Request):
+    """Обнулить один лог-файл (имя без пути, только из LOGS_DIR)."""
+    body = await json_body(request)
+    name = str(body.get("name", ""))
+    if not name or "/" in name or "\\" in name or ".." in name or not name.endswith(".log"):
+        raise HTTPException(status_code=400, detail="bad log name")
+    path = LOGS_DIR / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="log not found")
+
+    def _clear():
+        before = path.stat().st_size
+        with open(path, "r+") as f:
+            f.truncate(0)
+        return {"ok": True, "name": name, "freed": before}
+
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, _clear)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/maintenance/ai_log/prune")
+async def maintenance_ai_log_prune(request: Request):
+    """Удалить AI-вызовы старше N дней + VACUUM ai_log.db."""
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    body = await json_body(request)
+    try:
+        days = int(body.get("days", 90))
+    except (TypeError, ValueError):
+        days = 90
+    if days < 1:
+        days = 1
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _prune():
+        db_path = str(DATA_DIR / "ai_log.db")
+        if not os.path.exists(db_path):
+            return {"ok": True, "deleted": 0, "before": 0, "after": 0}
+        before = os.path.getsize(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
+        try:
+            cur = conn.execute("DELETE FROM ai_calls WHERE called_at < ?", (cutoff,))
+            deleted = cur.rowcount
+            conn.commit()
+            conn.execute("VACUUM")
+            conn.close()
+        except sqlite3.Error as e:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+            raise HTTPException(status_code=500, detail=str(e))
+        after = os.path.getsize(db_path)
+        return {"ok": True, "deleted": deleted, "days": days,
+                "before": before, "after": after, "freed": before - after}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _prune)
 
 
 _config_cache = {"data": None, "ts": 0}

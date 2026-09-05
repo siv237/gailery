@@ -180,13 +180,23 @@ A.renderBlock_maintenance = function(containerId) {
         '<div id="'+pfx+'sizes" class="maint-sizes"></div>'+
         '<div class="maint-row"><button class="btn btn-go" id="'+pfx+'vacuum">VACUUM SQLite</button><span class="maint-info">Сжать SQLite, удалить мусор</span></div>'+
         '<div class="maint-row"><button class="btn btn-go" id="'+pfx+'dedup">Удалить дубли семантических индексов</button><span class="maint-info">LanceDB: убрать повторные записи</span></div>'+
-        '<div id="'+pfx+'mtStatus" class="backup-status"></div></div>';
+        '<div id="'+pfx+'mtStatus" class="backup-status"></div></div>'+
+        '<div class="maint-sec"><h3>📋 Оптимизация логов</h3>'+
+        '<div id="'+pfx+'logSizes" class="maint-sizes"></div>'+
+        '<div class="maint-row"><button class="btn btn-go" id="'+pfx+'logRotate">Ротация всех логов</button><span class="maint-info">Архив в logs/archive/*.gz + обнуление; меньше 512КБ — пропускаются</span></div>'+
+        '<div class="maint-row"><label>AI-лог: удалить записи старше</label>'+
+        '<select id="'+pfx+'aiDays" style="margin:0 8px 0 4px"><option value="30">30 дней</option><option value="90" selected>90 дней</option><option value="180">180 дней</option><option value="365">год</option></select>'+
+        '<button class="btn btn-go" id="'+pfx+'aiPrune">Очистить и сжать</button><span class="maint-info">ai_log.db — журнал AI-вызовов</span></div>'+
+        '<div id="'+pfx+'logStatus" class="backup-status"></div></div>';
 
     document.getElementById(pfx+'dl').addEventListener('click', function() { backupDownload(containerId); });
     document.getElementById(pfx+'ul').addEventListener('change', function() { backupUpload(containerId, this); });
     document.getElementById(pfx+'vacuum').addEventListener('click', function() { maintVacuum(containerId); });
     document.getElementById(pfx+'dedup').addEventListener('click', function() { maintDedup(containerId); });
+    document.getElementById(pfx+'logRotate').addEventListener('click', function() { maintLogRotate(containerId); });
+    document.getElementById(pfx+'aiPrune').addEventListener('click', function() { maintAiLogPrune(containerId); });
     loadMaintStats(containerId);
+    loadLogStats(containerId);
 };
 
 function loadMaintStats(cid) {
@@ -283,6 +293,78 @@ function maintDedup(cid) {
         el.className = 'backup-status ok';
         el.textContent = 'Было '+d.before+' → стало '+d.after+' (удалено '+d.removed+' дублей)';
         loadMaintStats(cid);
+    }, function(e) {
+        el.className = 'backup-status err'; el.textContent = 'Ошибка: '+e.message;
+    });
+}
+
+// ═══════ LOGS ═══════
+function loadLogStats(cid) {
+    var pfx = 'mt_'+cid+'_';
+    A.ajax('/api/maintenance/logs', function(d) {
+        var h = '';
+        var files = d.files||[];
+        var top = files.slice(0, 6);
+        for (var i=0;i<top.length;i++) {
+            var f = top[i];
+            h += '<div class="maint-sbox"><div class="sv">'+A.fmtBytes(f.size)+'</div><div class="sl" title="'+A.esc(f.name)+'">'+A.esc(f.name)+'</div>'+
+                 '<div style="margin-top:4px"><button class="btn btn-stop" style="font-size:10px;padding:2px 8px" data-log="'+A.esc(f.name)+'">обнулить</button></div></div>';
+        }
+        if (d.ai_log_db > 0) {
+            h += '<div class="maint-sbox"><div class="sv">'+A.fmtBytes(d.ai_log_db)+'</div><div class="sl">ai_log.db ('+(d.ai_log_rows>=0?d.ai_log_rows:'?')+' вызовов)</div></div>';
+        }
+        if (files.length > 6) {
+            h += '<div class="maint-sbox"><div class="sv">'+files.length+'</div><div class="sl">всего файлов</div></div>';
+        }
+        h += '<div class="maint-sbox total"><div class="sv">'+A.fmtBytes(d.total + (d.ai_log_db||0))+'</div><div class="sl">логи всего</div></div>';
+        var sizesEl = document.getElementById(pfx+'logSizes');
+        if (sizesEl) sizesEl.innerHTML = h;
+        sizesEl.querySelectorAll('button[data-log]').forEach(function(btn) {
+            btn.addEventListener('click', function() { maintLogClear(cid, btn.getAttribute('data-log')); });
+        });
+    });
+}
+
+function maintLogRotate(cid) {
+    var pfx = 'mt_'+cid+'_';
+    var el = document.getElementById(pfx+'logStatus');
+    if (!confirm('Ротировать все логи?\nКаждый лог будет заархивирован в logs/archive/ и обнулён.')) return;
+    if (!el) return;
+    el.className = 'backup-status'; el.textContent = 'Ротация (архивация может занять время на больших файлах)...';
+    A.post('/api/maintenance/logs/rotate', null, function(d) {
+        var rotated = d.rotated||[];
+        var names = rotated.map(function(r) { return r.name+' ('+A.fmtBytes(r.size)+')'; }).join(', ');
+        el.className = 'backup-status ok';
+        el.textContent = 'Освобождено '+A.fmtBytes(d.freed)+'.'+(names?' Ротированы: '+names+'.':' Файлы <512КБ — пропущены.');
+        loadLogStats(cid);
+    }, function(e) {
+        el.className = 'backup-status err'; el.textContent = 'Ошибка: '+e.message;
+    });
+}
+
+function maintLogClear(cid, name) {
+    var pfx = 'mt_'+cid+'_';
+    var el = document.getElementById(pfx+'logStatus');
+    if (!confirm('Обнулить лог «'+name+'»?\nСодержимое будет удалено без архива.')) return;
+    A.post('/api/maintenance/logs/clear', {name: name}, function(d) {
+        if (el) { el.className = 'backup-status ok'; el.textContent = '«'+name+'» обнулён, освобождено '+A.fmtBytes(d.freed); }
+        loadLogStats(cid);
+    }, function(e) {
+        if (el) { el.className = 'backup-status err'; el.textContent = 'Ошибка: '+e.message; }
+    });
+}
+
+function maintAiLogPrune(cid) {
+    var pfx = 'mt_'+cid+'_';
+    var el = document.getElementById(pfx+'logStatus');
+    var days = document.getElementById(pfx+'aiDays') ? document.getElementById(pfx+'aiDays').value : 90;
+    if (!confirm('Удалить AI-вызовы старше '+days+' дней и сжать ai_log.db?')) return;
+    if (!el) return;
+    el.className = 'backup-status'; el.textContent = 'Очистка AI-лога... (VACUUM может занять минуту)';
+    A.post('/api/maintenance/ai_log/prune', {days: parseInt(days, 10)}, function(d) {
+        el.className = 'backup-status ok';
+        el.textContent = 'Удалено '+d.deleted+' записей: '+A.fmtBytes(d.before)+' → '+A.fmtBytes(d.after)+' (освобождено '+A.fmtBytes(d.freed)+')';
+        loadLogStats(cid);
     }, function(e) {
         el.className = 'backup-status err'; el.textContent = 'Ошибка: '+e.message;
     });

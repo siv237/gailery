@@ -558,6 +558,26 @@ else
 fi
 
 systemctl daemon-reload
+
+# --- Logrotate: защита диска от разрастания логов (гарантия ≤ ~2ГБ на файл) ---
+LOGROTATE_CONF="/etc/logrotate.d/gailery"
+if [ ! -f "$LOGROTATE_CONF" ] || ! grep -q "$INSTALL_DIR/logs" "$LOGROTATE_CONF" 2>/dev/null; then
+    cat > "$LOGROTATE_CONF" << LOGLATEOF
+$INSTALL_DIR/logs/*.log {
+    daily
+    maxsize 500M
+    rotate 7
+    copytruncate
+    compress
+    missingok
+    notifempty
+    dateext
+}
+LOGLATEOF
+    log_info "logrotate: $LOGROTATE_CONF установлен (daily, maxsize 500M, rotate 7, copytruncate)"
+else
+    log_info "logrotate: конфигурация актуальна"
+fi
 systemctl enable "$SVC_NAME" "$SVC_PIPELINE" "$SVC_WATCHDOG"
 log_info "Systemd сервисы созданы и включены ($SVC_NAME, $SVC_PIPELINE, $SVC_WATCHDOG)"
 
