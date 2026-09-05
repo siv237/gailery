@@ -177,11 +177,18 @@ def check_duplicate_pipelines():
 
 
 def check_orphan_workers():
+    """Сироты — ТОЛЬКО llama-server (ppid=1, не от кнопки).
+
+    Спецификация (AGENTS.md): пёс не следит за индивидуальными воркерами
+    (faces.py, describe.py, embed.py, ...) — их запускает pipeline или API
+    (nohup → ppid=1 — это НОРМАЛЬНО, а не сирота). Убийство python-воркеров
+    псом ломало индивидуальные шаги при активном псе.
+    """
     procs = _get_process_map()
     all_pids = {p["pid"] for p in procs}
     orphans = []
     for w in procs:
-        if not any(wk in w["cmd"] for wk in WORKER_PROCESSES):
+        if "llama-server" not in w["cmd"]:
             continue
         try:
             with open(f"/proc/{w['pid']}/stat") as f:

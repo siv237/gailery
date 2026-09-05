@@ -421,6 +421,9 @@ def _compute_status_full():
     conn.row_factory = sqlite3.Row
     try:
         status = db.get_status(_thread_conn=conn)
+        status["faces_no_persona"] = conn.execute(
+            "SELECT COUNT(*) FROM faces WHERE persona_id IS NULL"
+        ).fetchone()[0]
     finally:
         conn.close()
 

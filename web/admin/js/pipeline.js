@@ -215,6 +215,9 @@ function buildCycloStepsHtml(run) {
         if (ts.baseCount>0&&cycleDelta>0) {
             h += '<div class="cy-count c-ok">+'+cycleDelta+' за цикл</div>';
         }
+        if (s.id==='faces'&&st.faces_no_persona>0) {
+            h += '<div class="cy-count c-warn" title="Лица без привязки к персоне (детектированы, но не кластеризованы)">без персоны: '+st.faces_no_persona+'</div>';
+        }
         if (isDone&&!isActive) h += '<div class="cy-check">✓</div>';
         if (s.id==='faces'&&isActive&&st.faces_phase) {
             var phaseNames = {loading:'Загрузка',detecting:'Детекция',lance_write:'LanceDB',clustering:'Кластеризация',detection_done:'Завершение',done:'Готово'};
@@ -444,6 +447,7 @@ function renderTasks() {
         var descHtml = t.desc;
         var cnt = stepCount(t.id);
         if (cnt.total>0) descHtml += ' · <b class="c-info">'+cnt.done+'/'+cnt.total+' ('+A.fmtPct(stepPct(t.id))+')</b>';
+        if (t.id==='faces'&&st.faces_no_persona>0) descHtml += ' · <b class="c-warn">без персоны: '+st.faces_no_persona+'</b>';
 
         h += '<div class="task">';
         h += '<div class="task-head" data-task="'+t.id+'" data-action="toggle">';

@@ -338,7 +338,13 @@ def _main(db, args, mq=None):
     if not photos:
         log("No photos need face detection")
         if not args.no_cluster:
-            run_clustering()
+            try:
+                run_clustering()
+            except (RuntimeError, MemoryError) as e:
+                log(f"Clustering FAILED: {e}")
+                if mq:
+                    mq.release_gpu()
+                return 1
         if mq:
             mq.release_gpu()
         return 0
@@ -347,18 +353,26 @@ def _main(db, args, mq=None):
     run_detection(photos)
 
     if not args.no_cluster:
-        gpu_for_cluster = _try_gpu_for_clustering()
-        if gpu_for_cluster:
-            log("Clustering on GPU (holding GPU lock)")
-            run_clustering()
+        try:
+            gpu_for_cluster = _try_gpu_for_clustering()
+            if gpu_for_cluster:
+                log("Clustering on GPU (holding GPU lock)")
+                run_clustering()
+                if mq:
+                    mq.release_gpu()
+                    log("GPU released after GPU clustering")
+            else:
+                if mq:
+                    mq.release_gpu()
+                    log("GPU released, clustering on CPU")
+                run_clustering()
+        except (RuntimeError, MemoryError) as e:
+            # Детекция уже сохранена, но кластеризация не выполнена —
+            # честно репортуем провал шага (FAILED), а не маскируем успехом
+            log(f"Clustering FAILED: {e}")
             if mq:
                 mq.release_gpu()
-                log("GPU released after GPU clustering")
-        else:
-            if mq:
-                mq.release_gpu()
-                log("GPU released, clustering on CPU")
-            run_clustering()
+            return 1
     else:
         if mq:
             mq.release_gpu()

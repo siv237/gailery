@@ -263,6 +263,31 @@ def _build_path_to_uuid_map(db):
     return path_to_uuid
 
 
+def _cpu_match_to_centroids(new_faces, centroids, match_threshold, path_to_uuid):
+    """CPU-матчинг: используется когда GPU недоступен или упал по OOM."""
+    matched = 0
+    unmatched = []
+    faces_to_update = []
+    photos_to_reset = set()
+    centroid_ids = list(centroids.keys())
+    centroid_matrix = np.array([centroids[pid] for pid in centroid_ids])
+    for f in new_faces:
+        emb = np.array(f["embedding"]).reshape(1, -1)
+        dists = cosine_distances(emb, centroid_matrix)[0]
+        min_idx = np.argmin(dists)
+        min_dist = dists[min_idx]
+        if min_dist < match_threshold:
+            best_pid = centroid_ids[min_idx]
+            faces_to_update.append((best_pid, f["face_id"]))
+            photo_uuid = path_to_uuid.get(f.get("photo_id"))
+            if photo_uuid: photos_to_reset.add(photo_uuid)
+            matched += 1
+        else:
+            unmatched.append(f)
+    _log(f"CPU matched {matched} faces to existing personas, {len(unmatched)} unmatched")
+    return faces_to_update, photos_to_reset, unmatched, matched
+
+
 def _match_to_existing_personas(assigned_faces, new_faces, centroids, match_threshold, device, path_to_uuid):
     matched = 0
     unmatched = []
@@ -270,43 +295,42 @@ def _match_to_existing_personas(assigned_faces, new_faces, centroids, match_thre
     photos_to_reset = set()
 
     if not centroids:
-        return [], set(), list(new_faces), 0
-
-    centroid_ids = list(centroids.keys())
+        return [], set(), list(new_faces), 0, device
 
     if device:
         t0 = time.time()
         _log(f"GPU centroid matching: {len(new_faces)} faces vs {len(centroids)} centroids")
-        match_map, unmatched_indices = _gpu_match_to_centroids(new_faces, centroids, match_threshold, device)
-        for gi, (pid, dist) in match_map.items():
-            f = new_faces[gi]
-            faces_to_update.append((pid, f["face_id"]))
-            photo_uuid = path_to_uuid.get(f.get("photo_id"))
-            if photo_uuid: photos_to_reset.add(photo_uuid)
-            matched += 1
-            if matched <= 20 or matched % 2000 == 0:
-                _log(f"Matched {f['face_id'][:12]}... → {pid} (dist={dist:.3f})")
-        unmatched = [new_faces[i] for i in unmatched_indices]
-        _log(f"GPU matched {matched} faces in {time.time()-t0:.1f}s, {len(unmatched)} unmatched")
-    else:
-        centroid_matrix = np.array([centroids[pid] for pid in centroid_ids])
-        for f in new_faces:
-            emb = np.array(f["embedding"]).reshape(1, -1)
-            dists = cosine_distances(emb, centroid_matrix)[0]
-            min_idx = np.argmin(dists)
-            min_dist = dists[min_idx]
-            if min_dist < match_threshold:
-                best_pid = centroid_ids[min_idx]
-                faces_to_update.append((best_pid, f["face_id"]))
+        try:
+            match_map, unmatched_indices = _gpu_match_to_centroids(new_faces, centroids, match_threshold, device)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower() or "CUDA" in str(e):
+                _log(f"GPU OOM during centroid matching, falling back to CPU: {e}")
+                try:
+                    import torch
+                    torch.cuda.empty_cache()
+                except (ImportError, RuntimeError):
+                    pass
+                device = None
+            else:
+                raise
+        if device is not None:
+            for gi, (pid, dist) in match_map.items():
+                f = new_faces[gi]
+                faces_to_update.append((pid, f["face_id"]))
                 photo_uuid = path_to_uuid.get(f.get("photo_id"))
                 if photo_uuid: photos_to_reset.add(photo_uuid)
                 matched += 1
-                _log(f"Matched {f['face_id'][:12]}... → {best_pid} (dist={min_dist:.3f})")
-            else:
-                unmatched.append(f)
-        _log(f"Matched {matched} faces to existing personas, {len(unmatched)} unmatched")
+                if matched <= 20 or matched % 2000 == 0:
+                    _log(f"Matched {f['face_id'][:12]}... → {pid} (dist={dist:.3f})")
+            unmatched = [new_faces[i] for i in unmatched_indices]
+            _log(f"GPU matched {matched} faces in {time.time()-t0:.1f}s, {len(unmatched)} unmatched")
 
-    return faces_to_update, photos_to_reset, unmatched, matched
+    if device is None:
+        faces_to_update, photos_to_reset, unmatched, matched = _cpu_match_to_centroids(
+            new_faces, centroids, match_threshold, path_to_uuid
+        )
+
+    return faces_to_update, photos_to_reset, unmatched, matched, device
 
 
 def _run_dbscan(embeddings, eps, min_samples, device):
@@ -386,7 +410,7 @@ def cluster_faces(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES, match_threshol
 
     device = _try_gpu()
 
-    faces_to_update, photos_to_reset, unmatched, matched = _match_to_existing_personas(
+    faces_to_update, photos_to_reset, unmatched, matched, device = _match_to_existing_personas(
         assigned_faces, new_faces, centroids, match_threshold, device, path_to_uuid
     )
 
