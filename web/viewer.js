@@ -735,14 +735,16 @@ function updateModalGps(p) {
     var locEl = document.getElementById('modalLoc');
     var sepEl = locEl ? locEl.previousElementSibling : null;
     if (!p) return;
-    if (p.gps_lat && p.gps_lon) {
+    var vlat = (p.gps_lat !== undefined && p.gps_lat !== null) ? p.gps_lat : p.lat;
+    var vlon = (p.gps_lon !== undefined && p.gps_lon !== null) ? p.gps_lon : p.lon;
+    if (vlat && vlon) {
         var html = '';
         if (p.manual_gps) {
             html += '<span class="modal-gps-manual">ручная</span>';
-            html += '<span class="modal-gps" onclick="_vGoToGps('+p.gps_lat+','+p.gps_lon+')">GPS</span>';
+            html += '<span class="modal-gps" onclick="_vGoToGps('+vlat+','+vlon+')">GPS</span>';
             html += '<span class="modal-clear-gps" onclick="_vClearGps(\''+_vEsc(p.photo_id)+'\')">✕</span>';
         } else {
-            html += '<span class="modal-gps" onclick="_vGoToGps('+p.gps_lat+','+p.gps_lon+')">GPS</span>';
+            html += '<span class="modal-gps" onclick="_vGoToGps('+vlat+','+vlon+')">GPS</span>';
         }
         locEl.innerHTML = html; locEl.style.display = '';
         if (sepEl) sepEl.style.display = '';
@@ -755,8 +757,11 @@ function updateModalGps(p) {
 }
 
 function _vGoToGps(lat, lon) {
-    if (ViewerHooks.onGoToGps) ViewerHooks.onGoToGps(lat, lon);
-    else { closePhotoModal(); window.open('/map', '_blank'); }
+    if (ViewerHooks.onGoToGps) { ViewerHooks.onGoToGps(lat, lon); return; }
+    closePhotoModal();
+    var p = Viewer.photos[Viewer.idx];
+    var pid = (p && p.photo_id) ? ',' + encodeURIComponent(p.photo_id) : '';
+    window.open('/map#locate/' + lat + ',' + lon + pid, '_blank');
 }
 function _vClearGps(photoId) {
     if (ViewerHooks.onClearGps) ViewerHooks.onClearGps(photoId);
